@@ -133,3 +133,9 @@ label.btn[aria-disabled='true'] { opacity: 0.6; pointer-events: none; }
 textarea { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; resize: vertical; background: #fff; }
 .contact-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 @media (max-width: 720px) { .row-edit { grid-template-columns: 1fr; } }
+
+/* admin: list editors */
+.save-bar { align-items: center; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid var(--border); }
+.unsaved { color: #9a6a00; font-size: 0.85rem; font-weight: 600; }
+.btn.ghost.danger { color: var(--danger); border-color: #f0c8c8; }
+.btn.ghost.danger:hover { background: #fdecec; }

@@ -54,7 +54,7 @@ export default function SiteContentPage() {
           <ListEditor
             block="team"
             title="Team"
-            description="Shown under Meet Our Team. The section stays hidden until you add at least one member."
+            description="Shown under Meet Our Team. Add a member with their photo in one go, edit anyone, reorder, or remove. The section stays hidden when the list is empty."
             noun="member"
             photoPrefix="team"
             photoLabel="Photo"
@@ -72,10 +72,11 @@ export default function SiteContentPage() {
           <ListEditor
             block="reviews"
             title="Reviews"
-            description="Upload each review as a screenshot. Only reviews that have a screenshot are shown; the section stays hidden if there are none."
+            description="Add each review with its screenshot in one go. Only reviews that have a screenshot appear on the website, and the section stays hidden if there are none."
             noun="review"
             photoPrefix="review"
             photoLabel="Review screenshot"
+            photoRequired
             maxItems={30}
             fields={[
               { key: 'name', label: 'Member name', max: 60, required: true },

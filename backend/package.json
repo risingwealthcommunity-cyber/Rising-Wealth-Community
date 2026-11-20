@@ -12,6 +12,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "seed": "ts-node src/seed.ts",
+    "seed:site": "ts-node src/seed-site.ts",
     "test": "node --require ts-node/register --test src/features/income/income.engine.test.ts",
     "test:integration": "node --require ts-node/register --test --test-force-exit --test-concurrency=1 src/test/plan.integration.test.ts"
   },
