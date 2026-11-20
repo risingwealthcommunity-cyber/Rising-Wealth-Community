@@ -1,0 +1,201 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum Package {
+  TRAINEE
+  PRO
+  ELITE
+}
+
+enum Leg {
+  LEFT
+  RIGHT
+}
+
+enum Rank {
+  NONE
+  SILVER
+  GOLD
+  PLATINUM
+  DIAMOND
+  BLUE_DIAMOND
+  BLACK_DIAMOND
+  ROYAL_DIAMOND
+  CROWN
+  DOUBLE_CROWN
+  TRIPLE_CROWN
+  IMPERIAL
+  IMPERIAL_PLUS
+  LEGACY
+  LEGACY_PLUS
+  DYNASTY
+  ETERNAL
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  phone        String?  @unique
+  passwordHash String? // null for Google-only accounts
+  role         Role     @default(USER)
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+
+  // Plan: every user starts as TRAINEE (no package)
+  package Package @default(TRAINEE)
+  rank    Rank    @default(NONE)
+
+  // Referral (sponsor) tree: who invited me
+  referralCode String  @unique
+  sponsorId    String?
+  sponsor      User?   @relation("Sponsor", fields: [sponsorId], references: [id])
+  referrals    User[]  @relation("Sponsor")
+
+  // Binary tree (placement): who is my parent and on which leg
+  parentId String?
+  parent   User?   @relation("Binary", fields: [parentId], references: [id])
+  children User[]  @relation("Binary")
+  leg      Leg?
+
+  // Auth (same model as the NGO system)
+  isVerified           Boolean   @default(false)
+  emailVerifyTokenHash String?
+  emailVerifyExpiry    DateTime?
+  googleId             String?   @unique
+  photoUrl             String?
+  twoFactorOtpHash     String?
+  twoFactorOtpExpiry   DateTime?
+  refreshTokenHash     String?
+  resetPasswordTokenHash String?
+  resetPasswordExpiry    DateTime?
+
+  // Chosen at signup; the user is placed in the binary tree when the email is verified.
+  preferredLeg Leg?
+
+  // Wallet (rupees, 2 decimals)
+  walletBalance Decimal @default(0) @db.Decimal(14, 2)
+
+  // Binary points in HALF-points (PRO = 0.5 => 1, ELITE = 1 => 2).
+  // rank*  : "new points" for the next rank, reset to 0 on every rank-up.
+  // match* : unmatched points for the Leadership Bonus, consumed when matched.
+  rankLeftHalf  Int @default(0)
+  rankRightHalf Int @default(0)
+  matchLeftHalf  Int @default(0)
+  matchRightHalf Int @default(0)
+
+  purchases      PackagePurchase[]
+  ledger         LedgerEntry[]      @relation("LedgerOwner")
+  ledgerSources  LedgerEntry[]      @relation("LedgerSource")
+  dematReferrals DematReferral[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Only one child per leg under a parent
+  @@unique([parentId, leg])
+  @@index([sponsorId])
+}
+
+enum PurchaseStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+enum LedgerType {
+  DIRECT_INCOME
+  PASSIVE_INCOME
+  DEMAT_DIRECT
+  DEMAT_PASSIVE
+  WEEKLY_BONUS
+  PERFORMANCE_BONUS
+  LEADERSHIP_BONUS
+  RANK_REWARD
+  COMPANY_FUND
+}
+
+model PackagePurchase {
+  id          String         @id @default(uuid())
+  userId      String
+  user        User           @relation(fields: [userId], references: [id])
+  package     Package
+  amount      Decimal        @db.Decimal(14, 2)
+  status      PurchaseStatus @default(PENDING)
+  reference   String? // payment reference / UTR entered by user
+  createdAt   DateTime       @default(now())
+  confirmedAt DateTime?
+  confirmedBy String?
+
+  @@index([userId])
+  @@index([status, confirmedAt])
+}
+
+/// Every rupee movement. userId = null means the COMPANY fund.
+model LedgerEntry {
+  id           String     @id @default(uuid())
+  userId       String?
+  user         User?      @relation("LedgerOwner", fields: [userId], references: [id])
+  type         LedgerType
+  amount       Decimal    @db.Decimal(14, 2)
+  level        Int?
+  sourceUserId String?
+  sourceUser   User?      @relation("LedgerSource", fields: [sourceUserId], references: [id])
+  purchaseId   String?
+  periodId     String?
+  note         String?
+  createdAt    DateTime   @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type])
+}
+
+model DematReferral {
+  id           String   @id @default(uuid())
+  referrerId   String
+  referrer     User     @relation(fields: [referrerId], references: [id])
+  clientName   String?
+  directAmount Decimal  @db.Decimal(14, 2)
+  note         String?
+  createdBy    String
+  createdAt    DateTime @default(now())
+
+  @@index([referrerId])
+}
+
+/// One closed payout window (weekly). Pools are a % of confirmed package revenue in the window.
+model PayoutPeriod {
+  id               String   @id @default(uuid())
+  startsAt         DateTime @unique
+  endsAt           DateTime
+  revenue          Decimal  @db.Decimal(14, 2)
+  weeklyPool       Decimal  @db.Decimal(14, 2)
+  performancePool  Decimal  @db.Decimal(14, 2)
+  leadershipPool   Decimal  @db.Decimal(14, 2)
+  weeklyPaid       Decimal  @db.Decimal(14, 2)
+  performancePaid  Decimal  @db.Decimal(14, 2)
+  leadershipPaid   Decimal  @db.Decimal(14, 2)
+  closedBy         String
+  createdAt        DateTime @default(now())
+}
+
+/// Admin-managed site images (About photo, registration certificate). Stored in the database
+/// so they survive redeploys without a separate file store.
+model SiteAsset {
+  key       String   @id
+  mime      String
+  data      Bytes
+  updatedAt DateTime @updatedAt
+}
