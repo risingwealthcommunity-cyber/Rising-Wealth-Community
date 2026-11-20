@@ -199,3 +199,10 @@ model SiteAsset {
   data      Bytes
   updatedAt DateTime @updatedAt
 }
+
+/// Admin-editable content blocks for the public site (milestones, team, reviews, contact).
+model SiteSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}

@@ -1,16 +1,28 @@
+import { randomBytes } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { AppError } from '../../shared/errors/AppError';
+import { SETTING_SCHEMAS } from './site.validator';
+import type { SettingName } from './site.validator';
 
-/** The only admin-managed images. Anything else is a 404. */
-export const ASSET_KEYS = ['about-image', 'certificate'] as const;
-export type AssetKey = (typeof ASSET_KEYS)[number];
+/**
+ * Admin-managed images. Fixed slots (About photo, certificate, feature and milestone
+ * backgrounds) plus one slot per team member / review, keyed by that item's id.
+ */
+export const ASSET_KEY_PATTERN =
+  /^(about-image|certificate|feature-[1-6]|milestone-[1-6]|team-[a-f0-9]{10}|review-[a-f0-9]{10})$/;
 
 export const MAX_ASSET_BYTES = 6 * 1024 * 1024;
 export const ASSET_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
-export const parseKey = (raw: unknown): AssetKey => {
-  if (typeof raw === 'string' && (ASSET_KEYS as readonly string[]).includes(raw)) return raw as AssetKey;
+export const parseKey = (raw: unknown): string => {
+  if (typeof raw === 'string' && ASSET_KEY_PATTERN.test(raw)) return raw;
   throw new AppError('Unknown image', 404);
+};
+
+export const parseSettingName = (raw: unknown): SettingName => {
+  if (typeof raw === 'string' && raw in SETTING_SCHEMAS) return raw as SettingName;
+  throw new AppError('Unknown content block', 404);
 };
 
 /**
@@ -28,31 +40,91 @@ export const sniffImageMime = (buf: Buffer): string | null => {
   return null;
 };
 
+interface WithId {
+  id?: string;
+}
+const newId = () => randomBytes(5).toString('hex');
+const assetUrl = (key: string, updatedAt: Date) => `/api/site/assets/${key}?v=${updatedAt.getTime()}`;
+
+async function readSetting<T>(name: SettingName): Promise<T | null> {
+  const row = await prisma.siteSetting.findUnique({ where: { key: name } });
+  return (row?.value as T | undefined) ?? null;
+}
+
 export const siteService = {
   /** Which images exist (metadata only, never the bytes). */
   async list() {
     const rows = await prisma.siteAsset.findMany({ select: { key: true, updatedAt: true } });
     return Object.fromEntries(
-      rows.map((r) => [
-        r.key,
-        { url: `/api/site/assets/${r.key}?v=${r.updatedAt.getTime()}`, updatedAt: r.updatedAt.toISOString() }
-      ])
+      rows.map((r) => [r.key, { url: assetUrl(r.key, r.updatedAt), updatedAt: r.updatedAt.toISOString() }])
     );
   },
 
-  async get(key: AssetKey) {
+  /** Everything the public home page needs in one request. */
+  async getContent() {
+    const [assets, rows] = await Promise.all([this.list(), prisma.siteSetting.findMany()]);
+    const val = (k: SettingName) => rows.find((r) => r.key === k)?.value ?? null;
+    return {
+      assets,
+      milestones: val('milestones'),
+      team: val('team'),
+      reviews: val('reviews'),
+      contact: val('contact')
+    };
+  },
+
+  /** Replace one content block. Team/review items get stable ids, and orphaned photos are removed. */
+  async saveSetting(name: SettingName, body: { items?: (WithId & Record<string, unknown>)[] } & Record<string, unknown>) {
+    let value: Prisma.InputJsonValue;
+
+    if (name === 'team' || name === 'reviews') {
+      const prefix = name === 'team' ? 'team' : 'review';
+      const existing = new Set((await readSetting<WithId[]>(name))?.map((i) => i.id) ?? []);
+      const items = (body.items ?? []).map((item) => ({
+        ...item,
+        // Only ids we already issued are kept; anything else gets a fresh one.
+        id: item.id && existing.has(item.id) ? item.id : newId()
+      }));
+      value = items as unknown as Prisma.InputJsonValue;
+      await prisma.siteSetting.upsert({ where: { key: name }, create: { key: name, value }, update: { value } });
+
+      const keep = items.map((i) => `${prefix}-${i.id}`);
+      await prisma.siteAsset.deleteMany({ where: { key: { startsWith: `${prefix}-`, notIn: keep } } });
+    } else if (name === 'milestones') {
+      const items = body.items ?? [];
+      value = items as unknown as Prisma.InputJsonValue;
+      await prisma.siteSetting.upsert({ where: { key: name }, create: { key: name, value }, update: { value } });
+      const drop = [1, 2, 3, 4, 5, 6].filter((n) => n > items.length).map((n) => `milestone-${n}`);
+      await prisma.siteAsset.deleteMany({ where: { key: { in: drop } } });
+    } else {
+      value = body as unknown as Prisma.InputJsonValue;
+      await prisma.siteSetting.upsert({ where: { key: name }, create: { key: name, value }, update: { value } });
+    }
+    return this.getContent();
+  },
+
+  async get(key: string) {
     const row = await prisma.siteAsset.findUnique({ where: { key } });
     if (!row) throw new AppError('Image not found', 404);
     return row;
   },
 
-  async save(key: AssetKey, body: unknown) {
+  /** A team/review photo can only be uploaded for an item that has been saved. */
+  async assertSlotExists(key: string) {
+    const m = /^(team|review)-([a-f0-9]{10})$/.exec(key);
+    if (!m) return;
+    const items = await readSetting<WithId[]>(m[1] === 'team' ? 'team' : 'reviews');
+    if (!items?.some((i) => i.id === m[2])) throw new AppError('Save the item first, then add its photo', 404);
+  },
+
+  async save(key: string, body: unknown) {
     if (!Buffer.isBuffer(body) || body.length === 0) {
       throw new AppError('Send the image file as PNG, JPEG or WebP', 415);
     }
     if (body.length > MAX_ASSET_BYTES) throw new AppError('Image is too large (max 6 MB)', 413);
     const mime = sniffImageMime(body);
     if (!mime) throw new AppError('File is not a valid PNG, JPEG or WebP image', 415);
+    await this.assertSlotExists(key);
 
     const data = Buffer.from(body);
     const row = await prisma.siteAsset.upsert({
@@ -61,10 +133,10 @@ export const siteService = {
       update: { mime, data },
       select: { key: true, updatedAt: true }
     });
-    return { url: `/api/site/assets/${row.key}?v=${row.updatedAt.getTime()}`, updatedAt: row.updatedAt.toISOString() };
+    return { url: assetUrl(row.key, row.updatedAt), updatedAt: row.updatedAt.toISOString() };
   },
 
-  async remove(key: AssetKey) {
+  async remove(key: string) {
     await prisma.siteAsset.deleteMany({ where: { key } });
   }
 };

@@ -448,6 +448,109 @@ test('site images: rejects non-images, SVG, wrong content-type, unknown keys and
   assert.deepEqual((await new Client().call('GET', '/api/site/assets')).json.data.assets, {});
 });
 
+// ---------------------------------------------------------------- SITE CONTENT (team, reviews, milestones, contact)
+
+const putContent = (c: Client | null, name: string, body: unknown) =>
+  (c ?? new Client()).call('PUT', `/api/site/content/${name}`, body);
+
+test('site content: empty until an admin sets it; only admins can edit', async () => {
+  const pub = await new Client().call('GET', '/api/site/content');
+  assert.equal(pub.status, 200);
+  assert.equal(pub.json.data.milestones, null);
+  assert.equal(pub.json.data.team, null);
+  assert.equal(pub.json.data.reviews, null);
+  assert.equal(pub.json.data.contact, null);
+
+  const { c } = await signup('RWCROOT', 'LEFT');
+  const body = { items: [{ value: '9K+', label: 'Happy members' }] };
+  assert.equal((await putContent(null, 'milestones', body)).status, 401);
+  assert.equal((await putContent(c, 'milestones', body)).status, 403);
+  assert.equal((await putContent(admin, 'nonsense', body)).status, 404);
+});
+
+test('site content: milestones and contact are validated and saved', async () => {
+  const bad = [
+    ['milestones', { items: [] }],
+    ['milestones', { items: [{ value: '', label: 'x' }] }],
+    ['milestones', { items: [{ value: 'x'.repeat(13), label: 'x' }] }],
+    ['milestones', { items: Array.from({ length: 7 }, () => ({ value: '1', label: 'x' })) }],
+    ['contact', { phone: 'call me', whatsapp: '', email: '', instagram: '', youtube: '', facebook: '', telegram: '' }],
+    ['contact', { phone: '', whatsapp: '', email: 'not-an-email', instagram: '', youtube: '', facebook: '', telegram: '' }],
+    ['contact', { phone: '', whatsapp: '', email: '', instagram: 'javascript:alert(1)', youtube: '', facebook: '', telegram: '' }]
+  ] as const;
+  for (const [name, body] of bad) {
+    assert.equal((await putContent(admin, name, body)).status, 400, `${name} ${JSON.stringify(body)}`);
+  }
+
+  const ok = await putContent(admin, 'milestones', { items: [{ value: ' 9K+ ', label: 'Members' }, { value: 'Rs 27L+', label: 'Paid' }] });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.deepEqual(ok.json.data.milestones, [{ value: '9K+', label: 'Members' }, { value: 'Rs 27L+', label: 'Paid' }]);
+
+  const contact = { phone: '+91 98765 43210', whatsapp: '+91 98765 43210', email: 'hello@example.com', instagram: 'https://instagram.com/rwc', youtube: '', facebook: '', telegram: '' };
+  assert.equal((await putContent(admin, 'contact', contact)).status, 200);
+  const pub = await new Client().call('GET', '/api/site/content');
+  assert.deepEqual(pub.json.data.contact, contact);
+  assert.equal(pub.json.data.milestones.length, 2);
+});
+
+test('site content: team members get ids, photos attach to saved members, removing a member removes the photo', async () => {
+  const saved = await putContent(admin, 'team', {
+    items: [
+      { name: 'Asha', role: 'CEO', bio: 'Leads the company.' },
+      { id: 'attacker-chosen', name: 'Ravi', role: 'Strategist', bio: '' }
+    ]
+  });
+  assert.equal(saved.status, 200, JSON.stringify(saved.json));
+  const [asha, ravi] = saved.json.data.team as { id: string; name: string }[];
+  assert.match(asha.id, /^[a-f0-9]{10}$/);
+  assert.match(ravi.id, /^[a-f0-9]{10}$/);
+  assert.notEqual(ravi.id, 'attacker-chosen');
+
+  // A photo can only go to a saved member.
+  assert.equal((await putImage(admin, 'team-0123456789', PNG, 'image/png')).status, 404);
+  assert.equal((await putImage(admin, `team-${asha.id}`, PNG, 'image/png')).status, 200);
+  assert.equal((await putImage(admin, `team-${ravi.id}`, PNG, 'image/png')).status, 200);
+  let pub = await new Client().call('GET', '/api/site/content');
+  assert.ok(pub.json.data.assets[`team-${asha.id}`]);
+
+  // Saving again keeps existing ids (and their photos); dropping Ravi deletes his photo.
+  const again = await putContent(admin, 'team', { items: [{ id: asha.id, name: 'Asha S', role: 'CEO', bio: '' }] });
+  assert.equal(again.json.data.team[0].id, asha.id);
+  pub = await new Client().call('GET', '/api/site/content');
+  assert.ok(pub.json.data.assets[`team-${asha.id}`], 'kept member keeps their photo');
+  assert.equal(pub.json.data.assets[`team-${ravi.id}`], undefined, 'removed member photo is deleted');
+
+  // Non-admins cannot upload member photos.
+  const { c } = await signup('RWCROOT', 'RIGHT');
+  assert.equal((await putImage(c, `team-${asha.id}`, PNG, 'image/png')).status, 403);
+});
+
+test('site content: review screenshots follow the same rules; slot images work for features and milestones', async () => {
+  const saved = await putContent(admin, 'reviews', { items: [{ name: 'Karan', tag: 'Verified Member' }] });
+  assert.equal(saved.status, 200, JSON.stringify(saved.json));
+  const id = saved.json.data.reviews[0].id as string;
+  assert.equal((await putImage(admin, `review-${id}`, PNG, 'image/png')).status, 200);
+  assert.equal((await putImage(admin, 'feature-2', PNG, 'image/png')).status, 200);
+  assert.equal((await putImage(admin, 'milestone-1', PNG, 'image/png')).status, 200);
+  assert.equal((await putImage(admin, 'feature-9', PNG, 'image/png')).status, 404);
+
+  let pub = await new Client().call('GET', '/api/site/content');
+  for (const k of [`review-${id}`, 'feature-2', 'milestone-1']) assert.ok(pub.json.data.assets[k], k);
+
+  // Shrinking milestones drops the images of the milestones that no longer exist.
+  await putContent(admin, 'milestones', { items: [{ value: '1', label: 'a' }, { value: '2', label: 'b' }] });
+  assert.equal((await putImage(admin, 'milestone-2', PNG, 'image/png')).status, 200);
+  await putContent(admin, 'milestones', { items: [{ value: '1', label: 'a' }] });
+  pub = await new Client().call('GET', '/api/site/content');
+  assert.ok(pub.json.data.assets['milestone-1']);
+  assert.equal(pub.json.data.assets['milestone-2'], undefined);
+
+  // Emptying the reviews removes their screenshots too.
+  await putContent(admin, 'reviews', { items: [] });
+  pub = await new Client().call('GET', '/api/site/content');
+  assert.equal(pub.json.data.assets[`review-${id}`], undefined);
+});
+
 test('binary placement: same leg spills down, one child per leg', async () => {
   const a = await signup('RWCROOT', 'RIGHT', 'placeA');
   const b = await signup('RWCROOT', 'RIGHT', 'placeB');

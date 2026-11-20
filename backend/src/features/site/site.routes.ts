@@ -1,6 +1,8 @@
 import express, { Router, Request, Response } from 'express';
 import { requireAuth, requireRole } from '../auth';
-import { ASSET_MIME_TYPES, MAX_ASSET_BYTES, parseKey, siteService } from './site.service';
+import { validateBody } from '../../shared/middleware/validate.middleware';
+import { ASSET_MIME_TYPES, MAX_ASSET_BYTES, parseKey, parseSettingName, siteService } from './site.service';
+import { SETTING_SCHEMAS } from './site.validator';
 
 const router = Router();
 
@@ -9,6 +11,24 @@ router.get('/assets', async (_req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.json({ success: true, data: { assets: await siteService.list() } });
 });
+
+// Public: all editable text blocks and the image index, in one request for the home page.
+router.get('/content', async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.json({ success: true, data: await siteService.getContent() });
+});
+
+// Admin: replace one block (milestones, team, reviews or contact).
+router.put(
+  '/content/:name',
+  requireAuth,
+  requireRole('ADMIN', 'SUPER_ADMIN'),
+  (req: Request, res: Response, next) => validateBody(SETTING_SCHEMAS[parseSettingName(req.params.name)])(req, res, next),
+  async (req: Request, res: Response) => {
+    const data = await siteService.saveSetting(parseSettingName(req.params.name), req.body);
+    res.json({ success: true, message: 'Saved', data });
+  }
+);
 
 router.get('/assets/:key', async (req: Request, res: Response) => {
   const row = await siteService.get(parseKey(req.params.key));
