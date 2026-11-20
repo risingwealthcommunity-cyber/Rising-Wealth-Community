@@ -1,0 +1,185 @@
+import { useCallback, useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
+import { api } from '../../shared/api/apiClient';
+import { date, inr } from '../../shared/format';
+import SiteImages from './SiteImages';
+
+interface PendingPurchase {
+  id: string;
+  package: string;
+  amount: string;
+  reference: string | null;
+  createdAt: string;
+  user: { name: string; email: string; package: string };
+}
+interface Period {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  revenue: string;
+  weeklyPaid: string;
+  performancePaid: string;
+  leadershipPaid: string;
+}
+
+type Msg = { type: 'success' | 'error'; text: string } | null;
+
+export default function AdminPage() {
+  const [pending, setPending] = useState<PendingPurchase[]>([]);
+  const [periods, setPeriods] = useState<Period[]>([]);
+  const [fund, setFund] = useState('0');
+  const [msg, setMsg] = useState<Msg>(null);
+  const [demat, setDemat] = useState({ referrerEmail: '', clientName: '', amount: '' });
+
+  const load = useCallback(async () => {
+    const [p, per, f] = await Promise.all([
+      api<{ purchases: PendingPurchase[] }>('/admin/purchases?status=PENDING'),
+      api<{ periods: Period[] }>('/admin/periods'),
+      api<{ total: string }>('/admin/company-fund')
+    ]);
+    setPending(p.data?.purchases ?? []);
+    setPeriods(per.data?.periods ?? []);
+    setFund(f.data?.total ?? '0');
+  }, []);
+
+  useEffect(() => {
+    load().catch(() => undefined);
+  }, [load]);
+
+  const run = async (fn: () => Promise<{ message?: string }>) => {
+    setMsg(null);
+    try {
+      const res = await fn();
+      setMsg({ type: 'success', text: res.message ?? 'Done' });
+      await load();
+    } catch (err) {
+      setMsg({ type: 'error', text: (err as Error).message });
+    }
+  };
+
+  const submitDemat = (e: FormEvent) => {
+    e.preventDefault();
+    void run(async () => {
+      const res = await api('/admin/demat', {
+        method: 'POST',
+        body: {
+          referrerEmail: demat.referrerEmail,
+          clientName: demat.clientName || undefined,
+          amount: Number(demat.amount)
+        }
+      });
+      setDemat({ referrerEmail: '', clientName: '', amount: '' });
+      return res;
+    });
+  };
+
+  return (
+    <>
+      <h1>Admin</h1>
+      {msg && <div className={`alert ${msg.type}`}>{msg.text}</div>}
+
+      <SiteImages />
+
+      <div className="card stat">
+        <span className="muted">Company fund (excess, locked levels, unclaimed pools)</span>
+        <strong className="price">{inr(fund)}</strong>
+      </div>
+
+      <div className="card">
+        <h2>Pending package payments ({pending.length})</h2>
+        {pending.length === 0 && <p className="muted">Nothing waiting.</p>}
+        <table>
+          <tbody>
+            {pending.map((p) => (
+              <tr key={p.id}>
+                <td>
+                  {p.user.name}
+                  <br />
+                  <small className="muted">{p.user.email}</small>
+                </td>
+                <td>
+                  {p.package} {inr(p.amount)}
+                </td>
+                <td className="muted">{p.reference ?? 'no reference'}</td>
+                <td className="muted">{date(p.createdAt)}</td>
+                <td className="actions">
+                  <button
+                    className="btn"
+                    onClick={() => run(() => api(`/admin/purchases/${p.id}/confirm`, { method: 'POST' }))}
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    className="btn ghost"
+                    onClick={() => run(() => api(`/admin/purchases/${p.id}/reject`, { method: 'POST' }))}
+                  >
+                    Reject
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <form className="card" onSubmit={submitDemat}>
+        <h2>Record Demat referral</h2>
+        <label>
+          Referrer email
+          <input
+            type="email"
+            required
+            value={demat.referrerEmail}
+            onChange={(e) => setDemat({ ...demat, referrerEmail: e.target.value })}
+          />
+        </label>
+        <label>
+          Client name
+          <input value={demat.clientName} onChange={(e) => setDemat({ ...demat, clientName: e.target.value })} />
+        </label>
+        <label>
+          Amount payable to referrer (₹)
+          <input
+            type="number"
+            min="1"
+            step="0.01"
+            required
+            value={demat.amount}
+            onChange={(e) => setDemat({ ...demat, amount: e.target.value })}
+          />
+        </label>
+        <button className="btn">Record and pay</button>
+      </form>
+
+      <div className="card">
+        <h2>Weekly pools</h2>
+        <p className="muted">
+          Closes the window since the last close and shares Weekly (5%), Performance (5%) and Leadership (12%) pools.
+        </p>
+        <button
+          className="btn"
+          onClick={() => {
+            if (window.confirm('Close the current period and pay out the pools?')) {
+              void run(() => api('/admin/periods/close', { method: 'POST' }));
+            }
+          }}
+        >
+          Close period and distribute
+        </button>
+        <table>
+          <tbody>
+            {periods.map((p) => (
+              <tr key={p.id}>
+                <td className="muted">{date(p.endsAt)}</td>
+                <td>Revenue {inr(p.revenue)}</td>
+                <td>Weekly {inr(p.weeklyPaid)}</td>
+                <td>Perf {inr(p.performancePaid)}</td>
+                <td>Leadership {inr(p.leadershipPaid)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
