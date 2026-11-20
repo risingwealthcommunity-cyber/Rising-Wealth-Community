@@ -66,33 +66,42 @@ export default function AboutSection() {
         ))}
       </ul>
 
-      {certificate && (
-        <div className="lp-cert">
-          <span className="lp-cert-badge">
-            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-              <path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Verified MSME
-          </span>
-          <h3>
-            <svg className="lp-cert-shield" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
-              <path d="M12 2l8 3v6c0 5-3.4 9.3-8 11-4.6-1.7-8-6-8-11V5l8-3z" fill="currentColor" />
-              <path d="M8.2 12l2.7 2.6 5-5.2" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Trusted &amp; Registered
-          </h3>
-          <p>Registered under MSME, Government of India.</p>
-          <span className="lp-cert-hint">Tap the certificate to view it in full</span>
-          <button
-            type="button"
-            className="lp-cert-thumb"
-            onClick={() => setZoom(true)}
-            aria-label="View certificate in full"
-          >
-            <img src={certificate.url} alt="Registration certificate" loading="lazy" decoding="async" />
+      <div className="lp-cert" id="registration">
+        <span className="lp-cert-badge">
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+            <path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Verified MSME
+        </span>
+        <h3>
+          <svg className="lp-cert-shield" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+            <path d="M12 2l8 3v6c0 5-3.4 9.3-8 11-4.6-1.7-8-6-8-11V5l8-3z" fill="currentColor" />
+            <path d="M8.2 12l2.7 2.6 5-5.2" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Trusted &amp; Registered
+        </h3>
+        <p>Registered under MSME, Government of India.</p>
+
+        {certificate ? (
+          <>
+            <button type="button" className="lp-cert-btn" onClick={() => setZoom(true)}>
+              View document
+            </button>
+            <button
+              type="button"
+              className="lp-cert-thumb"
+              onClick={() => setZoom(true)}
+              aria-label="View certificate in full"
+            >
+              <img src={certificate.url} alt="Registration certificate" loading="lazy" decoding="async" />
+            </button>
+          </>
+        ) : (
+          <button type="button" className="lp-cert-btn" disabled>
+            Document coming soon
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {zoom && certificate && (
         <div
