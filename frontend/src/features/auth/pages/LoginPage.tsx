@@ -1,10 +1,15 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { SmoothInput } from '../../../shared/components/SmoothInput';
 import { ApiError } from '../../../shared/api/apiClient';
 import { authApi, googleLoginUrl } from '../auth.api';
 import { useAuth } from '../AuthContext';
 import type { OtpChallenge } from '../auth.types';
+import AuthShell from '../components/AuthShell';
+import { EyeIcon, EyeOffIcon, GoogleIcon, ShieldIcon } from '../components/Icons';
+import OtpBoxes from '../components/OtpBoxes';
+import { useCooldown } from '../components/useCooldown';
 
 const URL_MESSAGES: Record<string, { type: 'success' | 'error'; text: string }> = {
   verified: { type: 'success', text: 'Email verified. You can log in now.' },
@@ -23,18 +28,18 @@ export default function LoginPage() {
   const [params] = useSearchParams();
   const from = (location.state as { from?: string } | null)?.from ?? '/dashboard';
 
-  const urlMsg = params.get('verified')
-    ? URL_MESSAGES.verified
-    : URL_MESSAGES[params.get('error') ?? ''] ?? null;
+  const urlMsg = params.get('verified') ? URL_MESSAGES.verified : URL_MESSAGES[params.get('error') ?? ''] ?? null;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [challenge, setChallenge] = useState<OtpChallenge | null>(null);
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [needsVerification, setNeedsVerification] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cooldown, startCooldown] = useCooldown();
 
   const fail = (err: unknown) => {
     setError((err as Error).message);
@@ -51,7 +56,9 @@ export default function LoginPage() {
       const otpChallenge = await login(email, password);
       if (otpChallenge) {
         setChallenge(otpChallenge);
+        setOtp('');
         setInfo(otpChallenge.message);
+        startCooldown(45);
       } else {
         navigate(from, { replace: true });
       }
@@ -77,10 +84,25 @@ export default function LoginPage() {
     }
   };
 
-  const resend = async (action: () => Promise<{ message?: string }>) => {
+  const resendCode = async () => {
+    if (!challenge || cooldown > 0) return;
     setError('');
     try {
-      setInfo((await action()).message ?? 'Sent.');
+      const res = await authApi.resendOtp(challenge.tempToken);
+      setInfo(res.message ?? 'A new code has been sent.');
+      setOtp('');
+      startCooldown(45);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const resendVerification = async () => {
+    setError('');
+    try {
+      const res = await authApi.resendVerification(email);
+      setInfo(res.message ?? 'Verification email sent.');
+      setNeedsVerification(false);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -88,71 +110,110 @@ export default function LoginPage() {
 
   if (challenge) {
     return (
-      <div className="auth-page">
-        <form className="card" onSubmit={onOtp}>
-          <h1>Verification code</h1>
-          <p className="muted">Enter the 6-digit code sent to {challenge.email}</p>
-          {info && <div className="alert success">{info}</div>}
-          {error && <div className="alert error">{error}</div>}
-          <label>
-            Code
-            <input value={otp} onChange={(e) => setOtp(e.target.value)} inputMode="numeric" maxLength={6} required />
-          </label>
-          <button className="btn" disabled={busy}>
-            {busy ? 'Verifying...' : 'Verify and login'}
+      <AuthShell
+        icon={<ShieldIcon />}
+        title="Verification code"
+        subtitle={
+          <>
+            Enter the 6-digit code we emailed to <b>{challenge.email}</b>.
+          </>
+        }
+      >
+        <form className="au-form" onSubmit={onOtp}>
+          {info && <div className="au-alert success">{info}</div>}
+          {error && <div className="au-alert error">{error}</div>}
+          <OtpBoxes value={otp} onChange={setOtp} disabled={busy} />
+          <button className="au-btn" disabled={busy || otp.length !== 6}>
+            {busy ? 'Verifying...' : 'Verify and log in'}
           </button>
-          <p className="links">
-            <button type="button" className="link" onClick={() => resend(() => authApi.resendOtp(challenge.tempToken))}>
-              Resend code
+          <div className="au-links">
+            <button
+              type="button"
+              className="au-linkbtn"
+              onClick={() => {
+                setChallenge(null);
+                setOtp('');
+                setError('');
+              }}
+            >
+              {'←'} Back
             </button>
-            <button type="button" className="link" onClick={() => setChallenge(null)}>
-              Back
+            <button type="button" className="au-linkbtn" disabled={cooldown > 0} onClick={resendCode}>
+              {cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
             </button>
-          </p>
+          </div>
         </form>
-      </div>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="auth-page">
-      <form className="card" onSubmit={onLogin}>
-        <h1>Welcome back</h1>
-        <p className="muted">Login to your RWC account</p>
+    <AuthShell
+      title="Welcome back"
+      subtitle="Log in to your Rising Wealth account."
+      footer={
+        <>
+          New to RWC? <Link to="/register">Create an account</Link>
+        </>
+      }
+    >
+      {urlMsg && !error && <div className={`au-alert ${urlMsg.type}`}>{urlMsg.text}</div>}
+      {info && <div className="au-alert success">{info}</div>}
+      {error && (
+        <div className="au-alert error" role="alert">
+          {error}
+          {needsVerification && (
+            <button type="button" className="au-linkbtn" onClick={resendVerification}>
+              Resend verification email
+            </button>
+          )}
+        </div>
+      )}
 
-        {urlMsg && !error && <div className={`alert ${urlMsg.type}`}>{urlMsg.text}</div>}
-        {info && <div className="alert success">{info}</div>}
-        {error && <div className="alert error">{error}</div>}
-
-        <label>
-          Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </label>
-        <label>
-          Password
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </label>
-
-        <button className="btn" disabled={busy}>
-          {busy ? 'Logging in...' : 'Login'}
+      <form className="au-form" onSubmit={onLogin}>
+        <SmoothInput
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="name@example.com"
+          autoComplete="email"
+          required
+        />
+        <SmoothInput
+          label="Password"
+          labelAside={
+            <Link to="/forgot-password" className="au-linkbtn" style={{ fontSize: '0.8rem' }}>
+              Forgot password?
+            </Link>
+          }
+          type={showPassword ? 'text' : 'password'}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Your password"
+          autoComplete="current-password"
+          required
+          rightElement={
+            <button
+              type="button"
+              className="au-eye"
+              onClick={() => setShowPassword((s) => !s)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              aria-pressed={showPassword}
+            >
+              {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+            </button>
+          }
+        />
+        <button className="au-btn" disabled={busy}>
+          {busy ? 'Logging in...' : 'Log in'}
         </button>
-
-        {needsVerification && (
-          <button type="button" className="btn ghost" onClick={() => resend(() => authApi.resendVerification(email))}>
-            Resend verification email
-          </button>
-        )}
-
-        <div className="divider">or</div>
-        <a className="btn ghost" href={googleLoginUrl()}>
-          Continue with Google
-        </a>
-
-        <p className="links">
-          <Link to="/forgot-password">Forgot password?</Link>
-          <Link to="/register">Create account</Link>
-        </p>
       </form>
-    </div>
+
+      <div className="au-or">or</div>
+      <a className="au-btn ghost" href={googleLoginUrl()}>
+        <GoogleIcon /> Continue with Google
+      </a>
+    </AuthShell>
   );
 }

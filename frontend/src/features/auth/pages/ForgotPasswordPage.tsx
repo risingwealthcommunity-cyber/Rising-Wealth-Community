@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { SmoothInput } from '../../../shared/components/SmoothInput';
 import { authApi } from '../auth.api';
+import AuthShell from '../components/AuthShell';
+import { KeyIcon } from '../components/Icons';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -25,23 +28,28 @@ export default function ForgotPasswordPage() {
   };
 
   return (
-    <div className="auth-page">
-      <form className="card" onSubmit={onSubmit}>
-        <h1>Forgot password</h1>
-        <p className="muted">We will email you a link that is valid for 15 minutes.</p>
-        {message && <div className="alert success">{message}</div>}
-        {error && <div className="alert error">{error}</div>}
-        <label>
-          Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </label>
-        <button className="btn" disabled={busy}>
+    <AuthShell
+      icon={<KeyIcon />}
+      title="Forgot password?"
+      subtitle="Enter your email and we will send you a link to set a new one. It is valid for 15 minutes."
+      footer={<Link to="/login">{'←'} Back to login</Link>}
+    >
+      {message && <div className="au-alert success">{message}</div>}
+      {error && <div className="au-alert error">{error}</div>}
+      <form className="au-form" onSubmit={onSubmit}>
+        <SmoothInput
+          label="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="name@example.com"
+          autoComplete="email"
+          required
+        />
+        <button className="au-btn" disabled={busy}>
           {busy ? 'Sending...' : 'Send reset link'}
         </button>
-        <p className="links">
-          <Link to="/login">Back to login</Link>
-        </p>
       </form>
-    </div>
+    </AuthShell>
   );
 }

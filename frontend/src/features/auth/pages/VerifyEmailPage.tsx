@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { authApi } from '../auth.api';
+import AuthShell from '../components/AuthShell';
+import { CheckIcon, MailIcon } from '../components/Icons';
 
 export default function VerifyEmailPage() {
   const { token = '' } = useParams();
@@ -22,30 +24,43 @@ export default function VerifyEmailPage() {
       });
   }, [token]);
 
+  if (state === 'loading') {
+    return (
+      <AuthShell
+        spin
+        icon={
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+            <path d="M12 3a9 9 0 1 0 9 9" />
+          </svg>
+        }
+        title="Verifying your email"
+        subtitle="One moment..."
+      >
+        <span />
+      </AuthShell>
+    );
+  }
+
+  if (state === 'ok') {
+    return (
+      <AuthShell icon={<CheckIcon size={28} />} title="Email verified" subtitle="Your account is active. You can log in now.">
+        <Link className="au-btn" to="/login">
+          Go to login
+        </Link>
+      </AuthShell>
+    );
+  }
+
   return (
-    <div className="auth-page">
-      <div className="card">
-        {state === 'loading' && <p>Verifying your email...</p>}
-        {state === 'ok' && (
-          <>
-            <h1>Email verified</h1>
-            <p className="muted">Your account is active. You can log in now.</p>
-            <Link className="btn" to="/login">
-              Go to login
-            </Link>
-          </>
-        )}
-        {state === 'error' && (
-          <>
-            <h1>Verification failed</h1>
-            <div className="alert error">{message}</div>
-            <p className="muted">Log in with your email and password to request a new verification email.</p>
-            <Link className="btn" to="/login">
-              Go to login
-            </Link>
-          </>
-        )}
-      </div>
-    </div>
+    <AuthShell
+      icon={<MailIcon />}
+      title="Verification failed"
+      subtitle="Log in with your email and password to get a new verification email."
+    >
+      <div className="au-alert error">{message}</div>
+      <Link className="au-btn" to="/login">
+        Go to login
+      </Link>
+    </AuthShell>
   );
 }
