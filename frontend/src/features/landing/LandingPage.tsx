@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import AboutSection from './AboutSection';
@@ -33,6 +33,12 @@ export default function LandingPage() {
   const { user } = useAuth();
   const root = useRef<HTMLDivElement>(null);
   useSmoothScroll(root);
+
+  // The home page hides the browser scrollbar; app pages keep theirs.
+  useEffect(() => {
+    document.documentElement.classList.add('lp-no-scrollbar');
+    return () => document.documentElement.classList.remove('lp-no-scrollbar');
+  }, []);
 
   return (
     <div className="lp" ref={root}>
