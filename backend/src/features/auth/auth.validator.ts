@@ -43,6 +43,12 @@ export const setPasswordSchema = z
     path: ['confirmPassword']
   });
 
+const sixDigits = z.string().trim().regex(/^\d{6}$/, 'The code must be 6 digits');
+
+export const verifyEmailCodeSchema = z.object({ email, code: sixDigits }).strict();
+
+export const resetPasswordCodeSchema = z.object({ email, code: sixDigits, newPassword: password }).strict();
+
 export const verifyAdminOtpSchema = z
   .object({
     tempToken: z.string().trim().min(1, 'Temporary session token is required'),
@@ -56,5 +62,6 @@ export const resendAdminOtpSchema = z
 
 export type SignupInput = z.infer<typeof signupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type ResetPasswordCodeInput = z.infer<typeof resetPasswordCodeSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type VerifyAdminOtpInput = z.infer<typeof verifyAdminOtpSchema>;

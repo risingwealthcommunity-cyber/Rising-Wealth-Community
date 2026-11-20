@@ -6,10 +6,12 @@ import {
   emailOnlySchema,
   loginSchema,
   resendAdminOtpSchema,
+  resetPasswordCodeSchema,
   resetPasswordSchema,
   setPasswordSchema,
   signupSchema,
-  verifyAdminOtpSchema
+  verifyAdminOtpSchema,
+  verifyEmailCodeSchema
 } from './auth.validator';
 import * as c from './auth.controller';
 
@@ -23,6 +25,7 @@ router.use((_req: Request, res: Response, next: NextFunction) => {
 
 router.post('/signup', strictAuthLimiter, validateBody(signupSchema), c.signup);
 router.get('/verify-email/:token', strictAuthLimiter, c.verifyEmail);
+router.post('/verify-email-code', strictAuthLimiter, validateBody(verifyEmailCodeSchema), c.verifyEmailCode);
 router.post('/resend-verification', strictAuthLimiter, validateBody(emailOnlySchema), c.resendVerificationEmail);
 
 router.post('/login', authLimiter, validateBody(loginSchema), c.login);
@@ -38,6 +41,7 @@ router.get('/me', requireAuth, c.me);
 
 router.post('/forgot-password', strictAuthLimiter, validateBody(emailOnlySchema), c.forgotPassword);
 router.post('/reset-password', strictAuthLimiter, validateBody(resetPasswordSchema), c.resetPassword);
+router.post('/reset-password-code', strictAuthLimiter, validateBody(resetPasswordCodeSchema), c.resetPasswordWithCode);
 router.post('/password/set', requireAuth, strictAuthLimiter, validateBody(setPasswordSchema), c.setPassword);
 
 export default router;

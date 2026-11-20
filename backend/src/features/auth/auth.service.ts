@@ -4,16 +4,26 @@ import { Leg, Prisma, User } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { config } from '../../config/env';
 import { AppError } from '../../shared/errors/AppError';
-import { sendAdminLoginOtpEmail, sendResetPasswordEmail, sendVerificationEmail } from '../../shared/mail/mailer';
+import {
+  sendAdminLoginOtpEmail,
+  sendPasswordChangedEmail,
+  sendResetPasswordEmail,
+  sendVerificationEmail
+} from '../../shared/mail/mailer';
 import { googleAuth } from './auth.google';
 import { findPlacement, isPlacementCollision } from './auth.placement';
 import {
   ADMIN_OTP_TTL_MS,
+  EMAIL_CODE_TTL_MS,
   EMAIL_VERIFICATION_TTL_MS,
+  MAX_CODE_ATTEMPTS,
   PASSWORD_RESET_TTL_MS,
+  RESEND_COOLDOWN_MS,
+  codeMatches,
   createOneTimeToken,
   generateOtp,
   generateReferralCode,
+  hashCode,
   hashToken,
   signAccessToken,
   signAdminTempToken,
@@ -23,6 +33,7 @@ import {
 } from './auth.tokens';
 import type {
   LoginInput,
+  ResetPasswordCodeInput,
   ResetPasswordInput,
   SignupInput,
   VerifyAdminOtpInput
@@ -108,6 +119,73 @@ async function placeInTree(userId: string, sponsorId: string, leg: Leg, extra: P
 
 const verifyLink = (token: string) => `${config.frontendUrl}/verify-email/${token}`;
 
+/** True if a link/code was issued less than a minute ago (issue time = expiry - lifetime). */
+const sentJustNow = (expiry: Date | null, lifetimeMs: number) =>
+  Boolean(expiry && expiry.getTime() - lifetimeMs > Date.now() - RESEND_COOLDOWN_MS);
+
+/** A fresh verification link AND 6-digit code; both replace whatever was issued before. */
+async function issueVerification(user: User) {
+  const link = createOneTimeToken(EMAIL_VERIFICATION_TTL_MS);
+  const code = generateOtp();
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      emailVerifyTokenHash: link.tokenHash,
+      emailVerifyExpiry: link.expiresAt,
+      emailVerifyCodeHash: hashCode('verify', user.id, code),
+      emailVerifyCodeExpiry: new Date(Date.now() + EMAIL_CODE_TTL_MS),
+      emailVerifyCodeAttempts: 0
+    }
+  });
+  await sendVerificationEmail(user.email, verifyLink(link.rawToken), code);
+}
+
+/** Marks the account verified and, for members under a sponsor, places them in the binary tree. */
+async function completeVerification(user: User) {
+  const verified = {
+    isVerified: true,
+    emailVerifyTokenHash: null,
+    emailVerifyExpiry: null,
+    emailVerifyCodeHash: null,
+    emailVerifyCodeExpiry: null,
+    emailVerifyCodeAttempts: 0
+  };
+  if (user.sponsorId && !user.parentId) {
+    await placeInTree(user.id, user.sponsorId, user.preferredLeg ?? 'LEFT', verified);
+  } else {
+    await prisma.user.update({ where: { id: user.id }, data: verified });
+  }
+}
+
+const INVALID_CODE = 'Invalid or expired code. If this keeps happening, request a new one.';
+
+/** After a wrong code: count it, and burn the code once it has been guessed wrong too many times. */
+async function recordWrongCode(userId: string, kind: 'verify' | 'reset') {
+  if (kind === 'verify') {
+    const { emailVerifyCodeAttempts } = await prisma.user.update({
+      where: { id: userId },
+      data: { emailVerifyCodeAttempts: { increment: 1 } },
+      select: { emailVerifyCodeAttempts: true }
+    });
+    if (emailVerifyCodeAttempts >= MAX_CODE_ATTEMPTS) {
+      await prisma.user.update({ where: { id: userId }, data: { emailVerifyCodeHash: null, emailVerifyCodeExpiry: null } });
+    }
+  } else {
+    const { resetCodeAttempts } = await prisma.user.update({
+      where: { id: userId },
+      data: { resetCodeAttempts: { increment: 1 } },
+      select: { resetCodeAttempts: true }
+    });
+    if (resetCodeAttempts >= MAX_CODE_ATTEMPTS) {
+      await prisma.user.update({ where: { id: userId }, data: { resetCodeHash: null, resetCodeExpiry: null } });
+    }
+  }
+}
+
+/** Security alert: tell the owner their password changed (sent in the background). */
+const notifyPasswordChanged = (email: string) =>
+  sendPasswordChangedEmail(email).catch((e) => console.error('[Auth] Failed to send password-changed email:', e));
+
 export const authService = {
   /**
    * Creates an UNVERIFIED account under a sponsor. No session is issued;
@@ -129,7 +207,6 @@ export const authService = {
     }
 
     const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
-    const verification = createOneTimeToken(EMAIL_VERIFICATION_TTL_MS);
 
     let user: User | null = null;
     for (let attempt = 0; attempt < MAX_RETRIES && !user; attempt++) {
@@ -142,9 +219,7 @@ export const authService = {
             passwordHash,
             referralCode: generateReferralCode(),
             sponsorId: sponsor.id,
-            preferredLeg: input.leg,
-            emailVerifyTokenHash: verification.tokenHash,
-            emailVerifyExpiry: verification.expiresAt
+            preferredLeg: input.leg
           }
         });
       } catch (err) {
@@ -158,7 +233,7 @@ export const authService = {
     if (!user) throw new AppError('Could not complete registration, please try again', 503);
 
     // If sending fails the account stays and the user can use "resend verification".
-    await sendVerificationEmail(user.email, verifyLink(verification.rawToken));
+    await issueVerification(user);
   },
 
   async verifyEmail(token: string): Promise<void> {
@@ -170,25 +245,36 @@ export const authService = {
     });
     if (!user) throw new AppError('Invalid or expired verification link', 400);
 
-    const verified = { isVerified: true, emailVerifyTokenHash: null, emailVerifyExpiry: null };
-
-    if (user.sponsorId && !user.parentId) {
-      await placeInTree(user.id, user.sponsorId, user.preferredLeg ?? 'LEFT', verified);
-    } else {
-      await prisma.user.update({ where: { id: user.id }, data: verified });
-    }
+    await completeVerification(user);
   },
 
   async resendVerificationEmail(email: string): Promise<void> {
     const user = await prisma.user.findUnique({ where: { email: normalizeEmail(email) } });
     if (!user || user.isVerified) return; // prevent account enumeration
+    if (sentJustNow(user.emailVerifyExpiry, EMAIL_VERIFICATION_TTL_MS)) return; // one email per minute
+    await issueVerification(user);
+  },
 
-    const verification = createOneTimeToken(EMAIL_VERIFICATION_TTL_MS);
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { emailVerifyTokenHash: verification.tokenHash, emailVerifyExpiry: verification.expiresAt }
-    });
-    await sendVerificationEmail(user.email, verifyLink(verification.rawToken));
+  /** The 6-digit alternative to the emailed link. Every failure looks the same from outside. */
+  async verifyEmailCode(emailRaw: string, code: string): Promise<void> {
+    const user = await prisma.user.findUnique({ where: { email: normalizeEmail(emailRaw) } });
+    const usable =
+      user &&
+      !user.isVerified &&
+      user.emailVerifyCodeHash &&
+      user.emailVerifyCodeExpiry &&
+      user.emailVerifyCodeExpiry > new Date() &&
+      user.emailVerifyCodeAttempts < MAX_CODE_ATTEMPTS;
+
+    if (!user || !usable || !user.emailVerifyCodeHash) {
+      hashCode('verify', 'no-such-user', code); // same work whether or not the account exists
+      throw new AppError(INVALID_CODE, 400);
+    }
+    if (!codeMatches(user.emailVerifyCodeHash, 'verify', user.id, code)) {
+      await recordWrongCode(user.id, 'verify');
+      throw new AppError(INVALID_CODE, 400);
+    }
+    await completeVerification(user);
   },
 
   async login(input: LoginInput) {
@@ -305,6 +391,10 @@ export const authService = {
           isVerified: true,
           emailVerifyTokenHash: null,
           emailVerifyExpiry: null,
+          emailVerifyCodeHash: null,
+          emailVerifyCodeExpiry: null,
+          resetCodeHash: null,
+          resetCodeExpiry: null,
           passwordHash: null,
           refreshTokenHash: null,
           resetPasswordTokenHash: null,
@@ -402,15 +492,23 @@ export const authService = {
   async forgotPassword(email: string): Promise<void> {
     const user = await prisma.user.findUnique({ where: { email: normalizeEmail(email) } });
     if (!user || !user.isActive) return; // prevent account enumeration
+    if (sentJustNow(user.resetPasswordExpiry, PASSWORD_RESET_TTL_MS)) return; // one email per minute
 
     const reset = createOneTimeToken(PASSWORD_RESET_TTL_MS);
+    const code = generateOtp();
     await prisma.user.update({
       where: { id: user.id },
-      data: { resetPasswordTokenHash: reset.tokenHash, resetPasswordExpiry: reset.expiresAt }
+      data: {
+        resetPasswordTokenHash: reset.tokenHash,
+        resetPasswordExpiry: reset.expiresAt,
+        resetCodeHash: hashCode('reset', user.id, code),
+        resetCodeExpiry: new Date(Date.now() + EMAIL_CODE_TTL_MS),
+        resetCodeAttempts: 0
+      }
     });
 
-    // Sent in the background so the response is immediate.
-    sendResetPasswordEmail(user.email, `${config.frontendUrl}/reset-password/${reset.rawToken}`).catch((e) =>
+    // Sent in the background so the response is immediate (and equally fast for unknown emails).
+    sendResetPasswordEmail(user.email, `${config.frontendUrl}/reset-password/${reset.rawToken}`, code).catch((e) =>
       console.error('[Auth] Failed to send password reset email:', e)
     );
   },
@@ -420,16 +518,46 @@ export const authService = {
       where: { resetPasswordTokenHash: hashToken(input.token.trim()), resetPasswordExpiry: { gt: new Date() } }
     });
     if (!user || !user.isActive) throw new AppError('Invalid or expired reset token', 400);
+    await this.applyNewPassword(user, input.newPassword);
+  },
 
+  /** The 6-digit alternative to the reset link. Every failure looks the same from outside. */
+  async resetPasswordWithCode(input: ResetPasswordCodeInput): Promise<void> {
+    const user = await prisma.user.findUnique({ where: { email: normalizeEmail(input.email) } });
+    const usable =
+      user &&
+      user.isActive &&
+      user.resetCodeHash &&
+      user.resetCodeExpiry &&
+      user.resetCodeExpiry > new Date() &&
+      user.resetCodeAttempts < MAX_CODE_ATTEMPTS;
+
+    if (!user || !usable || !user.resetCodeHash) {
+      hashCode('reset', 'no-such-user', input.code); // same work whether or not the account exists
+      throw new AppError(INVALID_CODE, 400);
+    }
+    if (!codeMatches(user.resetCodeHash, 'reset', user.id, input.code)) {
+      await recordWrongCode(user.id, 'reset');
+      throw new AppError(INVALID_CODE, 400);
+    }
+    await this.applyNewPassword(user, input.newPassword);
+  },
+
+  /** Shared ending of both reset paths: new password, every link/code/session revoked, owner alerted. */
+  async applyNewPassword(user: User, newPassword: string): Promise<void> {
     await prisma.user.update({
       where: { id: user.id },
       data: {
-        passwordHash: await bcrypt.hash(input.newPassword, BCRYPT_ROUNDS),
+        passwordHash: await bcrypt.hash(newPassword, BCRYPT_ROUNDS),
         resetPasswordTokenHash: null,
         resetPasswordExpiry: null,
+        resetCodeHash: null,
+        resetCodeExpiry: null,
+        resetCodeAttempts: 0,
         refreshTokenHash: null // invalidate the existing session
       }
     });
+    notifyPasswordChanged(user.email);
   },
 
   /**
@@ -450,5 +578,6 @@ export const authService = {
       where: { id: user.id },
       data: { passwordHash: await bcrypt.hash(password, BCRYPT_ROUNDS) }
     });
+    notifyPasswordChanged(user.email);
   }
 };

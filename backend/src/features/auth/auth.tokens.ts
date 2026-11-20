@@ -7,6 +7,11 @@ export const REFRESH_TOKEN_MS = 7 * 24 * 60 * 60 * 1000;
 export const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
 export const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000;
 export const ADMIN_OTP_TTL_MS = 10 * 60 * 1000;
+/** Emailed 6-digit codes (verification and password reset). */
+export const EMAIL_CODE_TTL_MS = 10 * 60 * 1000;
+/** At most one verification / reset email per account per minute (stops email bombing). */
+export const RESEND_COOLDOWN_MS = 60 * 1000;
+export const MAX_CODE_ATTEMPTS = 5;
 
 export const signAccessToken = (userId: string, role: string): string =>
   jwt.sign({ userId, role, typ: 'access' }, config.jwt.access, { expiresIn: Math.floor(ACCESS_TOKEN_MS / 1000) });
@@ -60,3 +65,18 @@ export const createOneTimeToken = (ttlMs: number) => {
 };
 
 export const generateOtp = (): string => crypto.randomInt(100000, 1000000).toString();
+
+type CodePurpose = 'verify' | 'reset';
+
+/**
+ * Codes are stored as an HMAC bound to the account and the purpose. A leaked database cannot be brute
+ * forced offline (the secret is needed), and a code never works for another account or another purpose.
+ */
+export const hashCode = (purpose: CodePurpose, userId: string, code: string): string =>
+  crypto.createHmac('sha256', config.jwt.refresh).update(`${purpose}:${userId}:${code}`).digest('hex');
+
+export const codeMatches = (storedHash: string, purpose: CodePurpose, userId: string, code: string): boolean => {
+  const a = Buffer.from(storedHash);
+  const b = Buffer.from(hashCode(purpose, userId, code));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};

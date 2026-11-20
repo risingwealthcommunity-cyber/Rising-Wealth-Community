@@ -58,7 +58,7 @@ class Client {
 const rupees = (s: string | number) => Math.round(Number(s) * 100) / 100;
 let counter = 0;
 
-let outbox: { to: string; kind: string; link?: string; otp?: string }[] = [];
+let outbox: { to: string; kind: string; link?: string; otp?: string; subject?: string; html?: string; text?: string }[] = [];
 let tokens: typeof import('../features/auth/auth.tokens');
 
 const lastMail = (to: string, kind: string) => [...outbox].reverse().find((m) => m.to === to && m.kind === kind);
@@ -234,6 +234,7 @@ test('auth: resend verification replaces the old link; unknown / verified emails
   await c.call('POST', '/api/auth/signup', { name: 'Re Send', email, password: 'Password123', sponsorCode: 'RWCROOT' });
   const first = lastMail(email, 'verify')!.link!;
 
+  await ageEmails(email); // the first email "went out" two minutes ago, so a resend is allowed
   assert.equal((await c.call('POST', '/api/auth/resend-verification', { email })).status, 200);
   const second = lastMail(email, 'verify')!.link!;
   assert.notEqual(first, second);
@@ -530,6 +531,239 @@ test('SECURITY: state-changing requests from an unknown website origin are refus
     }
   });
   assert.equal(res.status, 403);
+});
+
+// ---------------------------------------------------------------- EMAIL CODES (verification + password reset)
+
+/** Pretend the last verification / reset email went out two minutes ago (skips the one-per-minute rule). */
+async function ageEmails(email: string) {
+  const u = await prisma.user.findUniqueOrThrow({ where: { email } });
+  await prisma.user.update({
+    where: { id: u.id },
+    data: {
+      emailVerifyExpiry: u.emailVerifyExpiry ? new Date(u.emailVerifyExpiry.getTime() - 2 * 60 * 1000) : null,
+      resetPasswordExpiry: u.resetPasswordExpiry ? new Date(u.resetPasswordExpiry.getTime() - 2 * 60 * 1000) : null
+    }
+  });
+}
+
+const registerUnverified = async (name: string) => {
+  const c = new Client();
+  const email = `${name}@test.com`.toLowerCase();
+  const r = await c.call('POST', '/api/auth/signup', { name, email, password: 'Password123', sponsorCode: 'RWCROOT', leg: 'LEFT' });
+  assert.equal(r.status, 201);
+  return { c, email, mail: lastMail(email, 'verify')! };
+};
+
+const wrongCodeFor = (code: string) => (code === '000000' ? '111111' : '000000');
+
+test('EMAIL CODES: the verification email carries a link AND a 6-digit code', async () => {
+  const { email, mail } = await registerUnverified('codeboth');
+  assert.match(mail.otp!, /^\d{6}$/);
+  assert.match(mail.link!, /\/verify-email\/[a-f0-9]{64}$/);
+
+  const stored = await prisma.user.findUniqueOrThrow({ where: { email } });
+  assert.notEqual(stored.emailVerifyCodeHash, mail.otp, 'the code is never stored in clear');
+  assert.ok(!JSON.stringify(stored).includes(mail.otp!), 'the code appears nowhere in the stored row');
+  assert.ok(stored.emailVerifyCodeExpiry && stored.emailVerifyCodeExpiry.getTime() - Date.now() <= 10 * 60 * 1000 + 1000);
+});
+
+test('EMAIL CODES: verifying with the code activates the account, places it, and works only once', async () => {
+  const { c, email, mail } = await registerUnverified('codeverify');
+  const code = (body: unknown) => new Client().call('POST', '/api/auth/verify-email-code', body);
+
+  assert.equal((await c.call('POST', '/api/auth/login', { email, password: 'Password123' })).status, 403);
+  assert.equal((await code({ email, code: wrongCodeFor(mail.otp!) })).status, 400);
+  assert.equal((await code({ email, code: 'abcdef' })).status, 400); // not even six digits
+  assert.equal((await code({ email, code: mail.otp })).status, 200);
+
+  const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+  assert.equal(user.isVerified, true);
+  assert.ok(user.parentId, 'placed in the binary tree on verification, like the link does');
+  assert.equal(user.emailVerifyCodeHash, null);
+  assert.equal(user.emailVerifyTokenHash, null, 'the link stops working as soon as the code was used');
+  assert.equal((await c.call('POST', '/api/auth/login', { email, password: 'Password123' })).status, 200);
+
+  assert.equal((await code({ email, code: mail.otp })).status, 400, 'single use');
+  assert.equal((await new Client().call('GET', `/api/auth/verify-email/${tokenFromLink(mail.link!)}`)).status, 400);
+});
+
+test('EMAIL CODES: and the link still works, and then kills the code', async () => {
+  const { email, mail } = await registerUnverified('linkkillscode');
+  assert.equal((await new Client().call('GET', `/api/auth/verify-email/${tokenFromLink(mail.link!)}`)).status, 200);
+  assert.equal((await new Client().call('POST', '/api/auth/verify-email-code', { email, code: mail.otp })).status, 400);
+});
+
+test('EMAIL CODES: a verification code can only be guessed 5 times, then it is burned', async () => {
+  const { email, mail } = await registerUnverified('codeguess');
+  const bad = wrongCodeFor(mail.otp!);
+  const code = (c: string) => new Client().call('POST', '/api/auth/verify-email-code', { email, code: c });
+
+  for (let i = 0; i < 5; i++) assert.equal((await code(bad)).status, 400);
+  assert.equal((await code(mail.otp!)).status, 400, 'even the right code is refused after 5 wrong guesses');
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { email } })).isVerified, false);
+
+  // a fresh email brings a fresh code and a fresh allowance
+  await ageEmails(email);
+  await new Client().call('POST', '/api/auth/resend-verification', { email });
+  const fresh = lastMail(email, 'verify')!;
+  assert.notEqual(fresh.otp, mail.otp);
+  assert.equal((await code(fresh.otp!)).status, 200);
+});
+
+test('EMAIL CODES: a code is bound to its own account and its own email address', async () => {
+  const a = await registerUnverified('codeowner_a');
+  const b = await registerUnverified('codeowner_b');
+  const code = (email: string, c: string) => new Client().call('POST', '/api/auth/verify-email-code', { email, code: c });
+
+  assert.equal((await code(b.email, a.mail.otp!)).status, 400, "A's code does not open B's account");
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { email: b.email } })).isVerified, false);
+  assert.equal((await code(a.email, a.mail.otp!)).status, 200);
+});
+
+test('EMAIL CODES: a code cannot be used to reset a password, and a reset code cannot verify an email', async () => {
+  const { c, email, mail } = await registerUnverified('crosspurpose');
+  const asReset = await new Client().call('POST', '/api/auth/reset-password-code', { email, code: mail.otp, newPassword: 'Hacked12345' });
+  assert.equal(asReset.status, 400);
+  assert.equal((await c.call('POST', '/api/auth/login', { email, password: 'Password123' })).status, 403);
+
+  await new Client().call('POST', '/api/auth/forgot-password', { email });
+  await new Promise((r) => setTimeout(r, 100));
+  const reset = lastMail(email, 'reset')!;
+  assert.equal((await new Client().call('POST', '/api/auth/verify-email-code', { email, code: reset.otp })).status, 400);
+});
+
+test('EMAIL CODES: failures look identical for unknown, verified and wrong-code cases (no account enumeration)', async () => {
+  const unverified = await registerUnverified('enumcheck');
+  const verified = await signup('RWCROOT', 'LEFT', 'enumverified');
+  const post = (email: string) => new Client().call('POST', '/api/auth/verify-email-code', { email, code: '123456' });
+
+  const unknown = await post('nobody.at.all@test.com');
+  const alreadyVerified = await post(verified.email);
+  const wrong = await post(unverified.email);
+  for (const r of [unknown, alreadyVerified, wrong]) {
+    assert.equal(r.status, 400);
+    assert.equal(r.json.message, unknown.json.message);
+  }
+});
+
+test('EMAIL CODES: resending is limited to one email per minute per account', async () => {
+  const { email } = await registerUnverified('resendlimit');
+  const before = outbox.filter((m) => m.to === email && m.kind === 'verify').length;
+
+  for (let i = 0; i < 4; i++) {
+    const r = await new Client().call('POST', '/api/auth/resend-verification', { email });
+    assert.equal(r.status, 200, 'the answer is the same, so nothing leaks');
+  }
+  assert.equal(outbox.filter((m) => m.to === email && m.kind === 'verify').length, before, 'no extra emails inside the minute');
+
+  await ageEmails(email);
+  await new Client().call('POST', '/api/auth/resend-verification', { email });
+  assert.equal(outbox.filter((m) => m.to === email && m.kind === 'verify').length, before + 1);
+
+  const r2 = await new Client().call('POST', '/api/auth/forgot-password', { email });
+  assert.equal(r2.status, 200);
+  await new Promise((r) => setTimeout(r, 100));
+  const resets = () => outbox.filter((m) => m.to === email && m.kind === 'reset').length;
+  const n = resets();
+  await new Client().call('POST', '/api/auth/forgot-password', { email });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(resets(), n, 'reset emails are limited too');
+});
+
+test('EMAIL CODES: reset by code sets the password, signs everyone out, alerts the owner, and works once', async () => {
+  const { c, email } = await signup('RWCROOT', 'LEFT', 'resetbycode');
+  const oldRefresh = c.cookies.get('refreshToken')!;
+
+  await new Client().call('POST', '/api/auth/forgot-password', { email });
+  await new Promise((r) => setTimeout(r, 100));
+  const mail = lastMail(email, 'reset')!;
+  assert.match(mail.otp!, /^\d{6}$/);
+  assert.match(mail.link!, /\/reset-password\/[a-f0-9]{64}$/);
+
+  const reset = (body: unknown) => new Client().call('POST', '/api/auth/reset-password-code', body);
+  assert.equal((await reset({ email, code: wrongCodeFor(mail.otp!), newPassword: 'NewPassword1' })).status, 400);
+  assert.equal((await reset({ email, code: mail.otp, newPassword: 'short' })).status, 400, 'password rules still apply');
+  assert.equal((await new Client().call('POST', '/api/auth/login', { email, password: 'Password123' })).status, 200, 'nothing changed yet');
+
+  const before = outbox.filter((m) => m.to === email && m.kind === 'changed').length;
+  assert.equal((await reset({ email, code: mail.otp, newPassword: 'NewPassword1' })).status, 200);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(outbox.filter((m) => m.to === email && m.kind === 'changed').length, before + 1, 'the owner is told about the change');
+
+  assert.equal((await reset({ email, code: mail.otp, newPassword: 'Another12345' })).status, 400, 'single use');
+  assert.equal((await new Client().call('POST', '/api/auth/reset-password', { token: tokenFromLink(mail.link!), newPassword: 'Another12345' })).status, 400, 'the link died with the code');
+  assert.equal((await new Client().call('POST', '/api/auth/login', { email, password: 'Password123' })).status, 401);
+  assert.equal((await new Client().call('POST', '/api/auth/login', { email, password: 'NewPassword1' })).status, 200);
+
+  const stale = new Client();
+  stale.cookies.set('refreshToken', oldRefresh);
+  assert.equal((await stale.call('POST', '/api/auth/refresh')).status, 401, 'old sessions are signed out');
+});
+
+test('EMAIL CODES: using the reset LINK also kills the code and alerts the owner', async () => {
+  const { email } = await signup('RWCROOT', 'RIGHT', 'linkthencode');
+  await new Client().call('POST', '/api/auth/forgot-password', { email });
+  await new Promise((r) => setTimeout(r, 100));
+  const mail = lastMail(email, 'reset')!;
+
+  const before = outbox.filter((m) => m.to === email && m.kind === 'changed').length;
+  assert.equal((await new Client().call('POST', '/api/auth/reset-password', { token: tokenFromLink(mail.link!), newPassword: 'ViaLink12345' })).status, 200);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(outbox.filter((m) => m.to === email && m.kind === 'changed').length, before + 1);
+  assert.equal((await new Client().call('POST', '/api/auth/reset-password-code', { email, code: mail.otp, newPassword: 'ViaCode12345' })).status, 400);
+});
+
+test('EMAIL CODES: a reset code can only be guessed 5 times, and unknown emails get the same answer', async () => {
+  const { email } = await signup('RWCROOT', 'LEFT', 'resetguess');
+  await new Client().call('POST', '/api/auth/forgot-password', { email });
+  await new Promise((r) => setTimeout(r, 100));
+  const mail = lastMail(email, 'reset')!;
+  const reset = (c: string, who = email) => new Client().call('POST', '/api/auth/reset-password-code', { email: who, code: c, newPassword: 'NewPassword1' });
+
+  for (let i = 0; i < 5; i++) assert.equal((await reset(wrongCodeFor(mail.otp!))).status, 400);
+  assert.equal((await reset(mail.otp!)).status, 400, 'burned after 5 wrong guesses');
+  assert.equal((await new Client().call('POST', '/api/auth/login', { email, password: 'Password123' })).status, 200, 'the password is untouched');
+
+  const known = await reset('123456');
+  const unknown = await reset('123456', 'ghost.account@test.com');
+  assert.equal(unknown.status, 400);
+  assert.equal(unknown.json.message, known.json.message);
+});
+
+test('EMAIL CODES: every email shows the link and code in both the HTML and the plain-text version, and responses never leak them', async () => {
+  const { email, mail } = await registerUnverified('mailshape');
+  assert.ok(mail.link && mail.otp && mail.html && mail.text);
+
+  // verification email
+  assert.match(mail.subject!, /Verify your .*account/);
+  assert.ok(mail.html!.includes(`href="${mail.link}"`), 'HTML has the button link');
+  assert.ok(mail.html!.includes(mail.otp!), 'HTML shows the code');
+  assert.ok(mail.text!.includes(mail.link!) && mail.text!.includes(mail.otp!), 'plain text has both too');
+  assert.ok(mail.html!.includes('Never share'), 'the security reminder is there');
+  assert.ok(!/<script/i.test(mail.html!), 'no scripts in an email');
+
+  // reset email + the change alert
+  await ageEmails(email);
+  const f = await new Client().call('POST', '/api/auth/forgot-password', { email });
+  await new Promise((r) => setTimeout(r, 100));
+  const reset = lastMail(email, 'reset')!;
+  assert.match(reset.subject!, /Reset your .*password/);
+  assert.ok(reset.html!.includes(`href="${reset.link}"`) && reset.html!.includes(reset.otp!));
+  assert.ok(reset.text!.includes(reset.link!) && reset.text!.includes(reset.otp!));
+
+  // the HTTP answers never carry a link or a code
+  for (const body of [JSON.stringify(f.json)]) {
+    assert.equal(body.includes(reset.otp!), false);
+    assert.equal(body.includes('reset-password/'), false);
+  }
+
+  assert.equal((await new Client().call('POST', '/api/auth/reset-password', { token: tokenFromLink(reset.link!), newPassword: 'MailShape12345' })).status, 200);
+  await new Promise((r) => setTimeout(r, 100));
+  const changed = lastMail(email, 'changed')!;
+  assert.match(changed.subject!, /password was changed/);
+  assert.ok(!changed.html!.includes('/reset-password/'), 'the alert carries no link an attacker could reuse');
+  assert.ok(!changed.html!.includes('href='), 'the alert has no links at all');
 });
 
 test('auth: Google login answers 503 until it is configured', async () => {

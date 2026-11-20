@@ -79,6 +79,13 @@ model User {
   twoFactorOtpHash     String?
   twoFactorOtpExpiry   DateTime?
   twoFactorAttempts     Int       @default(0)
+  /// 6-digit alternatives to the emailed links. Only an HMAC of the code is stored, with a wrong-guess counter.
+  emailVerifyCodeHash     String?
+  emailVerifyCodeExpiry   DateTime?
+  emailVerifyCodeAttempts Int       @default(0)
+  resetCodeHash           String?
+  resetCodeExpiry         DateTime?
+  resetCodeAttempts       Int       @default(0)
   refreshTokenHash     String?
   resetPasswordTokenHash String?
   resetPasswordExpiry    DateTime?

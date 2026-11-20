@@ -65,6 +65,11 @@ export const verifyEmail = async (req: Request, res: Response) => {
   res.json({ success: true, message: 'Email verified successfully' });
 };
 
+export const verifyEmailCode = async (req: Request, res: Response) => {
+  await authService.verifyEmailCode(req.body.email, req.body.code);
+  res.json({ success: true, message: 'Email verified successfully' });
+};
+
 export const resendVerificationEmail = async (req: Request, res: Response) => {
   await authService.resendVerificationEmail(req.body.email);
   res.json({
@@ -184,6 +189,11 @@ export const forgotPassword = async (req: Request, res: Response) => {
 
 export const resetPassword = async (req: Request, res: Response) => {
   await authService.resetPassword(req.body);
+  res.json({ success: true, message: 'Password reset successful' });
+};
+
+export const resetPasswordWithCode = async (req: Request, res: Response) => {
+  await authService.resetPasswordWithCode(req.body);
   res.json({ success: true, message: 'Password reset successful' });
 };
 
