@@ -16,7 +16,7 @@ const PAGE_IMAGES = [
 
 /** Everything an admin can change on the public home page, in one place. */
 export default function SiteContentPage() {
-  const { content, loaded, reload } = useSiteContent();
+  const { content, loaded, failed, reload } = useSiteContent();
 
   return (
     <>
@@ -30,6 +30,11 @@ export default function SiteContentPage() {
 
       {!loaded ? (
         <div className="muted">Loading...</div>
+      ) : failed ? (
+        <div className="alert error">
+          Could not load the website content. Make sure the backend is running (<b>npm run dev</b> in the backend folder)
+          and that you ran <b>npx prisma db push</b> once, then refresh this page.
+        </div>
       ) : (
         <>
           <div className="card">

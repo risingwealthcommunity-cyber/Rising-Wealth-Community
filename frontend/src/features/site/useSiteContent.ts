@@ -6,12 +6,14 @@ import type { SiteContent } from './site.api';
 export function useSiteContent() {
   const [content, setContent] = useState<SiteContent>(EMPTY_CONTENT);
   const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const reload = useCallback(async () => {
     try {
       setContent(await siteApi.content());
+      setFailed(false);
     } catch {
-      /* keep what we have */
+      setFailed(true); // keep what we have; the page still renders its defaults
     } finally {
       setLoaded(true);
     }
@@ -21,5 +23,5 @@ export function useSiteContent() {
     void reload();
   }, [reload]);
 
-  return { content, loaded, reload, setContent };
+  return { content, loaded, failed, reload, setContent };
 }

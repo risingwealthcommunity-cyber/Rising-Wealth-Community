@@ -41,7 +41,7 @@ const PLANS = [
 export default function LandingPage() {
   const { user } = useAuth();
   const root = useRef<HTMLDivElement>(null);
-  const { content } = useSiteContent();
+  const { content, failed } = useSiteContent();
   useSmoothScroll(root);
 
   const contact = {
@@ -67,6 +67,12 @@ export default function LandingPage() {
 
   return (
     <div className="lp" id="top" ref={root}>
+      {import.meta.env.DEV && failed && (
+        <div className="lp-devwarn" role="status">
+          Cannot reach the backend, so admin content (team, reviews, photos) is not loading. Start it with{' '}
+          <code>npm run dev</code> in the <code>backend</code> folder, then refresh. (Only you see this, in development.)
+        </div>
+      )}
       <header className="lp-nav">
         <Link to="/" className="lp-logo">
           <img className="lp-logo-img" src="/logo.png" alt="" width={54} height={54} />
@@ -76,6 +82,7 @@ export default function LandingPage() {
           <a href="#about">About</a>
           <a href="#plans">Plans</a>
           <a href="#how">How it works</a>
+          {hasTeam && <a href="#team">Team</a>}
           {hasContact && <a href="#contact">Contact</a>}
         </nav>
         <div className="lp-nav-right">
