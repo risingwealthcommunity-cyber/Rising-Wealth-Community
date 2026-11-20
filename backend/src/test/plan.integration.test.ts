@@ -476,7 +476,8 @@ test('site content: milestones and contact are validated and saved', async () =>
     ['milestones', { items: Array.from({ length: 7 }, () => ({ value: '1', label: 'x' })) }],
     ['contact', { phone: 'call me', whatsapp: '', email: '', instagram: '', youtube: '', facebook: '', telegram: '' }],
     ['contact', { phone: '', whatsapp: '', email: 'not-an-email', instagram: '', youtube: '', facebook: '', telegram: '' }],
-    ['contact', { phone: '', whatsapp: '', email: '', instagram: 'javascript:alert(1)', youtube: '', facebook: '', telegram: '' }]
+    ['contact', { phone: '', whatsapp: '', email: '', instagram: 'javascript:alert(1)', youtube: '', facebook: '', telegram: '' }],
+    ['contact', { phone: '', whatsapp: '', email: '', instagram: '', youtube: '', facebook: '', telegram: '', formKey: 'bad key!' }]
   ] as const;
   for (const [name, body] of bad) {
     assert.equal((await putContent(admin, name, body)).status, 400, `${name} ${JSON.stringify(body)}`);
@@ -486,7 +487,7 @@ test('site content: milestones and contact are validated and saved', async () =>
   assert.equal(ok.status, 200, JSON.stringify(ok.json));
   assert.deepEqual(ok.json.data.milestones, [{ value: '9K+', label: 'Members' }, { value: 'Rs 27L+', label: 'Paid' }]);
 
-  const contact = { phone: '+91 98765 43210', whatsapp: '+91 98765 43210', email: 'hello@example.com', instagram: 'https://instagram.com/rwc', youtube: '', facebook: '', telegram: '' };
+  const contact = { phone: '+91 98765 43210', whatsapp: '+91 98765 43210', email: 'hello@example.com', instagram: 'https://instagram.com/rwc', youtube: '', facebook: '', telegram: '', formKey: 'abcd1234-ef56-7890' };
   assert.equal((await putContent(admin, 'contact', contact)).status, 200);
   const pub = await new Client().call('GET', '/api/site/content');
   assert.deepEqual(pub.json.data.contact, contact);

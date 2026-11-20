@@ -7,6 +7,9 @@ const httpsUrl = text(200).refine((v) => v === '' || /^https:\/\/[^\s]+$/i.test(
 const phone = text(20).refine((v) => v === '' || /^[+\d][\d\s-]{5,18}$/.test(v), 'Enter a valid phone number');
 const email = text(80).refine((v) => v === '' || z.string().email().safeParse(v).success, 'Enter a valid email');
 
+/** Web3Forms access keys are public by design (they ship to the browser); this only checks the shape. */
+const formKey = text(60).refine((v) => v === '' || /^[A-Za-z0-9-]{8,60}$/.test(v), 'The form key looks wrong. Paste the access key exactly as Web3Forms shows it');
+
 export const milestonesSchema = z.object({
   items: z
     .array(z.object({ value: text(12, 1), label: text(40, 1) }))
@@ -33,7 +36,8 @@ export const contactSchema = z.object({
   instagram: httpsUrl,
   youtube: httpsUrl,
   facebook: httpsUrl,
-  telegram: httpsUrl
+  telegram: httpsUrl,
+  formKey: formKey.default('')
 });
 
 export const SETTING_SCHEMAS = {
