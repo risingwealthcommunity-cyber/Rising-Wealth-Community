@@ -8,6 +8,7 @@ import {
   RegisterPage,
   ResetPasswordPage,
   SetPasswordPage,
+  VerifyEmailCodePage,
   VerifyEmailPage,
   useAuth
 } from '../features/auth';
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/verify-email" element={<VerifyEmailCodePage />} />
       </Route>
 
       <Route element={<ProtectedRoute />}>

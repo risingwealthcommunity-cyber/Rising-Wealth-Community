@@ -3,6 +3,7 @@ export { ProtectedRoute, GuestRoute } from './RouteGuards';
 export { default as LoginPage } from './pages/LoginPage';
 export { default as RegisterPage } from './pages/RegisterPage';
 export { default as VerifyEmailPage } from './pages/VerifyEmailPage';
+export { default as VerifyEmailCodePage } from './pages/VerifyEmailCodePage';
 export { default as ForgotPasswordPage } from './pages/ForgotPasswordPage';
 export { default as ResetPasswordPage } from './pages/ResetPasswordPage';
 export { default as SetPasswordPage } from './pages/SetPasswordPage';

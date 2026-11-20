@@ -1,16 +1,17 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { SmoothInput } from '../../../shared/components/SmoothInput';
-import { authApi, googleLoginUrl } from '../auth.api';
+import { googleLoginUrl } from '../auth.api';
 import { useAuth } from '../AuthContext';
 import AuthShell from '../components/AuthShell';
 import { EyeIcon, EyeOffIcon, GoogleIcon, MailIcon } from '../components/Icons';
 import PasswordMeter from '../components/PasswordMeter';
-import { useCooldown } from '../components/useCooldown';
+import VerifyCodeForm from '../components/VerifyCodeForm';
 
 export default function RegisterPage() {
   const { register } = useAuth();
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const invitedBy = params.get('ref') ?? '';
 
@@ -26,10 +27,8 @@ export default function RegisterPage() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
   const [sentTo, setSentTo] = useState('');
   const [busy, setBusy] = useState(false);
-  const [cooldown, startCooldown] = useCooldown();
 
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -53,25 +52,11 @@ export default function RegisterPage() {
         sponsorCode: form.sponsorCode,
         leg: form.leg as 'LEFT' | 'RIGHT'
       });
-      setSentTo(form.email);
-      startCooldown(30);
+      setSentTo(form.email.trim().toLowerCase());
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(false);
-    }
-  };
-
-  const resend = async () => {
-    if (cooldown > 0) return;
-    setInfo('');
-    setError('');
-    try {
-      const res = await authApi.resendVerification(sentTo);
-      setInfo(res.message ?? 'Sent.');
-      startCooldown(30);
-    } catch (err) {
-      setError((err as Error).message);
     }
   };
 
@@ -82,17 +67,17 @@ export default function RegisterPage() {
         title="Check your email"
         subtitle={
           <>
-            We sent a verification link to <b>{sentTo}</b>. Click it to activate your account, then log in.
+            We sent a verification link and a 6-digit code to <b>{sentTo}</b>. Click the link, or type the code below.
           </>
         }
       >
-        {info && <div className="au-alert success">{info}</div>}
-        {error && <div className="au-alert error">{error}</div>}
-        <button className="au-btn ghost" onClick={resend} disabled={cooldown > 0}>
-          {cooldown > 0 ? `Resend email in ${cooldown}s` : 'Resend email'}
-        </button>
-        <Link className="au-btn" to="/login">
-          Go to login
+        <VerifyCodeForm
+          email={sentTo}
+          initialCooldown={60}
+          onVerified={() => navigate('/login?verified=true', { replace: true })}
+        />
+        <Link className="au-linkbtn" style={{ textAlign: 'center' }} to="/login">
+          I will do it later: go to login
         </Link>
         <p className="au-foot">Not in your inbox? Check the spam folder too.</p>
       </AuthShell>

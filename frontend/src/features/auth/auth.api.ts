@@ -14,6 +14,7 @@ export const authApi = {
   /** Creates an unverified account. The user must click the emailed link before logging in. */
   register: (body: RegisterInput) => api('/auth/signup', { method: 'POST', body }),
   verifyEmail: (token: string) => api(`/auth/verify-email/${encodeURIComponent(token)}`),
+  verifyEmailCode: (email: string, code: string) => api('/auth/verify-email-code', { method: 'POST', body: { email, code } }),
   resendVerification: (email: string) => api('/auth/resend-verification', { method: 'POST', body: { email } }),
 
   login: (body: { email: string; password: string }) =>
@@ -26,6 +27,8 @@ export const authApi = {
   me: () => api<{ user: User }>('/auth/me'),
 
   forgotPassword: (email: string) => api('/auth/forgot-password', { method: 'POST', body: { email } }),
+  resetPasswordWithCode: (email: string, code: string, newPassword: string) =>
+    api('/auth/reset-password-code', { method: 'POST', body: { email, code, newPassword } }),
   resetPassword: (token: string, newPassword: string) =>
     api('/auth/reset-password', { method: 'POST', body: { token, newPassword } }),
   setPassword: (password: string, confirmPassword: string, currentPassword?: string) =>

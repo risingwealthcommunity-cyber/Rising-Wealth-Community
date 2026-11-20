@@ -27,7 +27,7 @@ export default function ResetPasswordPage() {
     setBusy(true);
     try {
       await authApi.resetPassword(token, password);
-      navigate('/login', { replace: true });
+      navigate('/login?reset=true', { replace: true });
     } catch (err) {
       setError((err as Error).message);
     } finally {

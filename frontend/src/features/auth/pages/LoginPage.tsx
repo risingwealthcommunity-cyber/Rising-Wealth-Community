@@ -13,6 +13,7 @@ import { useCooldown } from '../components/useCooldown';
 
 const URL_MESSAGES: Record<string, { type: 'success' | 'error'; text: string }> = {
   verified: { type: 'success', text: 'Email verified. You can log in now.' },
+  reset: { type: 'success', text: 'Password updated. Log in with your new password.' },
   verification_failed: { type: 'error', text: 'That verification link is invalid or expired. Log in to get a new one.' },
   GoogleAuthFailed: { type: 'error', text: 'Google sign-in failed. Please try again.' },
   account_not_found: {
@@ -32,7 +33,11 @@ export default function LoginPage() {
   const [params] = useSearchParams();
   const from = (location.state as { from?: string } | null)?.from ?? '/dashboard';
 
-  const urlMsg = params.get('verified') ? URL_MESSAGES.verified : URL_MESSAGES[params.get('error') ?? ''] ?? null;
+  const urlMsg = params.get('verified')
+    ? URL_MESSAGES.verified
+    : params.get('reset')
+      ? URL_MESSAGES.reset
+      : URL_MESSAGES[params.get('error') ?? ''] ?? null;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -167,9 +172,18 @@ export default function LoginPage() {
         <div className="au-alert error" role="alert">
           {error}
           {needsVerification && (
-            <button type="button" className="au-linkbtn" onClick={resendVerification}>
-              Resend verification email
-            </button>
+            <>
+              <button type="button" className="au-linkbtn" onClick={resendVerification}>
+                Resend verification email
+              </button>
+              <Link
+                className="au-linkbtn"
+                style={{ display: 'block', marginTop: 6 }}
+                to={`/verify-email?email=${encodeURIComponent(email.trim().toLowerCase())}`}
+              >
+                I have a code
+              </Link>
+            </>
           )}
         </div>
       )}
