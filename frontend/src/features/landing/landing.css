@@ -185,15 +185,8 @@ html.lp-no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
 }
 
 /* ---- contact ---- */
-.lp-contact-grid { display: grid; gap: 18px; max-width: 560px; }
-.lp-contact-grid.with-form { max-width: none; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); align-items: start; }
-.lp-support, .lp-form { display: flex; flex-direction: column; gap: 14px; padding: 28px; border: 1px solid var(--lp-line); border-radius: 24px; background: #fff; box-shadow: 0 8px 28px rgba(10, 30, 15, 0.06); }
-.lp-support h3 { margin: 0 0 4px; color: var(--lp-green-ink); font: 700 0.85rem 'Space Mono', monospace; text-transform: uppercase; letter-spacing: 0.14em; }
-.lp-support-row { display: flex; flex-direction: column; gap: 3px; padding: 12px 0; border-top: 1px solid var(--lp-line); color: var(--lp-text); }
-.lp-support-row b { font: 700 0.7rem 'Space Mono', monospace; text-transform: uppercase; letter-spacing: 0.14em; color: var(--lp-muted); }
-.lp-support-row span { word-break: break-word; }
-.lp-support-row:hover span { color: var(--lp-green-ink); }
-.lp-wa { justify-content: center; margin-top: 6px; background: linear-gradient(90deg, #25d366, #128c7e); color: #fff; }
+.lp-contact-grid { display: grid; max-width: 760px; }
+.lp-form { display: flex; flex-direction: column; gap: 14px; padding: 28px; border: 1px solid var(--lp-line); border-radius: 24px; background: #fff; box-shadow: 0 8px 28px rgba(10, 30, 15, 0.06); }
 .lp-form label { display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; font-weight: 600; color: var(--lp-text); }
 .lp-form input:not(.lp-hp), .lp-form textarea { padding: 13px 14px; border: 1px solid var(--lp-line); border-radius: 12px; background: #fafafa; color: var(--lp-text); font: inherit; font-weight: 400; resize: vertical; }
 .lp-form input:focus, .lp-form textarea:focus { outline: 2px solid var(--lp-green); border-color: transparent; background: #fff; }
@@ -204,7 +197,6 @@ html.lp-no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .lp-form-status .ok { color: #166534; }
 .lp-form-status .err { color: #b91c1c; }
 .lp-form-note { color: var(--lp-muted); font-size: 0.75rem; }
-@media (max-width: 860px) { .lp-contact-grid.with-form { grid-template-columns: 1fr; } }
 
 /* ---- reviews (screenshots) ---- */
 .lp-reviews { overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent); mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent); }
