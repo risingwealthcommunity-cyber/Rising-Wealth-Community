@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import {
   ForgotPasswordPage,
@@ -11,16 +12,16 @@ import {
   useAuth
 } from '../features/auth';
 import AppLayout from '../shared/components/AppLayout';
-import { AdminPage } from '../features/admin';
+import { AdminPage, SiteContentPage } from '../features/admin';
 import { DashboardPage } from '../features/dashboard';
 import { LandingPage } from '../features/landing';
 import { PackagesPage } from '../features/packages';
 import { TeamPage } from '../features/team';
 import { WalletPage } from '../features/wallet';
 
-function AdminOnly() {
+function AdminOnly({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  return user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' ? <AdminPage /> : <Navigate to="/dashboard" replace />;
+  return user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' ? <>{children}</> : <Navigate to="/dashboard" replace />;
 }
 
 export default function App() {
@@ -45,7 +46,8 @@ export default function App() {
           <Route path="/wallet" element={<WalletPage />} />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />
-          <Route path="/admin" element={<AdminOnly />} />
+          <Route path="/admin" element={<AdminOnly><AdminPage /></AdminOnly>} />
+          <Route path="/admin/site" element={<AdminOnly><SiteContentPage /></AdminOnly>} />
         </Route>
       </Route>
 

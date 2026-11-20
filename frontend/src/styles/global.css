@@ -125,3 +125,11 @@ a.btn { text-decoration: none; }
 .site-img-actions { display: flex; gap: 8px; }
 label.btn { cursor: pointer; }
 label.btn[aria-disabled='true'] { opacity: 0.6; pointer-events: none; }
+
+/* admin: website content editors */
+.row-edit { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; padding: 16px 0; border-top: 1px solid var(--border); }
+.row-edit-fields { display: flex; flex-direction: column; gap: 10px; }
+.row-edit-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+textarea { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; resize: vertical; background: #fff; }
+.contact-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+@media (max-width: 720px) { .row-edit { grid-template-columns: 1fr; } }

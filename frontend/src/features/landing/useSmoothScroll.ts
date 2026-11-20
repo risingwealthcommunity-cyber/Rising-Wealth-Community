@@ -56,7 +56,7 @@ export function useSmoothScroll(scope: RefObject<HTMLElement>) {
           scrollTrigger: { trigger: el, start: 'top 90%', once: true }
         });
       });
-      const cards = '.lp-steps > div, .lp-plan, .lp-values li, .lp-about-copy > p, .lp-about-media';
+      const cards = '.lp-steps > div, .lp-plan, .lp-values li, .lp-about-copy > p, .lp-about-media, .lp-feature, .lp-stat, .lp-contact-card';
       gsap.set(cards, { y: 40, opacity: 0 });
       ScrollTrigger.batch(cards, {
         start: 'top 90%',

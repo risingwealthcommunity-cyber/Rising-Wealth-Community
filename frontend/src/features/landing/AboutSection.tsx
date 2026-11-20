@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { useSiteAssets } from '../site';
+import { useState } from 'react';
+import type { SiteAssets } from '../site';
+import Lightbox from './Lightbox';
 
 const VALUES = [
   { title: 'Transparency', text: 'Your wallet, your team and every payout are visible in your dashboard.' },
@@ -7,24 +8,10 @@ const VALUES = [
   { title: 'Shared success', text: 'When members earn, the whole community moves forward.' }
 ];
 
-export default function AboutSection() {
-  const { assets } = useSiteAssets();
+export default function AboutSection({ assets }: { assets: SiteAssets }) {
   const about = assets['about-image'];
   const certificate = assets.certificate;
   const [zoom, setZoom] = useState(false);
-
-  // Close the certificate viewer with Escape, and freeze the page behind it.
-  useEffect(() => {
-    if (!zoom) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setZoom(false);
-    document.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [zoom]);
 
   return (
     <section className="lp-section lp-about" id="about">
@@ -104,19 +91,7 @@ export default function AboutSection() {
       </div>
 
       {zoom && certificate && (
-        <div
-          className="lp-lightbox"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Registration certificate"
-          onClick={() => setZoom(false)}
-          data-lenis-prevent
-        >
-          <img src={certificate.url} alt="Registration certificate" onClick={(e) => e.stopPropagation()} />
-          <button type="button" className="lp-lightbox-close" onClick={() => setZoom(false)} aria-label="Close">
-            {'×'}
-          </button>
-        </div>
+        <Lightbox src={certificate.url} alt="Registration certificate" onClose={() => setZoom(false)} />
       )}
     </section>
   );

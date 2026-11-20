@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api } from '../../shared/api/apiClient';
 import { date, inr } from '../../shared/format';
-import SiteImages from './SiteImages';
+import { Link } from 'react-router-dom';
 
 interface PendingPurchase {
   id: string;
@@ -78,7 +78,18 @@ export default function AdminPage() {
       <h1>Admin</h1>
       {msg && <div className={`alert ${msg.type}`}>{msg.text}</div>}
 
-      <SiteImages />
+      <div className="card">
+        <h2>Website content</h2>
+        <p className="muted">
+          Change the milestone numbers, add team members and member reviews, set contact details, and upload the
+          photos and certificate shown on the home page.
+        </p>
+        <div>
+          <Link className="btn" to="/admin/site">
+            Open website content
+          </Link>
+        </div>
+      </div>
 
       <div className="card stat">
         <span className="muted">Company fund (excess, locked levels, unclaimed pools)</span>

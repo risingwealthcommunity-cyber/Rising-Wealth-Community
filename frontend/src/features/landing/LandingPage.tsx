@@ -1,8 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { useAuth } from '../auth';
+import { DEFAULT_CONTACT, useSiteContent } from '../site';
 import AboutSection from './AboutSection';
+import ContactSection from './ContactSection';
+import CtaBanner from './CtaBanner';
+import FeaturesSection from './FeaturesSection';
 import Hero3D from './Hero3D';
+import MilestonesSection from './MilestonesSection';
+import ReviewsSection from './ReviewsSection';
+import SiteFooter from './SiteFooter';
+import TeamSection from './TeamSection';
 import TypedWordmark from './TypedWordmark';
 import { useSmoothScroll } from './useSmoothScroll';
 import './landing.css';
@@ -32,7 +41,17 @@ const PLANS = [
 export default function LandingPage() {
   const { user } = useAuth();
   const root = useRef<HTMLDivElement>(null);
+  const { content } = useSiteContent();
   useSmoothScroll(root);
+
+  const contact = {
+    ...DEFAULT_CONTACT,
+    ...(content.contact ?? {}),
+    // an empty saved key falls back to the .env one
+    formKey: content.contact?.formKey || DEFAULT_CONTACT.formKey
+  };
+  const hasContact = Boolean(contact.phone || contact.whatsapp || contact.email);
+  const hasTeam = (content.team?.length ?? 0) > 0;
 
   // The home page hides the browser scrollbar; app pages keep theirs.
   useEffect(() => {
@@ -40,8 +59,14 @@ export default function LandingPage() {
     return () => document.documentElement.classList.remove('lp-no-scrollbar');
   }, []);
 
+  // Admin content (photos, team, reviews) changes the page height after load: re-measure scroll triggers.
+  useEffect(() => {
+    const t = window.setTimeout(() => ScrollTrigger.refresh(), 400);
+    return () => window.clearTimeout(t);
+  }, [content]);
+
   return (
-    <div className="lp" ref={root}>
+    <div className="lp" id="top" ref={root}>
       <header className="lp-nav">
         <Link to="/" className="lp-logo">
           <img className="lp-logo-img" src="/logo.png" alt="" width={54} height={54} />
@@ -51,6 +76,7 @@ export default function LandingPage() {
           <a href="#about">About</a>
           <a href="#plans">Plans</a>
           <a href="#how">How it works</a>
+          {hasContact && <a href="#contact">Contact</a>}
         </nav>
         <div className="lp-nav-right">
           {user ? (
@@ -99,7 +125,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <AboutSection />
+      <AboutSection assets={content.assets} />
+      <FeaturesSection assets={content.assets} />
+      <MilestonesSection milestones={content.milestones} assets={content.assets} />
 
       <section className="lp-section" id="how">
         <h2>How you earn</h2>
@@ -140,7 +168,12 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <footer className="lp-foot">{'©'} RWC</footer>
+      <TeamSection team={content.team} assets={content.assets} />
+      <ContactSection contact={contact} isAdmin={user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'} />
+      <ReviewsSection reviews={content.reviews} assets={content.assets} />
+      <CtaBanner signedIn={Boolean(user)} />
+
+      <SiteFooter contact={contact} hasTeam={hasTeam} hasCertificate={Boolean(content.assets.certificate)} />
     </div>
   );
 }
