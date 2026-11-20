@@ -15,6 +15,10 @@ const URL_MESSAGES: Record<string, { type: 'success' | 'error'; text: string }> 
   verified: { type: 'success', text: 'Email verified. You can log in now.' },
   verification_failed: { type: 'error', text: 'That verification link is invalid or expired. Log in to get a new one.' },
   GoogleAuthFailed: { type: 'error', text: 'Google sign-in failed. Please try again.' },
+  account_not_found: {
+    type: 'error',
+    text: 'No account found for that Google email. Please create an account first, using your sponsor\u2019s link.'
+  },
   sponsor_required: {
     type: 'error',
     text: 'New accounts need a sponsor. Open a referral link, or register with a sponsor code first.'

@@ -1,0 +1,36 @@
+/*
+ * Every button pops out a little when hovered: it lifts, grows slightly and gets a soft shadow.
+ * Loaded last so it applies on top of each page's own button styles.
+ */
+:is(button, .btn, .lp-cta, .lp-ghost, .lp-cta-ghost, .lp-cert-btn, .au-btn, .au-eye, .au-otp-btn) {
+  --pop: 1.06;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, background-color 0.2s ease, opacity 0.2s ease;
+}
+
+/* wide buttons grow less, otherwise they spill out of their card */
+:is(.au-btn, .lp-form .lp-cta, .lp-cert-btn) { --pop: 1.025; }
+/* small icon buttons can grow more */
+.au-eye { --pop: 1.18; }
+
+@media (hover: hover) {
+  :is(button, .btn, .lp-cta, .lp-ghost, .lp-cta-ghost, .lp-cert-btn, .au-btn, .au-eye):not(:disabled, [aria-disabled='true']):hover {
+    transform: translateY(-3px) scale(var(--pop));
+    box-shadow: 0 12px 28px rgba(20, 14, 4, 0.22);
+    z-index: 2;
+  }
+  /* text-style link buttons stay put: moving words around mid-sentence looks broken */
+  :is(button.link, .au-linkbtn, .link):hover { transform: none; box-shadow: none; }
+  /* big clickable cards (review screenshots, certificate) already have their own lift */
+  :is(.lp-review, .lp-cert-thumb):hover { transform: translateY(-4px); box-shadow: 0 16px 36px rgba(20, 14, 4, 0.24); }
+}
+
+:is(button, .btn, .lp-cta, .lp-ghost, .lp-cta-ghost, .lp-cert-btn, .au-btn):not(:disabled, [aria-disabled='true']):active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: none;
+  transition-duration: 0.08s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(button, .btn, .lp-cta, .lp-ghost, .lp-cta-ghost, .lp-cert-btn, .au-btn, .au-eye) { transition: box-shadow 0.2s ease; }
+  :is(button, .btn, .lp-cta, .lp-ghost, .lp-cta-ghost, .lp-cert-btn, .au-btn, .au-eye):not(:disabled):hover { transform: none; }
+}

@@ -28,8 +28,11 @@ export const authApi = {
   forgotPassword: (email: string) => api('/auth/forgot-password', { method: 'POST', body: { email } }),
   resetPassword: (token: string, newPassword: string) =>
     api('/auth/reset-password', { method: 'POST', body: { token, newPassword } }),
-  setPassword: (password: string, confirmPassword: string) =>
-    api('/auth/password/set', { method: 'POST', body: { password, confirmPassword } })
+  setPassword: (password: string, confirmPassword: string, currentPassword?: string) =>
+    api('/auth/password/set', {
+      method: 'POST',
+      body: { password, confirmPassword, ...(currentPassword ? { currentPassword } : {}) }
+    })
 };
 
 /** Google sign-in is a full-page redirect handled by the backend. */
