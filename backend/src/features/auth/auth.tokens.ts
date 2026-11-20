@@ -9,7 +9,7 @@ export const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000;
 export const ADMIN_OTP_TTL_MS = 10 * 60 * 1000;
 
 export const signAccessToken = (userId: string, role: string): string =>
-  jwt.sign({ userId, role }, config.jwt.access, { expiresIn: Math.floor(ACCESS_TOKEN_MS / 1000) });
+  jwt.sign({ userId, role, typ: 'access' }, config.jwt.access, { expiresIn: Math.floor(ACCESS_TOKEN_MS / 1000) });
 
 export const signRefreshToken = (userId: string): string =>
   // jti keeps two tokens issued in the same second different.
@@ -18,7 +18,7 @@ export const signRefreshToken = (userId: string): string =>
   });
 
 export const signAdminTempToken = (userId: string, email: string): string =>
-  jwt.sign({ userId, email, purpose: 'admin_2fa' }, config.jwt.access, { expiresIn: 10 * 60 });
+  jwt.sign({ userId, email, purpose: 'admin_2fa', typ: 'admin_2fa' }, config.jwt.access, { expiresIn: 10 * 60 });
 
 const userIdOf = (payload: string | jwt.JwtPayload): string => {
   if (typeof payload === 'string' || typeof payload.userId !== 'string' || !payload.userId.trim()) {
@@ -27,9 +27,15 @@ const userIdOf = (payload: string | jwt.JwtPayload): string => {
   return payload.userId;
 };
 
-export const verifyAccessToken = (token: string): { userId: string } => ({
-  userId: userIdOf(jwt.verify(token, config.jwt.access))
-});
+/**
+ * Only real access tokens pass. The admin 2FA temp token is signed with the same secret, so without the
+ * type check it would work as a login session and skip the one-time code entirely.
+ */
+export const verifyAccessToken = (token: string): { userId: string } => {
+  const payload = jwt.verify(token, config.jwt.access);
+  if (typeof payload === 'string' || payload.typ !== 'access') throw new Error('Wrong token type');
+  return { userId: userIdOf(payload) };
+};
 
 export const verifyRefreshToken = (token: string): { userId: string } => ({
   userId: userIdOf(jwt.verify(token, config.jwt.refresh))
@@ -37,7 +43,9 @@ export const verifyRefreshToken = (token: string): { userId: string } => ({
 
 export const verifyAdminTempToken = (token: string): { userId: string } => {
   const payload = jwt.verify(token, config.jwt.access);
-  if (typeof payload === 'string' || payload.purpose !== 'admin_2fa') throw new Error('Wrong token purpose');
+  if (typeof payload === 'string' || payload.purpose !== 'admin_2fa' || payload.typ !== 'admin_2fa') {
+    throw new Error('Wrong token purpose');
+  }
   return { userId: userIdOf(payload) };
 };
 

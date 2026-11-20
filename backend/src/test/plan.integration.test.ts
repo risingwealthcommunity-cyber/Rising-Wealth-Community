@@ -353,6 +353,185 @@ test('auth: set password for a Google-only account', async () => {
   assert.equal((await new Client().call('POST', '/api/auth/password/set', { password: 'Password123', confirmPassword: 'Password123' })).status, 401);
 });
 
+// ---------------------------------------------------------------- SECURITY
+
+/** A request with an arbitrary Authorization header and no cookies. */
+const withBearer = async (token: string, method: string, url: string, body?: unknown) => {
+  const res = await fetch(base + url, {
+    method,
+    headers: {
+      'content-type': 'application/json',
+      'x-forwarded-for': `10.7.${Math.floor(ip / 250)}.${(ip++ % 250) + 1}`,
+      authorization: `Bearer ${token}`
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  return { status: res.status, json: (await res.json().catch(() => ({}))) as any };
+};
+
+test('SECURITY: the admin 2FA temp token cannot be used as a login session (no skipping the code)', async () => {
+  process.env.ENABLE_ADMIN_2FA = 'true';
+  try {
+    const l = await new Client().call('POST', '/api/auth/login', { email: 'admin@test.com', password: 'Password123' });
+    assert.equal(l.json.requireOtp, true);
+    const { tempToken } = l.json.data;
+
+    // knowing only the password must not be enough to reach anything
+    assert.equal((await withBearer(tempToken, 'GET', '/api/auth/me')).status, 401);
+    assert.equal((await withBearer(tempToken, 'GET', '/api/admin/purchases')).status, 401);
+    assert.equal((await withBearer(tempToken, 'GET', '/api/wallet')).status, 401);
+  } finally {
+    process.env.ENABLE_ADMIN_2FA = 'false';
+  }
+});
+
+test('SECURITY: only tokens issued as access tokens are accepted', async () => {
+  const jwt = (await import('jsonwebtoken')).default;
+  const root = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@test.com' } });
+  const secret = process.env.JWT_ACCESS_SECRET!;
+
+  // a real access token works
+  assert.equal((await withBearer(tokens.signAccessToken(root.id, root.role), 'GET', '/api/auth/me')).status, 200);
+  // a token signed with the right secret but without the access type does not
+  assert.equal((await withBearer(jwt.sign({ userId: root.id, role: root.role }, secret, { expiresIn: 600 }), 'GET', '/api/auth/me')).status, 401);
+  assert.equal((await withBearer(jwt.sign({ userId: root.id, typ: 'refresh' }, secret, { expiresIn: 600 }), 'GET', '/api/auth/me')).status, 401);
+  // a token signed with the wrong secret does not
+  assert.equal((await withBearer(jwt.sign({ userId: root.id, typ: 'access' }, 'x'.repeat(40), { expiresIn: 600 }), 'GET', '/api/auth/me')).status, 401);
+  // alg "none" is refused
+  const none = `${Buffer.from('{"alg":"none","typ":"JWT"}').toString('base64url')}.${Buffer.from(JSON.stringify({ userId: root.id, typ: 'access' })).toString('base64url')}.`;
+  assert.equal((await withBearer(none, 'GET', '/api/auth/me')).status, 401);
+});
+
+test('SECURITY: an admin one-time code can only be guessed a few times', async () => {
+  process.env.ENABLE_ADMIN_2FA = 'true';
+  try {
+    const c = new Client();
+    const l = await c.call('POST', '/api/auth/login', { email: 'admin@test.com', password: 'Password123' });
+    const { tempToken } = l.json.data;
+    const otp = lastMail('admin@test.com', 'otp')!.otp!;
+    const wrong = otp === '000000' ? '111111' : '000000';
+
+    for (let i = 1; i <= 4; i++) {
+      assert.equal((await c.call('POST', '/api/auth/verify-admin-otp', { tempToken, otp: wrong })).status, 400, `attempt ${i}`);
+    }
+    // the fifth wrong guess burns the code: even the right one no longer works
+    assert.equal((await c.call('POST', '/api/auth/verify-admin-otp', { tempToken, otp: wrong })).status, 429);
+    assert.notEqual((await c.call('POST', '/api/auth/verify-admin-otp', { tempToken, otp })).status, 200);
+    assert.equal(c.cookies.size, 0, 'no session was ever issued');
+
+    // a fresh login brings a fresh code and a fresh allowance
+    const again = await c.call('POST', '/api/auth/login', { email: 'admin@test.com', password: 'Password123' });
+    const otp2 = lastMail('admin@test.com', 'otp')!.otp!;
+    const ok = await c.call('POST', '/api/auth/verify-admin-otp', { tempToken: again.json.data.tempToken, otp: otp2 });
+    assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  } finally {
+    process.env.ENABLE_ADMIN_2FA = 'false';
+  }
+});
+
+test('SECURITY: signing in with Google never creates an account; only a referral signup does', async () => {
+  const { authService } = await import('../features/auth/auth.service');
+  const { googleAuth } = await import('../features/auth/auth.google');
+  const original = googleAuth.profileFromCode;
+  const fresh = { googleId: 'g-new-1', email: 'brandnew@test.com', name: 'Brand New' };
+  try {
+    googleAuth.profileFromCode = async () => fresh;
+
+    // login page: no referral => refused, nothing stored
+    await assert.rejects(() => authService.handleGoogleLogin('code'), /ACCOUNT_NOT_FOUND/);
+    assert.equal(await prisma.user.count({ where: { email: fresh.email } }), 0);
+
+    // register link with a bad sponsor => refused too
+    await assert.rejects(() => authService.handleGoogleLogin('code', { sponsorCode: 'NOPE1234', leg: 'LEFT' }), /SPONSOR_REQUIRED/);
+    assert.equal(await prisma.user.count({ where: { email: fresh.email } }), 0);
+
+    // register link with a real sponsor => the account is created and placed
+    const session = await authService.handleGoogleLogin('code', { sponsorCode: 'RWCROOT', leg: 'LEFT' });
+    assert.equal(session.user.email, fresh.email);
+    assert.equal(await prisma.user.count({ where: { email: fresh.email } }), 1);
+
+    // from then on the same person simply logs in (no referral needed)
+    const again = await authService.handleGoogleLogin('code');
+    assert.equal(again.user.id, session.user.id);
+  } finally {
+    googleAuth.profileFromCode = original;
+  }
+});
+
+test('SECURITY: Google cannot be used to inherit a password someone else set on your email', async () => {
+  const { authService } = await import('../features/auth/auth.service');
+  const { googleAuth } = await import('../features/auth/auth.google');
+  const original = googleAuth.profileFromCode;
+  try {
+    // an attacker registers the victim's email with their own password and never verifies it
+    const victimEmail = 'victim.prehijack@test.com';
+    const attacker = new Client();
+    const r = await attacker.call('POST', '/api/auth/signup', {
+      name: 'Attacker', email: victimEmail, password: 'AttackerPass1', sponsorCode: 'RWCROOT', leg: 'LEFT'
+    });
+    assert.equal(r.status, 201);
+    assert.equal((await attacker.call('POST', '/api/auth/login', { email: victimEmail, password: 'AttackerPass1' })).status, 403); // unverified
+
+    // the real owner signs in with Google
+    googleAuth.profileFromCode = async () => ({ googleId: 'g-victim-1', email: victimEmail, name: 'Victim' });
+    const session = await authService.handleGoogleLogin('code');
+    assert.equal(session.user.email, victimEmail);
+
+    // the attacker's password is gone for good
+    const login = await new Client().call('POST', '/api/auth/login', { email: victimEmail, password: 'AttackerPass1' });
+    assert.equal(login.status, 401);
+    const row = await prisma.user.findUniqueOrThrow({ where: { email: victimEmail } });
+    assert.equal(row.passwordHash, null);
+    assert.equal(row.isVerified, true);
+  } finally {
+    googleAuth.profileFromCode = original;
+  }
+});
+
+test('SECURITY: changing a password needs the current one', async () => {
+  const { c, email } = await signup('RWCROOT', 'RIGHT', 'pwchange');
+  const change = (body: unknown) => c.call('POST', '/api/auth/password/set', body);
+
+  // no current password / wrong current password
+  assert.equal((await change({ password: 'NewPassword123', confirmPassword: 'NewPassword123' })).status, 400);
+  assert.equal((await change({ password: 'NewPassword123', confirmPassword: 'NewPassword123', currentPassword: 'WrongPassword1' })).status, 400);
+  assert.equal((await new Client().call('POST', '/api/auth/login', { email, password: 'Password123' })).status, 200, 'old password still works');
+
+  // correct current password
+  const ok = await change({ password: 'NewPassword123', confirmPassword: 'NewPassword123', currentPassword: 'Password123' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.equal((await new Client().call('POST', '/api/auth/login', { email, password: 'NewPassword123' })).status, 200);
+  assert.equal((await new Client().call('POST', '/api/auth/login', { email, password: 'Password123' })).status, 401);
+});
+
+test('SECURITY: state-changing requests from an unknown website origin are refused (CSRF)', async () => {
+  const post = async (origin: string | undefined) =>
+    (await fetch(base + '/api/auth/logout', {
+      method: 'POST',
+      headers: { 'x-forwarded-for': `10.8.${Math.floor(ip / 250)}.${(ip++ % 250) + 1}`, ...(origin ? { origin } : {}) }
+    })).status;
+
+  assert.equal(await post('https://evil.example'), 403);
+  assert.equal(await post('http://localhost:4173'), 403); // not our frontend
+  assert.equal(await post('http://localhost:5173'), 200); // our dev frontend
+  assert.equal(await post(undefined), 200); // curl / server to server: not a browser cross-site request
+
+  // reads are never blocked
+  const get = await fetch(base + '/api/site/content', { headers: { origin: 'https://evil.example', 'x-forwarded-for': '10.8.250.250' } });
+  assert.equal(get.status, 200);
+
+  // a body-less admin action from another site is refused even with the admin's cookies
+  const res = await fetch(base + '/api/admin/purchases/00000000-0000-0000-0000-000000000000/confirm', {
+    method: 'POST',
+    headers: {
+      origin: 'https://evil.example',
+      cookie: [...admin.cookies].map(([k, v]) => `${k}=${v}`).join('; '),
+      'x-forwarded-for': '10.8.250.251'
+    }
+  });
+  assert.equal(res.status, 403);
+});
+
 test('auth: Google login answers 503 until it is configured', async () => {
   const res = await fetch(base + '/api/auth/google', { redirect: 'manual' });
   assert.equal(res.status, 503);

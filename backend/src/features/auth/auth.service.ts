@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import { timingSafeEqual } from 'crypto';
 import { Leg, Prisma, User } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { config } from '../../config/env';
@@ -30,6 +31,10 @@ import type {
 const BCRYPT_ROUNDS = process.env.NODE_ENV === 'test' ? 4 : 12;
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 const MAX_RETRIES = 5;
+/** A 6 digit code may be guessed this many times; after that it is thrown away and the admin must log in again. */
+const MAX_OTP_ATTEMPTS = 5;
+/** Compared against when the email is unknown, so "no such account" takes as long as "wrong password". */
+const DUMMY_HASH = bcrypt.hashSync('rwc-timing-equalizer', BCRYPT_ROUNDS);
 
 /** Fields that are safe to send to the browser. */
 export const toSafeUser = (user: User) => ({
@@ -68,7 +73,11 @@ async function issueAdminOtp(user: User) {
   const otp = generateOtp();
   await prisma.user.update({
     where: { id: user.id },
-    data: { twoFactorOtpHash: hashToken(otp), twoFactorOtpExpiry: new Date(Date.now() + ADMIN_OTP_TTL_MS) }
+    data: {
+      twoFactorOtpHash: hashToken(otp),
+      twoFactorOtpExpiry: new Date(Date.now() + ADMIN_OTP_TTL_MS),
+      twoFactorAttempts: 0
+    }
   });
 
   try {
@@ -185,7 +194,10 @@ export const authService = {
   async login(input: LoginInput) {
     const user = await prisma.user.findUnique({ where: { email: normalizeEmail(input.email) } });
 
-    if (!user || !user.isActive || !user.passwordHash) throw new AppError('Invalid email or password', 401);
+    if (!user || !user.isActive || !user.passwordHash) {
+      await bcrypt.compare(input.password, DUMMY_HASH); // same cost whether or not the account exists
+      throw new AppError('Invalid email or password', 401);
+    }
     if (!(await bcrypt.compare(input.password, user.passwordHash))) {
       throw new AppError('Invalid email or password', 401);
     }
@@ -222,13 +234,28 @@ export const authService = {
       throw new AppError('Verification code has expired. Please request a new code.', 400);
     }
 
-    // Development convenience only (never in production or tests).
-    const devMasterOtp = config.nodeEnv === 'development' && input.otp === '123456';
-    if (!devMasterOtp && user.twoFactorOtpHash !== hashToken(input.otp)) {
+    // Local convenience only: needs NODE_ENV=development AND ALLOW_DEV_MASTER_OTP=true (never in production or tests).
+    const devMasterOtp = config.nodeEnv === 'development' && config.allowDevMasterOtp && input.otp === '123456';
+    const given = Buffer.from(hashToken(input.otp));
+    const stored = Buffer.from(user.twoFactorOtpHash);
+    const matches = given.length === stored.length && timingSafeEqual(given, stored);
+    if (!devMasterOtp && !matches) {
+      const { twoFactorAttempts } = await prisma.user.update({
+        where: { id: user.id },
+        data: { twoFactorAttempts: { increment: 1 } },
+        select: { twoFactorAttempts: true }
+      });
+      if (twoFactorAttempts >= MAX_OTP_ATTEMPTS) {
+        await prisma.user.update({ where: { id: user.id }, data: { twoFactorOtpHash: null, twoFactorOtpExpiry: null } });
+        throw new AppError('Too many wrong codes. Please sign in again to get a new one.', 429);
+      }
       throw new AppError('Incorrect verification code. Please check and try again.', 400);
     }
 
-    await prisma.user.update({ where: { id: user.id }, data: { twoFactorOtpHash: null, twoFactorOtpExpiry: null } });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { twoFactorOtpHash: null, twoFactorOtpExpiry: null, twoFactorAttempts: 0 }
+    });
     return startSession(user);
   },
 
@@ -270,7 +297,19 @@ export const authService = {
       if (byEmail) {
         // Link Google to the existing account. Google already proved ownership of the email.
         const link = { googleId: profile.googleId, photoUrl: byEmail.photoUrl || profile.photoUrl || '' };
-        const verified = { ...link, isVerified: true, emailVerifyTokenHash: null, emailVerifyExpiry: null };
+        // Nobody has verified this account yet, so it may have been created by someone else using this
+        // email. Whoever proves ownership through Google takes it over completely: the signup password,
+        // any session and any pending reset link are discarded.
+        const verified = {
+          ...link,
+          isVerified: true,
+          emailVerifyTokenHash: null,
+          emailVerifyExpiry: null,
+          passwordHash: null,
+          refreshTokenHash: null,
+          resetPasswordTokenHash: null,
+          resetPasswordExpiry: null
+        };
 
         if (!byEmail.isVerified && byEmail.sponsorId && !byEmail.parentId) {
           user = await placeInTree(byEmail.id, byEmail.sponsorId, byEmail.preferredLeg ?? 'LEFT', verified);
@@ -278,6 +317,8 @@ export const authService = {
           user = await prisma.user.update({ where: { id: byEmail.id }, data: byEmail.isVerified ? link : verified });
         }
       } else {
+        // Logging in never creates an account. That only happens from a referral / register link.
+        if (!signupRef) throw new AppError('ACCOUNT_NOT_FOUND', 404);
         const sponsor = signupRef
           ? await prisma.user.findUnique({
               where: { referralCode: signupRef.sponsorCode },
@@ -391,10 +432,19 @@ export const authService = {
     });
   },
 
-  /** For Google-only accounts that want to add a password. */
-  async setPassword(userId: string, password: string): Promise<void> {
+  /**
+   * Google-only accounts can add a password. An account that already has one must prove it knows the
+   * current password, so a stolen or left-open session cannot quietly take the account over.
+   */
+  async setPassword(userId: string, password: string, currentPassword?: string): Promise<void> {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.isActive) throw new AppError('User not found or inactive', 404);
+
+    if (user.passwordHash) {
+      if (!currentPassword || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+        throw new AppError('Your current password is not correct', 400);
+      }
+    }
 
     await prisma.user.update({
       where: { id: user.id },

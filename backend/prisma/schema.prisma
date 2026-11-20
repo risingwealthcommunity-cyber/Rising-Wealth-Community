@@ -78,6 +78,7 @@ model User {
   photoUrl             String?
   twoFactorOtpHash     String?
   twoFactorOtpExpiry   DateTime?
+  twoFactorAttempts     Int       @default(0)
   refreshTokenHash     String?
   resetPasswordTokenHash String?
   resetPasswordExpiry    DateTime?

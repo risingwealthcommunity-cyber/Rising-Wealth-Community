@@ -36,7 +36,7 @@ export const resetPasswordSchema = z
   .strict();
 
 export const setPasswordSchema = z
-  .object({ password, confirmPassword: password })
+  .object({ password, confirmPassword: password, currentPassword: z.string().max(128).optional() })
   .strict()
   .refine((d) => d.password === d.confirmPassword, {
     message: 'Passwords do not match',

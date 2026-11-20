@@ -148,7 +148,8 @@ export const googleCallback = async (req: Request, res: Response) => {
     res.redirect(`${config.frontendUrl}/dashboard`);
   } catch (err) {
     console.error('[GoogleOAuth] failure:', err instanceof Error ? err.message : err);
-    fail(err instanceof AppError && err.message === 'SPONSOR_REQUIRED' ? 'sponsor_required' : 'GoogleAuthFailed');
+    const known = err instanceof AppError ? err.message : '';
+    fail(known === 'SPONSOR_REQUIRED' ? 'sponsor_required' : known === 'ACCOUNT_NOT_FOUND' ? 'account_not_found' : 'GoogleAuthFailed');
   }
 };
 
@@ -187,6 +188,6 @@ export const resetPassword = async (req: Request, res: Response) => {
 };
 
 export const setPassword = async (req: Request, res: Response) => {
-  await authService.setPassword(req.user!.id, req.body.password);
+  await authService.setPassword(req.user!.id, req.body.password, req.body.currentPassword);
   res.json({ success: true, message: 'Password set successfully' });
 };
