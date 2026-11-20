@@ -10,7 +10,16 @@ export interface RegisterInput {
   leg: 'LEFT' | 'RIGHT';
 }
 
+export interface SponsorPreview {
+  valid: boolean;
+  /** First name only. */
+  sponsorName?: string;
+  /** LEFT / RIGHT for the new two-code scheme, null for an older referral code (the person picks the side). */
+  leg?: 'LEFT' | 'RIGHT' | null;
+}
+
 export const authApi = {
+  sponsorPreview: (code: string) => api<SponsorPreview>(`/auth/sponsor/${encodeURIComponent(code)}`),
   /** Creates an unverified account. The user must click the emailed link before logging in. */
   register: (body: RegisterInput) => api('/auth/signup', { method: 'POST', body }),
   verifyEmail: (token: string) => api(`/auth/verify-email/${encodeURIComponent(token)}`),

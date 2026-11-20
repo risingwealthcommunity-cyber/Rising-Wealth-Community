@@ -10,6 +10,9 @@ export interface User {
   package: Package;
   rank: string;
   referralCode: string;
+  /** Share this to place a new member on your LEFT / RIGHT. Both exist from the moment the account does. */
+  leftCode: string | null;
+  rightCode: string | null;
   sponsorId: string | null;
   parentId: string | null;
   leg: 'LEFT' | 'RIGHT' | null;

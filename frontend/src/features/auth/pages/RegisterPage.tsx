@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { SmoothInput } from '../../../shared/components/SmoothInput';
-import { googleLoginUrl } from '../auth.api';
+import { authApi, googleLoginUrl } from '../auth.api';
+import type { SponsorPreview } from '../auth.api';
 import { useAuth } from '../AuthContext';
 import AuthShell from '../components/AuthShell';
 import { EyeIcon, EyeOffIcon, GoogleIcon, MailIcon } from '../components/Icons';
@@ -29,6 +30,39 @@ export default function RegisterPage() {
   const [error, setError] = useState('');
   const [sentTo, setSentTo] = useState('');
   const [busy, setBusy] = useState(false);
+  // what the typed sponsor code opens: whose team, and (for the new LEFT/RIGHT codes) which side
+  const [preview, setPreview] = useState<SponsorPreview | null>(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
+
+  useEffect(() => {
+    const code = form.sponsorCode.trim();
+    if (code.length < 4) {
+      setPreview(null);
+      setPreviewFailed(false);
+      return;
+    }
+    let stale = false;
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await authApi.sponsorPreview(code);
+        if (stale) return;
+        setPreview(res.data ?? null);
+        setPreviewFailed(false);
+      } catch {
+        if (stale) return;
+        setPreview(null);
+        setPreviewFailed(true);
+      }
+    }, 350);
+    return () => {
+      stale = true;
+      window.clearTimeout(t);
+    };
+  }, [form.sponsorCode]);
+
+  // The side is chosen by the code itself. Only an older referral code (or a failed lookup) needs the toggle.
+  const codeSetsSide = Boolean(preview?.valid && preview.leg);
+  const showSideToggle = form.sponsorCode.trim().length >= 4 && !codeSetsSide && (previewFailed || preview?.valid === true);
 
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -168,19 +202,32 @@ export default function RegisterPage() {
           placeholder="Code of the person who invited you"
           autoComplete="off"
           required
+          hint={
+            preview?.valid && preview.leg ? (
+              <span style={{ color: '#14663a', fontWeight: 600 }}>
+                {'\u2714'} You will join {preview.sponsorName}&rsquo;s {preview.leg === 'LEFT' ? 'LEFT' : 'RIGHT'} team.
+              </span>
+            ) : preview?.valid ? (
+              <span>Code found ({preview.sponsorName}). Choose the side below.</span>
+            ) : preview && !preview.valid ? (
+              <span style={{ color: '#a11a1a' }}>We could not find this code. Check it with the person who invited you.</span>
+            ) : undefined
+          }
         />
 
-        <div>
-          <span className="au-field-label">Which side of your sponsor&rsquo;s team do you join?</span>
-          <div className="au-seg" role="radiogroup" aria-label="Placement leg">
-            {(['LEFT', 'RIGHT'] as const).map((leg) => (
-              <label key={leg}>
-                <input type="radio" name="leg" value={leg} checked={form.leg === leg} onChange={set('leg')} />
-                {leg === 'LEFT' ? 'Left' : 'Right'}
-              </label>
-            ))}
+        {showSideToggle && (
+          <div>
+            <span className="au-field-label">Which side of your sponsor&rsquo;s team do you join?</span>
+            <div className="au-seg" role="radiogroup" aria-label="Placement leg">
+              {(['LEFT', 'RIGHT'] as const).map((leg) => (
+                <label key={leg}>
+                  <input type="radio" name="leg" value={leg} checked={form.leg === leg} onChange={set('leg')} />
+                  {leg === 'LEFT' ? 'Left' : 'Right'}
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <button className="au-btn" disabled={busy}>
           {busy ? 'Creating account...' : 'Create account'}

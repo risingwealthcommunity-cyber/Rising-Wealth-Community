@@ -4,10 +4,12 @@ import { api } from '../../shared/api/apiClient';
 import { inr, label } from '../../shared/format';
 import { useAuth } from '../auth';
 
+type Copied = string;
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const [balance, setBalance] = useState<string | null>(null);
-  const [copied, setCopied] = useState('');
+  const [copied, setCopied] = useState<Copied>('');
 
   useEffect(() => {
     api<{ balance: string }>('/wallet')
@@ -17,18 +19,22 @@ export default function DashboardPage() {
 
   if (!user) return null;
 
-  const link = (leg: 'LEFT' | 'RIGHT') =>
-    `${window.location.origin}/register?ref=${user.referralCode}&leg=${leg}`;
+  const link = (code: string) => `${window.location.origin}/register?ref=${code}`;
 
-  const copy = async (leg: 'LEFT' | 'RIGHT') => {
+  const copy = async (key: string, text: string) => {
     try {
-      await navigator.clipboard.writeText(link(leg));
-      setCopied(leg);
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
       setTimeout(() => setCopied(''), 1500);
     } catch {
       /* clipboard unavailable */
     }
   };
+
+  const codes = [
+    { side: 'LEFT', code: user.leftCode, note: 'New members who use this code join your LEFT team.' },
+    { side: 'RIGHT', code: user.rightCode, note: 'New members who use this code join your RIGHT team.' }
+  ] as const;
 
   return (
     <>
@@ -47,23 +53,28 @@ export default function DashboardPage() {
           <span className="muted">Rank</span>
           <strong>{user.rank === 'NONE' ? 'Not ranked yet' : label(user.rank)}</strong>
         </div>
-        <div className="card stat">
-          <span className="muted">Referral code</span>
-          <strong>{user.referralCode}</strong>
-        </div>
       </div>
 
       <div className="card">
-        <h2>Invite people</h2>
-        <p className="muted">Share a link. New members are placed under you on the chosen leg.</p>
-        {(['LEFT', 'RIGHT'] as const).map((leg) => (
-          <div className="copy-row" key={leg}>
-            <input readOnly value={link(leg)} />
-            <button className="btn" onClick={() => copy(leg)}>
-              {copied === leg ? 'Copied!' : `Copy ${leg.toLowerCase()}`}
-            </button>
-          </div>
-        ))}
+        <h2>Your sponsor codes</h2>
+        <p className="muted">You have two codes, one for each side of your team. Share the one for the side you want.</p>
+        <div className="code-grid">
+          {codes.map((c) => (
+            <div className="code-card" key={c.side} data-side={c.side}>
+              <span className="badge">{c.side}</span>
+              <strong className="code-value">{c.code ?? '...'}</strong>
+              <span className="muted">{c.note}</span>
+              <div className="copy-row">
+                <button className="btn ghost" disabled={!c.code} onClick={() => c.code && copy(`${c.side}-code`, c.code)}>
+                  {copied === `${c.side}-code` ? 'Copied!' : 'Copy code'}
+                </button>
+                <button className="btn" disabled={!c.code} onClick={() => c.code && copy(`${c.side}-link`, link(c.code))}>
+                  {copied === `${c.side}-link` ? 'Copied!' : 'Copy invite link'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {!user.hasPassword && (
