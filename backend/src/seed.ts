@@ -4,6 +4,7 @@
  */
 import bcrypt from 'bcrypt';
 import { prisma } from './config/database';
+import { generateSponsorCodes } from './features/auth/auth.tokens';
 
 async function main() {
   const email = (process.env.ROOT_EMAIL ?? 'admin@rwc.local').toLowerCase();
@@ -12,7 +13,7 @@ async function main() {
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
-    console.log(`Root user already exists: ${email} (code ${existing.referralCode})`);
+    console.log(`Root user already exists: ${email} (LEFT ${existing.leftCode ?? 'none yet'}, RIGHT ${existing.rightCode ?? 'none yet'})`);
     return;
   }
 
@@ -24,10 +25,11 @@ async function main() {
       role: 'SUPER_ADMIN',
       package: 'ELITE',
       isVerified: true,
-      referralCode
+      referralCode,
+      ...generateSponsorCodes()
     }
   });
-  console.log(`Root user created: ${user.email} | sponsor code: ${user.referralCode}`);
+  console.log(`Root user created: ${user.email} | LEFT code: ${user.leftCode} | RIGHT code: ${user.rightCode}`);
 }
 
 main()

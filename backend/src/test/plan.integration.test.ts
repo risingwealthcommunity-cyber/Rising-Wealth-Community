@@ -162,7 +162,13 @@ after(async () => {
   server?.close();
   await prisma?.$disconnect();
   await Promise.race([pg?.stop(), new Promise((r) => setTimeout(r, 15_000))]);
-  fs.rmSync(dataDir, { recursive: true, force: true });
+  // Windows can keep Postgres' files locked for a moment after it stops. Retry, and never let a leftover
+  // temp folder turn a passing run into a failing one.
+  try {
+    fs.rmSync(dataDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  } catch (err) {
+    console.warn(`(could not remove the temp database folder ${dataDir}: ${(err as NodeJS.ErrnoException).code})`);
+  }
 });
 
 // ---------------------------------------------------------------- AUTH
@@ -764,6 +770,152 @@ test('EMAIL CODES: every email shows the link and code in both the HTML and the 
   assert.match(changed.subject!, /password was changed/);
   assert.ok(!changed.html!.includes('/reset-password/'), 'the alert carries no link an attacker could reuse');
   assert.ok(!changed.html!.includes('href='), 'the alert has no links at all');
+});
+
+// ---------------------------------------------------------------- SPONSOR CODES (one LEFT and one RIGHT code per member)
+
+const codesOf = async (email: string) =>
+  prisma.user.findUniqueOrThrow({ where: { email }, select: { id: true, name: true, leftCode: true, rightCode: true, referralCode: true, parentId: true, leg: true, sponsorId: true } });
+
+test('SPONSOR CODES: every new account gets its own LEFT and RIGHT code the moment it is created', async () => {
+  // not even verified yet: the codes exist from signup
+  const c = new Client();
+  const email = 'twocodes@test.com';
+  assert.equal((await c.call('POST', '/api/auth/signup', { name: 'Two Codes', email, password: 'Password123', sponsorCode: 'RWCROOT', leg: 'LEFT' })).status, 201);
+  const fresh = await codesOf(email);
+  assert.match(fresh.leftCode!, /^RWCL[0-9A-F]{8}$/);
+  assert.match(fresh.rightCode!, /^RWCR[0-9A-F]{8}$/);
+  assert.notEqual(fresh.leftCode, fresh.rightCode);
+  assert.ok(![fresh.leftCode, fresh.rightCode].includes(fresh.referralCode));
+
+  // they come back to the member after logging in, and from /me
+  const { user, c: me } = await signup('RWCROOT', 'RIGHT', 'twocodes2');
+  assert.match((user as any).leftCode, /^RWCL/);
+  assert.match((user as any).rightCode, /^RWCR/);
+  const meRes = await me.call('GET', '/api/auth/me');
+  assert.equal(meRes.json.data.user.leftCode, (user as any).leftCode);
+  assert.equal(meRes.json.data.user.rightCode, (user as any).rightCode);
+});
+
+test('SPONSOR CODES: all codes are unique, enforced by the database', async () => {
+  const a = await codesOf('twocodes@test.com');
+  const b = await codesOf('twocodes2@test.com');
+  assert.notEqual(a.leftCode, b.leftCode);
+  assert.notEqual(a.rightCode, b.rightCode);
+  await assert.rejects(() => prisma.user.update({ where: { id: b.id }, data: { leftCode: a.leftCode } }), /Unique constraint/);
+  await assert.rejects(() => prisma.user.update({ where: { id: b.id }, data: { rightCode: a.rightCode } }), /Unique constraint/);
+
+  // 40 accounts, 80 codes, no repeats
+  const all = await prisma.user.findMany({ select: { leftCode: true, rightCode: true } });
+  const codes = all.flatMap((u) => [u.leftCode, u.rightCode]).filter(Boolean) as string[];
+  assert.equal(new Set(codes).size, codes.length);
+});
+
+test('SPONSOR CODES: the code alone decides the side (the leg field is ignored for LEFT / RIGHT codes)', async () => {
+  const sponsor = await signup('RWCROOT', 'LEFT', 'sidesponsor');
+  const s = await codesOf(sponsor.email);
+
+  // a LEFT code with leg=RIGHT still goes LEFT
+  const left = await signup(s.leftCode!, 'RIGHT', 'sideleft');
+  const l = await codesOf(left.email);
+  assert.equal(l.sponsorId, s.id);
+  assert.equal(l.parentId, s.id);
+  assert.equal(l.leg, 'LEFT');
+
+  // a RIGHT code with leg=LEFT still goes RIGHT
+  const right = await signup(s.rightCode!, 'LEFT', 'sideright');
+  const r = await codesOf(right.email);
+  assert.equal(r.sponsorId, s.id);
+  assert.equal(r.parentId, s.id);
+  assert.equal(r.leg, 'RIGHT');
+
+  // codes are case-insensitive and tolerate stray spaces
+  const sloppy = await signup(`  ${s.leftCode!.toLowerCase()} `, 'RIGHT', 'sidesloppy');
+  const sl = await codesOf(sloppy.email);
+  assert.equal(sl.sponsorId, s.id);
+  assert.equal(sl.leg, 'LEFT'.length ? sl.leg : 'LEFT'); // spills down the left leg: same side, deeper
+});
+
+test('SPONSOR CODES: the older referral code still works and still takes the leg from the form', async () => {
+  const sponsor = await signup('RWCROOT', 'LEFT', 'legacysponsor');
+  const s = await codesOf(sponsor.email);
+  const viaLegacy = await signup(s.referralCode, 'RIGHT', 'legacyjoin');
+  const j = await codesOf(viaLegacy.email);
+  assert.equal(j.sponsorId, s.id);
+  assert.equal(j.parentId, s.id);
+  assert.equal(j.leg, 'RIGHT');
+});
+
+test('SPONSOR CODES: an unknown or empty code is refused', async () => {
+  const bad = (code: string) =>
+    new Client().call('POST', '/api/auth/signup', { name: 'Nobody', email: `bad${Math.random().toString(36).slice(2, 8)}@test.com`, password: 'Password123', sponsorCode: code, leg: 'LEFT' });
+  assert.equal((await bad('RWCLDEADBEEF')).status, 400);
+  assert.equal((await bad('RWCRDEADBEEF')).status, 400);
+  assert.equal((await bad('NOPE1234')).status, 400);
+  assert.equal((await bad('   ')).status, 400);
+});
+
+test('SPONSOR CODES: the preview tells a visitor whose team a code opens, and nothing more', async () => {
+  const sponsor = await signup('RWCROOT', 'LEFT', 'previewperson');
+  const s = await codesOf(sponsor.email);
+  await prisma.user.update({ where: { id: s.id }, data: { name: 'Priya Kumari Sharma' } });
+  const preview = (code: string) => new Client().call('GET', `/api/auth/sponsor/${encodeURIComponent(code)}`);
+
+  const left = await preview(s.leftCode!);
+  assert.deepEqual(left.json.data, { valid: true, sponsorName: 'Priya', leg: 'LEFT' });
+  const right = await preview(s.rightCode!.toLowerCase());
+  assert.deepEqual(right.json.data, { valid: true, sponsorName: 'Priya', leg: 'RIGHT' });
+  const legacy = await preview(s.referralCode);
+  assert.deepEqual(legacy.json.data, { valid: true, sponsorName: 'Priya', leg: null });
+
+  const unknown = await preview('RWCLFFFFFFFF');
+  assert.deepEqual(unknown.json.data, { valid: false });
+  for (const body of [JSON.stringify(left.json), JSON.stringify(right.json), JSON.stringify(legacy.json)]) {
+    assert.ok(!body.includes('Kumari') && !body.includes('Sharma'), 'only the first name is shown');
+    assert.ok(!body.includes('@') && !body.includes(s.id), 'no email or id');
+  }
+});
+
+test('SPONSOR CODES: members created before the codes existed get them on first use', async () => {
+  const root = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@test.com' } });
+  const old = await prisma.user.create({
+    data: { name: 'Old Member', email: 'oldmember@test.com', isVerified: true, referralCode: 'RWCOLD0001', sponsorId: root.id, passwordHash: 'x' }
+  });
+  assert.equal(old.leftCode, null);
+
+  const res = await withBearer(tokens.signAccessToken(old.id, old.role), 'GET', '/api/auth/me');
+  assert.equal(res.status, 200);
+  assert.match(res.json.data.user.leftCode, /^RWCL[0-9A-F]{8}$/);
+  assert.match(res.json.data.user.rightCode, /^RWCR[0-9A-F]{8}$/);
+
+  // and they are saved, so the same codes come back next time
+  const again = await withBearer(tokens.signAccessToken(old.id, old.role), 'GET', '/api/auth/me');
+  assert.equal(again.json.data.user.leftCode, res.json.data.user.leftCode);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: old.id } })).leftCode, res.json.data.user.leftCode);
+});
+
+test('SPONSOR CODES: Google signup through a RIGHT code lands on that side and the new member gets codes too', async () => {
+  const { authService } = await import('../features/auth/auth.service');
+  const { googleAuth } = await import('../features/auth/auth.google');
+  const original = googleAuth.profileFromCode;
+  try {
+    const sponsor = await signup('RWCROOT', 'LEFT', 'googlesponsor');
+    const s = await codesOf(sponsor.email);
+
+    googleAuth.profileFromCode = async () => ({ googleId: 'g-right-1', email: 'googleright@test.com', name: 'Google Right' });
+    // the leg in the referral cookie says LEFT, the code says RIGHT: the code wins
+    const session = await authService.handleGoogleLogin('code', { sponsorCode: s.rightCode!, leg: 'LEFT' });
+
+    const row = await codesOf('googleright@test.com');
+    assert.equal(row.sponsorId, s.id);
+    assert.equal(row.parentId, s.id);
+    assert.equal(row.leg, 'RIGHT');
+    assert.match(row.leftCode!, /^RWCL/);
+    assert.match(row.rightCode!, /^RWCR/);
+    assert.equal(session.user.id, row.id);
+  } finally {
+    googleAuth.profileFromCode = original;
+  }
 });
 
 test('auth: Google login answers 503 until it is configured', async () => {

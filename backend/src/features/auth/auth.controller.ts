@@ -178,6 +178,10 @@ export const refresh = async (req: Request, res: Response) => {
   res.json({ success: true, message: 'Token refreshed' });
 };
 
+export const sponsorPreview = async (req: Request, res: Response) => {
+  res.json({ success: true, data: await authService.previewSponsor(single(req.params.code) ?? '') });
+};
+
 export const me = async (req: Request, res: Response) => {
   res.json({ success: true, data: { user: await authService.getMe(req.user!.id) } });
 };

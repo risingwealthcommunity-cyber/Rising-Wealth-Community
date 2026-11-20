@@ -23,6 +23,7 @@ import {
   createOneTimeToken,
   generateOtp,
   generateReferralCode,
+  generateSponsorCodes,
   hashCode,
   hashToken,
   signAccessToken,
@@ -58,6 +59,8 @@ export const toSafeUser = (user: User) => ({
   package: user.package,
   rank: user.rank,
   referralCode: user.referralCode,
+  leftCode: user.leftCode,
+  rightCode: user.rightCode,
   sponsorId: user.sponsorId,
   parentId: user.parentId,
   leg: user.leg,
@@ -67,8 +70,42 @@ export const toSafeUser = (user: User) => ({
 
 const isAdminRole = (user: User) => user.role !== 'USER';
 
+/**
+ * Finds the member a code belongs to and which of their legs it means. A LEFT/RIGHT code decides the leg by
+ * itself; an older referral code keeps working and uses the leg the caller asked for.
+ */
+async function resolveSponsor(rawCode: string, fallbackLeg: Leg) {
+  const code = rawCode.trim().toUpperCase();
+  if (!code) return null;
+  const found = await prisma.user.findFirst({
+    where: { OR: [{ leftCode: code }, { rightCode: code }, { referralCode: code }] },
+    select: { id: true, name: true, isActive: true, leftCode: true, rightCode: true }
+  });
+  if (!found || !found.isActive) return null;
+  const leg: Leg = found.leftCode === code ? 'LEFT' : found.rightCode === code ? 'RIGHT' : fallbackLeg;
+  return { id: found.id, name: found.name, leg, byLegCode: found.leftCode === code || found.rightCode === code };
+}
+
+/** Members created before the two codes existed get them the first time they are seen. */
+async function ensureSponsorCodes(user: User): Promise<User> {
+  if (user.leftCode && user.rightCode) return user;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const fresh = generateSponsorCodes();
+    try {
+      return await prisma.user.update({
+        where: { id: user.id },
+        data: { leftCode: user.leftCode ?? fresh.leftCode, rightCode: user.rightCode ?? fresh.rightCode }
+      });
+    } catch (err) {
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') throw err;
+    }
+  }
+  return user;
+}
+
 /** Issues a fresh token pair and stores the refresh token hash (single active session, like NGO). */
-async function startSession(user: User) {
+async function startSession(original: User) {
+  const user = await ensureSponsorCodes(original);
   const accessToken = signAccessToken(user.id, user.role);
   const refreshToken = signRefreshToken(user.id);
 
@@ -192,11 +229,8 @@ export const authService = {
    * the user must verify their email first (placement in the binary tree happens then).
    */
   async signup(input: SignupInput): Promise<void> {
-    const sponsor = await prisma.user.findUnique({
-      where: { referralCode: input.sponsorCode },
-      select: { id: true, isActive: true }
-    });
-    if (!sponsor || !sponsor.isActive) throw new AppError('Invalid sponsor code', 400);
+    const sponsor = await resolveSponsor(input.sponsorCode, input.leg);
+    if (!sponsor) throw new AppError('Invalid sponsor code', 400);
 
     // Do not reveal whether the account already exists.
     const email = normalizeEmail(input.email);
@@ -218,8 +252,9 @@ export const authService = {
             phone: input.phone,
             passwordHash,
             referralCode: generateReferralCode(),
+            ...generateSponsorCodes(),
             sponsorId: sponsor.id,
-            preferredLeg: input.leg
+            preferredLeg: sponsor.leg
           }
         });
       } catch (err) {
@@ -409,13 +444,8 @@ export const authService = {
       } else {
         // Logging in never creates an account. That only happens from a referral / register link.
         if (!signupRef) throw new AppError('ACCOUNT_NOT_FOUND', 404);
-        const sponsor = signupRef
-          ? await prisma.user.findUnique({
-              where: { referralCode: signupRef.sponsorCode },
-              select: { id: true, isActive: true }
-            })
-          : null;
-        if (!sponsor || !sponsor.isActive) throw new AppError('SPONSOR_REQUIRED', 400);
+        const sponsor = await resolveSponsor(signupRef.sponsorCode, signupRef.leg);
+        if (!sponsor) throw new AppError('SPONSOR_REQUIRED', 400);
 
         let created: User | null = null;
         for (let attempt = 0; attempt < MAX_RETRIES && !created; attempt++) {
@@ -427,19 +457,20 @@ export const authService = {
                 googleId: profile.googleId,
                 photoUrl: profile.photoUrl ?? '',
                 referralCode: generateReferralCode(),
+                ...generateSponsorCodes(),
                 sponsorId: sponsor.id,
-                preferredLeg: signupRef!.leg,
+                preferredLeg: sponsor.leg,
                 isVerified: false
               }
             });
           } catch (err) {
             if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') throw err;
             const target = String((err.meta as { target?: unknown } | undefined)?.target ?? '');
-            if (!target.includes('referralCode')) throw err;
+            if (!/referralCode|leftCode|rightCode/.test(target)) throw err;
           }
         }
         if (!created) throw new AppError('Could not complete registration, please try again', 503);
-        user = await placeInTree(created.id, sponsor.id, signupRef!.leg, { isVerified: true });
+        user = await placeInTree(created.id, sponsor.id, sponsor.leg, { isVerified: true });
       }
     }
 
@@ -483,10 +514,22 @@ export const authService = {
     return { accessToken, refreshToken };
   },
 
+  /** For the register form: tells a visitor whose team a code opens and on which side. Reveals a first name only. */
+  async previewSponsor(rawCode: string) {
+    const sponsor = await resolveSponsor(rawCode.slice(0, 20), 'LEFT');
+    if (!sponsor) return { valid: false as const };
+    return {
+      valid: true as const,
+      sponsorName: sponsor.name.trim().split(/\s+/)[0],
+      // null = an older referral code, where the person still picks the side
+      leg: sponsor.byLegCode ? sponsor.leg : null
+    };
+  },
+
   async getMe(userId: string) {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new AppError('User not found', 404);
-    return toSafeUser(user);
+    const found = await prisma.user.findUnique({ where: { id: userId } });
+    if (!found) throw new AppError('User not found', 404);
+    return toSafeUser(await ensureSponsorCodes(found));
   },
 
   async forgotPassword(email: string): Promise<void> {

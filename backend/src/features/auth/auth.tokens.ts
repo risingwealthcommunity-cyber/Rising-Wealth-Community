@@ -56,6 +56,16 @@ export const verifyAdminTempToken = (token: string): { userId: string } => {
 
 export const hashToken = (token: string): string => crypto.createHash('sha256').update(token).digest('hex');
 
+/**
+ * Every member gets two codes the moment the account exists: one that places a new member on their LEFT
+ * and one on their RIGHT. The letter after RWC (L / R) is not a hex digit, so they can never clash with
+ * the older RWC + 8 hex referral codes.
+ */
+export const generateSponsorCodes = () => ({
+  leftCode: 'RWCL' + crypto.randomBytes(4).toString('hex').toUpperCase(),
+  rightCode: 'RWCR' + crypto.randomBytes(4).toString('hex').toUpperCase()
+});
+
 export const generateReferralCode = (): string => 'RWC' + crypto.randomBytes(4).toString('hex').toUpperCase();
 
 /** Raw token goes in the email link, only its hash is stored. */

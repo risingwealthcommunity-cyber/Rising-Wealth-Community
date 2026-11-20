@@ -60,6 +60,9 @@ model User {
 
   // Referral (sponsor) tree: who invited me
   referralCode String  @unique
+  /// Two unique sponsor codes per member: joining with one places the new member on that leg of this member.
+  leftCode     String?  @unique
+  rightCode    String?  @unique
   sponsorId    String?
   sponsor      User?   @relation("Sponsor", fields: [sponsorId], references: [id])
   referrals    User[]  @relation("Sponsor")
