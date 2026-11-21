@@ -550,3 +550,27 @@
 .pay-qr { width: 200px; height: 200px; object-fit: contain; border-radius: 14px; background: #fff; padding: 8px; border: 1px solid var(--border); }
 .pay-info { display: grid; gap: 8px; justify-items: start; flex: 1; min-width: 220px; }
 .pay-file { display: grid; gap: 6px; font-size: 0.85rem; color: var(--muted); margin: 8px 0; }
+
+/* ---------- ranks, live trainings, admin tabs */
+.rank-now { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.rank-now strong { font: 900 1.4rem 'Unbounded', sans-serif; letter-spacing: -0.03em; }
+.rank-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.rank-card { display: grid; gap: 6px; align-content: start; }
+.rank-card.locked { background: #f7f8fa; }
+.rank-card.achieved { border-color: #0d1117; }
+.rank-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rank-top h3 { margin: 0; }
+.rank-state { padding: 3px 10px; border-radius: 999px; font: 700 0.6rem 'Space Mono', monospace; letter-spacing: 0.1em; text-transform: uppercase; background: #eceff3; color: var(--muted); }
+.rank-state.achieved { background: #0d1117; color: #fff; }
+.rank-state.next { background: #fef3c7; color: #92400e; }
+.rank-reward { font: 900 1.2rem 'Unbounded', sans-serif; letter-spacing: -0.03em; }
+.rank-perk { display: grid; gap: 2px; margin-top: 6px; padding: 10px 12px; border-radius: 12px; background: #f4f5f7; }
+.live-list { display: grid; gap: 14px; }
+.live-card { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.live-card h3 { margin: 6px 0 2px; }
+.live-card.now { border-color: #0d1117; box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14); }
+.live-when { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font: 700 0.76rem 'Space Mono', monospace; letter-spacing: 0.06em; color: var(--muted); }
+.live-dot { padding: 3px 10px; border-radius: 999px; background: #dc2626; color: #fff; animation: live-pulse 1.4s ease-in-out infinite; }
+@keyframes live-pulse { 50% { opacity: 0.55; } }
+.ops-tabs { flex-wrap: wrap; border-radius: 22px; }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }

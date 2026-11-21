@@ -5,10 +5,11 @@ import { api } from '../../shared/api/apiClient';
 import { date, inr, label } from '../../shared/format';
 import { useRun } from '../../shared/useRun';
 import { openProof } from '../campaigns/ReportsPage';
+import { LiveEditor, RankPerksEditor } from './AdminPlanTabs';
 import { openProofAt } from '../../shared/openProof';
 
 type Status = 'PENDING' | 'APPROVED' | 'REJECTED';
-type Tab = 'funds' | 'withdrawals' | 'reports' | 'campaigns';
+type Tab = 'funds' | 'withdrawals' | 'reports' | 'campaigns' | 'perks' | 'live';
 
 interface Person {
   name: string;
@@ -47,6 +48,13 @@ interface Rep {
   campaign: { title: string; reward: number };
   user: Person;
 }
+interface Claim {
+  id: string;
+  rank: string;
+  status: Status;
+  createdAt: string;
+  user: Person;
+}
 interface Camp {
   id: string;
   title: string;
@@ -55,6 +63,7 @@ interface Camp {
   url: string;
   videoUrl: string;
   needsProof: boolean;
+  isDemat: boolean;
   isActive: boolean;
 }
 
@@ -142,7 +151,7 @@ function Queue<T extends { id: string; status: Status; createdAt: string }>({
   );
 }
 
-const EMPTY: Omit<Camp, 'id'> = { title: '', description: '', reward: 0, url: '', videoUrl: '', needsProof: true, isActive: true };
+const EMPTY: Omit<Camp, 'id'> = { title: '', description: '', reward: 0, url: '', videoUrl: '', needsProof: true, isDemat: false, isActive: true };
 
 function Campaigns() {
   const [items, setItems] = useState<Camp[]>([]);
@@ -161,7 +170,7 @@ function Campaigns() {
   };
   const edit = (c: Camp) => {
     setEditId(c.id);
-    setForm({ title: c.title, description: c.description, reward: c.reward, url: c.url, videoUrl: c.videoUrl, needsProof: c.needsProof, isActive: c.isActive });
+    setForm({ title: c.title, description: c.description, reward: c.reward, url: c.url, videoUrl: c.videoUrl, needsProof: c.needsProof, isDemat: c.isDemat, isActive: c.isActive });
   };
   const save = (e: FormEvent) => {
     e.preventDefault();
@@ -213,6 +222,9 @@ function Campaigns() {
           <input type="checkbox" checked={form.needsProof} onChange={(e) => setForm({ ...form, needsProof: e.target.checked })} /> Members must send a proof report (reward after approval)
         </label>
         <label className="check">
+          <input type="checkbox" checked={form.isDemat} onChange={(e) => setForm({ ...form, isDemat: e.target.checked })} /> This is a Demat account opening: approving a report pays the Demat income plan (member's direct income + 5 sponsor levels)
+        </label>
+        <label className="check">
           <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} /> Visible to members
         </label>
         {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
@@ -237,7 +249,7 @@ function Campaigns() {
               <div>
                 <b>{c.title}</b>
                 <small className="muted">
-                  {inr(c.reward)} · {c.needsProof ? 'with report' : 'no report'} · {c.isActive ? 'visible' : 'hidden'}
+                  {inr(c.reward)} · {c.needsProof ? 'with report' : 'no report'} · {c.isDemat ? 'Demat plan · ' : ''}{c.isActive ? 'visible' : 'hidden'}
                 </small>
               </div>
               <span />
@@ -263,7 +275,9 @@ export default function AdminOpsPage() {
     ['funds', 'Fund requests'],
     ['withdrawals', 'Withdrawals'],
     ['reports', 'Reports'],
-    ['campaigns', 'Campaigns']
+    ['campaigns', 'Campaigns'],
+    ['perks', 'Rank perks'],
+    ['live', 'Live trainings']
   ];
 
   return (
@@ -340,6 +354,24 @@ export default function AdminOpsPage() {
         />
       )}
       {tab === 'campaigns' && <Campaigns />}
+      {tab === 'perks' && (
+        <>
+          <Queue<Claim>
+            path="/admin/perk-claims"
+            row={(r) => (
+              <>
+                {who(r.user)}
+                <small>
+                  Wants the <b>{label(r.rank)}</b> perk
+                </small>
+              </>
+            )}
+            rejectLabel="Reject"
+          />
+          <RankPerksEditor />
+        </>
+      )}
+      {tab === 'live' && <LiveEditor />}
     </>
   );
 }
