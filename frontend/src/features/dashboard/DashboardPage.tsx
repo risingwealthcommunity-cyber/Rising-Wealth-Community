@@ -121,12 +121,12 @@ function LineChart({ points }: { points: Point[] }) {
 
 /** The income streams members see, always all of them (a stream with nothing earned yet shows Rs 0). */
 const STREAMS: { key: string; label: string; types: string[]; color: string }[] = [
-  { key: 'demat', label: 'Demat Referral Income', types: ['DEMAT_DIRECT'], color: '#9aa2af' },
-  { key: 'direct', label: 'Direct Package Income', types: ['DIRECT_INCOME'], color: '#2a313c' },
-  { key: 'passive', label: 'Passive Income', types: ['PASSIVE_INCOME', 'DEMAT_PASSIVE'], color: '#6b7482' },
-  { key: 'weekly', label: 'Weekly Bonus', types: ['WEEKLY_BONUS'], color: '#c3c9d2' },
-  { key: 'leadership', label: 'Leadership Bonus', types: ['LEADERSHIP_TARGET_BONUS', 'LEADERSHIP_BONUS'], color: '#4b5563' },
-  { key: 'team', label: 'Team Performance Bonus', types: ['TEAM_PERFORMANCE_BONUS'], color: '#0d1117' }
+  { key: 'demat', label: 'Demat Referral Income', types: ['DEMAT_DIRECT'], color: '#14b8a6' },
+  { key: 'direct', label: 'Direct Package Income', types: ['DIRECT_INCOME'], color: '#3b82f6' },
+  { key: 'passive', label: 'Passive Income', types: ['PASSIVE_INCOME', 'DEMAT_PASSIVE'], color: '#8b5cf6' },
+  { key: 'weekly', label: 'Weekly Bonus', types: ['WEEKLY_BONUS'], color: '#22c55e' },
+  { key: 'leadership', label: 'Leadership Bonus', types: ['LEADERSHIP_TARGET_BONUS', 'LEADERSHIP_BONUS'], color: '#f59e0b' },
+  { key: 'team', label: 'Team Performance Bonus', types: ['TEAM_PERFORMANCE_BONUS'], color: '#f43f5e' }
 ];
 
 interface Stream {
@@ -150,7 +150,7 @@ function streamsOf(breakdown: Summary['breakdown']): Stream[] {
 }
 
 function Donut({ rows, total, active, onActive }: { rows: Stream[]; total: number; active: string | null; onActive: (k: string | null) => void }) {
-  const R = 64;
+  const R = 72;
   const C = 2 * Math.PI * R;
   let offset = 0;
   const shown = rows.filter((r) => r.amount > 0);
@@ -166,7 +166,7 @@ function Donut({ rows, total, active, onActive }: { rows: Stream[]; total: numbe
   return (
     <div className="donut">
       <svg viewBox="0 0 200 200" role="img" aria-label="Income breakdown">
-        <circle cx="100" cy="100" r={R} fill="none" stroke="#e1e5ea" strokeWidth="22" />
+        <circle cx="100" cy="100" r={R} fill="none" stroke="#eceff3" strokeWidth="8" />
         {shown.map((r) => {
           const len = (r.amount / total) * C;
           const gap = shown.length > 1 ? 2.5 : 0;
