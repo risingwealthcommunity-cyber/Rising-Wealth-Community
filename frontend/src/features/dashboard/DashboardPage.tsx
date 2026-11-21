@@ -25,16 +25,16 @@ const initials = (name: string) =>
     .join('');
 
 const TYPE_COLOR: Record<string, string> = {
-  DEMAT_DIRECT: '#e3aa2c',
-  DEMAT_PASSIVE: '#f1cf72',
-  DIRECT_INCOME: '#1f2a24',
-  PASSIVE_INCOME: '#7d8a80',
-  WEEKLY_BONUS: '#2f8f5b',
-  PERFORMANCE_BONUS: '#c4561b',
-  LEADERSHIP_BONUS: '#8a5a00',
-  LEADERSHIP_TARGET_BONUS: '#f5a623',
-  TEAM_PERFORMANCE_BONUS: '#0f766e',
-  RANK_REWARD: '#a3412c'
+  DEMAT_DIRECT: '#2a313c',
+  DEMAT_PASSIVE: '#47505e',
+  DIRECT_INCOME: '#1f2937',
+  PASSIVE_INCOME: '#646e7d',
+  WEEKLY_BONUS: '#a3abb8',
+  PERFORMANCE_BONUS: '#bcc3ce',
+  LEADERSHIP_BONUS: '#d3d8e0',
+  LEADERSHIP_TARGET_BONUS: '#8a93a2',
+  TEAM_PERFORMANCE_BONUS: '#0d1117',
+  RANK_REWARD: '#5b6574'
 };
 const colorOf = (type: string) => TYPE_COLOR[type] ?? '#94a3b8';
 
