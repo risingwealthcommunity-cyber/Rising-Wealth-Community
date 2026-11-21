@@ -112,6 +112,19 @@ export const siteService = {
     return (await readSetting<unknown[]>('training')) ?? [];
   },
 
+  /** Lessons as one member may see them: each carries `unlocked`, and the link only when it is unlocked. Admins see all. */
+  async getTrainingFor(pkg: 'TRAINEE' | 'PRO' | 'ELITE', isAdmin: boolean) {
+    const rank = { TRAINEE: 0, PRO: 1, ELITE: 2 } as const;
+    const lessons = ((await readSetting<{ title: string; description: string; url: string; tier?: keyof typeof rank }[]>('training')) ?? []);
+    return lessons.map((l) => {
+      const tier = l.tier && l.tier in rank ? l.tier : 'TRAINEE';
+      const unlocked = isAdmin || rank[pkg] >= rank[tier];
+      return unlocked
+        ? { title: l.title, description: l.description, url: l.url, tier, unlocked: true }
+        : { title: l.title, description: l.description, tier, unlocked: false };
+    });
+  },
+
   async get(key: string) {
     const row = await prisma.siteAsset.findUnique({ where: { key } });
     if (!row) throw new AppError('Image not found', 404);

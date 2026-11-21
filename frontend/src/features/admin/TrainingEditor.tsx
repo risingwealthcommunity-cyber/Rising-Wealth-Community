@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../shared/api/apiClient';
-import type { Lesson } from '../dashboard/TrainingPage';
+import type { Lesson, Tier } from '../dashboard/TrainingPage';
 
 /** The lessons members see in the Training Library: a title, a short note and an https link (video, doc or folder). */
 export default function TrainingEditor() {
@@ -12,7 +12,8 @@ export default function TrainingEditor() {
   useEffect(() => {
     api<{ items: Lesson[] }>('/site/training')
       .then((r) => {
-        const items = r.data?.items ?? [];
+        // admins receive every link; only the fields that are edited are kept
+        const items = (r.data?.items ?? []).map((l) => ({ title: l.title, description: l.description, url: l.url ?? '', tier: l.tier ?? 'TRAINEE' }));
         setSaved(items);
         setRows(items);
       })
@@ -21,7 +22,7 @@ export default function TrainingEditor() {
 
   const dirty = useMemo(() => saved !== null && JSON.stringify(rows) !== JSON.stringify(saved), [rows, saved]);
 
-  const set = (i: number, key: keyof Lesson, v: string) =>
+  const set = (i: number, key: 'title' | 'description' | 'url' | 'tier', v: string) =>
     setRows((r) => r.map((row, idx) => (idx === i ? { ...row, [key]: v } : row)));
 
   const move = (i: number, dir: -1 | 1) =>
@@ -35,7 +36,7 @@ export default function TrainingEditor() {
 
   const save = async () => {
     setMsg(null);
-    const clean = rows.map((r) => ({ title: r.title.trim(), description: r.description.trim(), url: r.url.trim() }));
+    const clean = rows.map((r) => ({ title: r.title.trim(), description: r.description.trim(), url: (r.url ?? '').trim(), tier: r.tier }));
     const bad = clean.findIndex((r) => !r.title || !/^https:\/\/\S+$/i.test(r.url));
     if (bad >= 0) {
       setMsg({ type: 'error', text: `Lesson ${bad + 1}: add a title and a link that starts with https://` });
@@ -58,8 +59,8 @@ export default function TrainingEditor() {
     <div className="card" data-testid="training-editor">
       <h2>Training Library</h2>
       <p className="muted">
-        Lessons for signed-in members. Add a title, a short note and a link (a YouTube or Drive link works). Members open the link in a
-        new tab.
+        Lessons for signed-in members. Choose which package unlocks each lesson: members on a lower package see it locked, and the
+        link is only sent once they upgrade. A YouTube link also shows its cover image.
       </p>
       {msg && <div className={`alert ${msg.type}`}>{msg.text}</div>}
       {saved === null && !msg && <p className="muted">Loading...</p>}
@@ -72,8 +73,16 @@ export default function TrainingEditor() {
               <input value={row.title} maxLength={80} onChange={(e) => set(i, 'title', e.target.value)} />
             </label>
             <label>
+              Unlocks with
+              <select value={row.tier} onChange={(e) => set(i, 'tier', e.target.value as Tier)}>
+                <option value="TRAINEE">Everyone (Trainee and above)</option>
+                <option value="PRO">PRO package and above</option>
+                <option value="ELITE">ELITE package only</option>
+              </select>
+            </label>
+            <label>
               Link (https)
-              <input value={row.url} maxLength={200} placeholder="https://" onChange={(e) => set(i, 'url', e.target.value)} />
+              <input value={row.url ?? ''} maxLength={200} placeholder="https://" onChange={(e) => set(i, 'url', e.target.value)} />
             </label>
             <label>
               Short note (optional)
@@ -105,7 +114,7 @@ export default function TrainingEditor() {
           className="btn ghost"
           type="button"
           disabled={saved === null || rows.length >= 50}
-          onClick={() => setRows((r) => [...r, { title: '', description: '', url: '' }])}
+          onClick={() => setRows((r) => [...r, { title: '', description: '', url: '', tier: 'TRAINEE' }])}
         >
           Add lesson
         </button>

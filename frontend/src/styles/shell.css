@@ -366,3 +366,24 @@
 .income-item small { color: var(--c); filter: brightness(0.85); font-weight: 700; }
 .income-item .dot { width: 12px; height: 12px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 18%, transparent); }
 .income-item.hot, .income-item:hover { border-color: var(--c); }
+
+/* ---------- training library: package sections, covers, locked cards */
+.lesson-section { display: grid; gap: 14px; margin-top: 8px; }
+.lesson-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 18px 22px; border-radius: 18px; background: #fff; border: 1px solid var(--border); }
+.lesson-head h2 { margin: 0 0 2px; font-size: 1.15rem; }
+.lesson-state { font: 700 0.72rem 'Space Mono', monospace; letter-spacing: 0.12em; text-transform: uppercase; padding: 6px 14px; border-radius: 999px; background: #eceff3; color: var(--muted); }
+.lesson-state.open { background: #0d1117; color: #fff; }
+.shell a.card.lesson { padding: 0; overflow: hidden; gap: 0; text-decoration: none; color: inherit; display: flex; flex-direction: column; }
+.lesson-cover { position: relative; aspect-ratio: 16 / 9; background: #dfe3e8 center / cover no-repeat; display: grid; place-items: center; }
+.lesson-cover.plain { background: linear-gradient(135deg, #eceff3, #cfd5dd); }
+.lesson-play { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: rgba(13, 17, 23, 0.78); color: #fff; font-size: 1.1rem; padding-left: 4px; transition: transform 0.15s; }
+.shell a.lesson:hover .lesson-play { transform: scale(1.12); }
+.lesson-body { padding: 16px 18px 18px; display: grid; gap: 6px; flex: 1; align-content: start; }
+.lesson-body h3 { margin: 0; font-size: 1rem; }
+.lesson-cta { margin-top: 6px; font: 700 0.74rem 'Space Mono', monospace; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text); }
+.shell a.lesson.locked .lesson-cover { background-color: #c9cfd7; }
+.shell a.lesson.locked .lesson-cover:not(.plain) { filter: grayscale(1) brightness(0.8); }
+.shell a.lesson.locked .lesson-cover::after { content: ''; position: absolute; inset: 0; background: rgba(13, 17, 23, 0.35); }
+.lesson-lock { position: relative; z-index: 1; padding: 9px 18px; border-radius: 999px; background: #fff; color: #0d1117; font: 700 0.8rem 'Inter', sans-serif; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); }
+.shell a.lesson.locked .lesson-cta { color: var(--muted); }
+.lesson-edit select { width: 100%; }

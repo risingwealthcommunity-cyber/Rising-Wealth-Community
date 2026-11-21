@@ -31,7 +31,15 @@ export const reviewsSchema = z.object({
 
 export const trainingSchema = z.object({
   items: z
-    .array(z.object({ title: text(80, 1), description: text(300), url: httpsUrl.refine((v) => v !== '', 'Add a link starting with https://') }))
+    .array(
+      z.object({
+        title: text(80, 1),
+        description: text(300),
+        url: httpsUrl.refine((v) => v !== '', 'Add a link starting with https://'),
+        /** The lowest package that can open this lesson. TRAINEE = everyone. */
+        tier: z.enum(['TRAINEE', 'PRO', 'ELITE']).default('TRAINEE')
+      })
+    )
     .max(50, 'At most 50 lessons')
 });
 

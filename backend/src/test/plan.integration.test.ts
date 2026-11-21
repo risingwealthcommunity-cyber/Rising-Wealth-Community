@@ -1648,7 +1648,26 @@ test('TRAINING: members read lessons, only admins write them, and only https lin
   assert.equal((await admin.call('PUT', '/api/site/content/training', { items: [lesson] })).status, 200);
   const got = await m.c.call('GET', '/api/site/training');
   assert.equal(got.status, 200);
-  assert.deepEqual(got.json.data.items, [lesson]);
+  assert.deepEqual(got.json.data.items, [{ ...lesson, tier: 'TRAINEE', unlocked: true }]);
+
+  // package tiers: the link of a locked lesson never reaches the member; upgrading unlocks it; admins see everything
+  const pro = { title: 'Pro lesson', description: '', url: 'https://example.com/pro-secret', tier: 'PRO' };
+  const elite = { title: 'Elite lesson', description: '', url: 'https://example.com/elite-secret', tier: 'ELITE' };
+  assert.equal((await admin.call('PUT', '/api/site/content/training', { items: [lesson, pro, elite] })).status, 200);
+  assert.equal((await admin.call('PUT', '/api/site/content/training', { items: [{ ...lesson, tier: 'GOLD' }] })).status, 400);
+  const asTrainee = await m.c.call('GET', '/api/site/training');
+  assert.deepEqual(asTrainee.json.data.items.map((i: any) => [i.title, i.tier, i.unlocked]), [['Welcome to RWC', 'TRAINEE', true], ['Pro lesson', 'PRO', false], ['Elite lesson', 'ELITE', false]]);
+  assert.equal(JSON.stringify(asTrainee.json).includes('secret'), false, 'locked links are not sent');
+  await buy(m.c, 'PRO');
+  const asPro = (await m.c.call('GET', '/api/site/training')).json.data.items;
+  assert.deepEqual(asPro.map((i: any) => i.unlocked), [true, true, false]);
+  assert.equal(asPro[1].url, pro.url);
+  assert.equal(JSON.stringify(asPro).includes('elite-secret'), false);
+  await buy(m.c, 'ELITE');
+  assert.deepEqual((await m.c.call('GET', '/api/site/training')).json.data.items.map((i: any) => i.unlocked), [true, true, true]);
+  assert.deepEqual((await admin.call('GET', '/api/site/training')).json.data.items.map((i: any) => i.unlocked), [true, true, true]);
+  assert.equal(JSON.stringify((await admin.call('GET', '/api/site/training')).json).includes('elite-secret'), true);
+  assert.equal((await admin.call('PUT', '/api/site/content/training', { items: [lesson] })).status, 200); // leave it as it was
 
   // not part of the public home page content
   const pub = await new Client().call('GET', '/api/site/content');

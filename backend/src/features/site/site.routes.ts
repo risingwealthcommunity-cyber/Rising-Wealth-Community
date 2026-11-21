@@ -30,8 +30,10 @@ router.put(
   }
 );
 
-router.get('/training', requireAuth, async (_req: Request, res: Response) => {
-  res.json({ success: true, data: { items: await siteService.getTraining() } });
+// Members see every lesson, but the link of a lesson above their package is never sent to them.
+router.get('/training', requireAuth, async (req: Request, res: Response) => {
+  const { role, package: pkg } = req.user!;
+  res.json({ success: true, data: { items: await siteService.getTrainingFor(pkg, role !== 'USER') } });
 });
 
 router.get('/assets/:key', async (req: Request, res: Response) => {
