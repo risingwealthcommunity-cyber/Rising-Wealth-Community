@@ -5,12 +5,12 @@ import { date, inr, label } from '../../shared/format';
 import { openProofAt } from '../../shared/openProof';
 import { useRun } from '../../shared/useRun';
 
-type Status = 'PENDING' | 'APPROVED' | 'REJECTED';
+type Status = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
 
 interface Withdrawal {
   id: string;
   amount: string;
-  status: Status;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
   note: string | null;
   payoutRef: string | null;
   hasProof: boolean;
@@ -151,16 +151,22 @@ function Row({ w, onDone }: { w: Withdrawal; onDone: () => void }) {
 }
 
 /** All withdrawals, newest first. The default view is the ones waiting for the admin to pay. */
-export default function AdminWithdrawals() {
+export default function AdminWithdrawals({ onChanged }: { onChanged?: () => void }) {
   const [status, setStatus] = useState<Status>('PENDING');
+  const [typed, setTyped] = useState('');
+  const [q, setQ] = useState('');
   const [items, setItems] = useState<Withdrawal[] | null>(null);
 
   const load = useCallback(() => {
-    api<{ items: Withdrawal[] }>(`/admin/withdrawals?status=${status}`)
+    api<{ items: Withdrawal[] }>(`/admin/withdrawals?status=${status}${q ? `&q=${encodeURIComponent(q)}` : ''}`)
       .then((r) => setItems(r.data?.items ?? []))
       .catch(() => setItems([]));
-  }, [status]);
+  }, [status, q]);
   useEffect(load, [load]);
+  const changed = () => {
+    load();
+    onChanged?.();
+  };
 
   return (
     <div className="card">
@@ -169,14 +175,25 @@ export default function AdminWithdrawals() {
           <option value="PENDING">Waiting to be paid</option>
           <option value="APPROVED">Paid</option>
           <option value="REJECTED">Rejected</option>
+          <option value="ALL">All</option>
         </select>
+        <form
+          className="wd-search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setQ(typed.trim());
+          }}
+        >
+          <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search name, email, mobile or Affiliate ID" aria-label="Search withdrawals" />
+          <button className="btn ghost">Search</button>
+        </form>
         <span className="muted">{items ? `${items.length} shown` : 'Loading...'}</span>
       </div>
       <p className="muted">Pay the member from your bank app using the details shown, then enter the transaction ID, add the payment screenshot and press "Mark as paid". The amount leaves the member's wallet at that moment.</p>
       {items && items.length === 0 && <p className="muted">Nothing here.</p>}
       <div className="wd-list">
         {items?.map((w) => (
-          <Row w={w} key={w.id} onDone={load} />
+          <Row w={w} key={w.id} onDone={changed} />
         ))}
       </div>
     </div>

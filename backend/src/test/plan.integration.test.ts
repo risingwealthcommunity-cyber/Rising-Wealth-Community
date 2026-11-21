@@ -1969,6 +1969,13 @@ test('WITHDRAWAL: needs bank details, reserves the amount, and the wallet is deb
   assert.equal((await admin.call('POST', `/api/admin/withdrawals/${next.id}/approve`, { ...paid, reference: 'utr-payout-1' })).status, 409);
   assert.equal((await admin.call('POST', `/api/admin/withdrawals/${next.id}/reject`)).status, 200);
 
+  // the admin page can list everything at once and search by member
+  const everyone = (await admin.call('GET', '/api/admin/withdrawals?status=ALL')).json.data.items as any[];
+  assert.ok(everyone.length >= 2 && new Set(everyone.map((x) => x.status)).size >= 2, 'ALL mixes the statuses');
+  const byName = (await admin.call('GET', `/api/admin/withdrawals?status=ALL&q=${encodeURIComponent(top.email.split('@')[0])}`)).json.data.items as any[];
+  assert.ok(byName.length >= 1 && byName.every((x) => x.user.email === top.email), 'search finds only that member');
+  assert.equal(((await admin.call('GET', '/api/admin/withdrawals?status=ALL&q=zzz-no-such-member')).json.data.items as any[]).length, 0);
+
   // a rejected request frees the reservation
   assert.equal((await ask(300)).status, 201);
   const second = ((await admin.call('GET', '/api/admin/withdrawals')).json.data.items as any[]).find((x) => x.userId === stored.userId);
@@ -2065,6 +2072,8 @@ test('ADMIN: overview and member list are admin-only, and switching a member off
   const o = (await admin.call('GET', '/api/admin/overview')).json.data;
   assert.ok(o.members >= 1 && o.active >= 1);
   assert.deepEqual(Object.keys(o.waiting).sort(), ['funds', 'purchases', 'reports', 'withdrawals']);
+  assert.equal(typeof o.withdrawalsPendingAmount, 'number');
+  assert.equal(typeof o.withdrawalsPaidAmount, 'number');
 
   const found = (await admin.call('GET', `/api/admin/members?q=${encodeURIComponent('mny_ad_one')}`)).json.data;
   assert.equal(found.total, 1);

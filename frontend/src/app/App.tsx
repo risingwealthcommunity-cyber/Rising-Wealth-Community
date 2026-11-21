@@ -14,7 +14,7 @@ import {
 } from '../features/auth';
 import AppLayout from '../shared/components/AppLayout';
 import { ActivationPage } from '../features/activation';
-import { AdminMembersPage, AdminOpsPage, AdminPage, SiteContentPage } from '../features/admin';
+import { AdminMembersPage, AdminOpsPage, AdminPage, AdminWithdrawalsPage, SiteContentPage } from '../features/admin';
 import { CampaignsPage, ReportsPage } from '../features/campaigns';
 import { DashboardPage, LeaderboardPage, ProfilePage, TrainingPage } from '../features/dashboard';
 import { LandingPage } from '../features/landing';
@@ -66,6 +66,7 @@ export default function App() {
           <Route path="/admin" element={<AdminOnly><AdminPage /></AdminOnly>} />
           <Route path="/admin/site" element={<AdminOnly><SiteContentPage /></AdminOnly>} />
           <Route path="/admin/members" element={<AdminOnly><AdminMembersPage /></AdminOnly>} />
+          <Route path="/admin/withdrawals" element={<AdminOnly><AdminWithdrawalsPage /></AdminOnly>} />
           <Route path="/admin/operations" element={<AdminOnly><AdminOpsPage /></AdminOnly>} />
         </Route>
       </Route>

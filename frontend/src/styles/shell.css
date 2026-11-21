@@ -591,3 +591,6 @@
 .copy-chip { border: 1px dashed #b4bbc6; background: #fff; border-radius: 8px; padding: 3px 9px; font: 700 0.85rem 'Space Mono', monospace; cursor: pointer; }
 .copy-chip:hover { background: #eceff3; }
 @media (max-width: 600px) { .wd-amount { text-align: left; } }
+
+.wd-search { display: flex; gap: 8px; flex: 1; min-width: 220px; }
+.wd-search input { flex: 1; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--border); background: #f4f5f7; font: inherit; }

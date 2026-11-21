@@ -19,6 +19,8 @@ interface Overview {
   newToday: number;
   byPackage: Record<string, number>;
   waiting: { purchases: number; funds: number; withdrawals: number; reports: number };
+  withdrawalsPendingAmount: number;
+  withdrawalsPaidAmount: number;
   walletTotal: number;
   activationTotal: number;
 }
@@ -101,10 +103,10 @@ export default function AdminPage() {
           <strong>{overview ? overview.waiting.funds : '...'}</strong>
           <em>waiting</em>
         </Link>
-        <Link className="level" to="/admin/operations">
+        <Link className="level" to="/admin/withdrawals">
           <small>Withdrawals</small>
           <strong>{overview ? overview.waiting.withdrawals : '...'}</strong>
-          <em>waiting</em>
+          <em>{overview ? `${inr(overview.withdrawalsPendingAmount)} to pay` : 'waiting'}</em>
         </Link>
         <Link className="level" to="/admin/operations">
           <small>Reports</small>
@@ -132,6 +134,9 @@ export default function AdminPage() {
         <div>
           <Link className="btn" to="/admin/members">
             Members
+          </Link>
+          <Link className="btn" to="/admin/withdrawals">
+            Withdrawals
           </Link>
           <Link className="btn" to="/admin/operations">
             Operations

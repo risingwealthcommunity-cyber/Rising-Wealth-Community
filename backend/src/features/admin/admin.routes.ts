@@ -39,7 +39,7 @@ router.post('/purchases/:id/reject', async (req: Request, res: Response) => {
 /** One screen of numbers: how many members, and how much is waiting for an admin. */
 router.get('/overview', async (_req: Request, res: Response) => {
   const dayAgo = new Date(Date.now() - 86_400_000);
-  const [members, active, newToday, byPackage, purchases, funds, withdrawals, reports, wallets, activation] = await Promise.all([
+  const [members, active, newToday, byPackage, purchases, funds, withdrawals, reports, wallets, activation, wdPending, wdPaid] = await Promise.all([
     prisma.user.count({ where: { role: 'USER' } }),
     prisma.user.count({ where: { role: 'USER', isActive: true, isVerified: true } }),
     prisma.user.count({ where: { role: 'USER', createdAt: { gte: dayAgo } } }),
@@ -49,7 +49,9 @@ router.get('/overview', async (_req: Request, res: Response) => {
     prisma.withdrawalRequest.count({ where: { status: 'PENDING' } }),
     prisma.campaignReport.count({ where: { status: 'PENDING' } }),
     prisma.user.aggregate({ _sum: { walletBalance: true } }),
-    prisma.user.aggregate({ _sum: { activationBalance: true } })
+    prisma.user.aggregate({ _sum: { activationBalance: true } }),
+    prisma.withdrawalRequest.aggregate({ where: { status: 'PENDING' }, _sum: { amount: true } }),
+    prisma.withdrawalRequest.aggregate({ where: { status: 'APPROVED' }, _sum: { amount: true } })
   ]);
   res.json({
     success: true,
@@ -59,6 +61,8 @@ router.get('/overview', async (_req: Request, res: Response) => {
       newToday,
       byPackage: Object.fromEntries(byPackage.map((b) => [b.package, b._count])),
       waiting: { purchases, funds, withdrawals, reports },
+      withdrawalsPendingAmount: Number(wdPending._sum.amount ?? 0),
+      withdrawalsPaidAmount: Number(wdPaid._sum.amount ?? 0),
       walletTotal: Number(wallets._sum.walletBalance ?? 0),
       activationTotal: Number(activation._sum.activationBalance ?? 0)
     }
@@ -175,8 +179,24 @@ router.post('/perk-claims/:id/reject', async (req: Request, res: Response) => {
 });
 
 router.get('/withdrawals', async (req: Request, res: Response) => {
+  // ?status=PENDING|APPROVED|REJECTED|ALL and ?q= (member name, email, mobile or Affiliate ID)
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
   const items = await prisma.withdrawalRequest.findMany({
-    where: { status: statusOf(req.query.status) },
+    where: {
+      ...(req.query.status === 'ALL' ? {} : { status: statusOf(req.query.status) }),
+      ...(q
+        ? {
+            user: {
+              OR: [
+                { name: { contains: q, mode: 'insensitive' } },
+                { email: { contains: q, mode: 'insensitive' } },
+                { phone: { contains: q } },
+                { referralCode: { equals: q.toUpperCase() } }
+              ]
+            }
+          }
+        : {})
+    },
     orderBy: { createdAt: 'desc' },
     take: 200,
     select: {
