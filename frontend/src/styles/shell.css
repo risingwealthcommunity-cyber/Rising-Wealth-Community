@@ -360,8 +360,8 @@
 .income-item.hot { transform: translateX(4px); box-shadow: 0 10px 28px rgba(15, 23, 42, 0.1); }
 
 /* ---------- income breakdown: thin colourful ring, flat rows */
-.donut circle.seg { stroke-width: 8; stroke-linecap: butt; }
-.donut circle.seg.hot, .donut circle.seg:hover { stroke-width: 13; }
+.donut circle.seg { stroke-width: 3; stroke-linecap: butt; }
+.donut circle.seg.hot, .donut circle.seg:hover { stroke-width: 6; }
 .income-item { border: 1px solid var(--border); border-left: 1px solid var(--border); border-radius: 16px; }
 .income-item small { color: var(--c); filter: brightness(0.85); font-weight: 700; }
 .income-item .dot { width: 12px; height: 12px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 18%, transparent); }

@@ -166,7 +166,7 @@ function Donut({ rows, total, active, onActive }: { rows: Stream[]; total: numbe
   return (
     <div className="donut">
       <svg viewBox="0 0 200 200" role="img" aria-label="Income breakdown">
-        <circle cx="100" cy="100" r={R} fill="none" stroke="#eceff3" strokeWidth="8" />
+        <circle cx="100" cy="100" r={R} fill="none" stroke="#eceff3" strokeWidth="3" />
         {shown.map((r) => {
           const len = (r.amount / total) * C;
           const gap = shown.length > 1 ? 2.5 : 0;
