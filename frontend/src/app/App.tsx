@@ -14,7 +14,7 @@ import {
 } from '../features/auth';
 import AppLayout from '../shared/components/AppLayout';
 import { AdminPage, SiteContentPage } from '../features/admin';
-import { DashboardPage, LeaderboardPage, TrainingPage } from '../features/dashboard';
+import { DashboardPage, LeaderboardPage, ProfilePage, TrainingPage } from '../features/dashboard';
 import { LandingPage } from '../features/landing';
 import { PackagesPage } from '../features/packages';
 import { BonusesPage, TeamPage } from '../features/team';
@@ -53,6 +53,7 @@ export default function App() {
           <Route path="/bonuses/weekly" element={<WeeklyBonusPage />} />
           <Route path="/training" element={<TrainingPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
           <Route path="/activation" element={<PackagesPage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />
           <Route path="/admin" element={<AdminOnly><AdminPage /></AdminOnly>} />

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth';
 import { Avatar } from './Avatar';
 import { Icon } from './ShellIcons';
@@ -65,7 +65,7 @@ export default function AppLayout() {
           <strong>Rising Wealth</strong>
           <span>COMMUNITY</span>
         </div>
-        <div className="shell-user">
+        <Link className="shell-user" to="/profile" aria-label="My profile" title="My profile">
           <div className="shell-user-text">
             <b>{user?.name}</b>
             <small>{user?.package}</small>
@@ -73,7 +73,7 @@ export default function AppLayout() {
           <div className="shell-avatar" title={user?.name}>
             <Avatar avatar={user?.avatar} name={user?.name ?? ''} size={46} />
           </div>
-        </div>
+        </Link>
       </header>
 
       <div className="shell-body">
