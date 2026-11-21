@@ -197,6 +197,8 @@ export const walletService = {
         where: { id, status: 'PENDING' },
         data: {
           status: 'APPROVED',
+          inProgress: false,
+          note: null,
           processedAt: new Date(),
           processedBy: adminId,
           payoutRef: reference,
@@ -213,10 +215,19 @@ export const walletService = {
     }, TX);
   },
 
+  /** Moves a waiting withdrawal to "Processing" (with an optional message for the member) or back to waiting. */
+  async setWithdrawalProgress(id: string, on: boolean, note?: string) {
+    const res = await prisma.withdrawalRequest.updateMany({
+      where: { id, status: 'PENDING' },
+      data: { inProgress: on, note: on ? note || null : null }
+    });
+    if (res.count !== 1) throw new AppError('Only a withdrawal that is still waiting can change state.', 409);
+  },
+
   async rejectWithdrawal(id: string, adminId: string, note?: string) {
     const res = await prisma.withdrawalRequest.updateMany({
       where: { id, status: 'PENDING' },
-      data: { status: 'REJECTED', processedAt: new Date(), processedBy: adminId, note: note || null }
+      data: { status: 'REJECTED', inProgress: false, processedAt: new Date(), processedBy: adminId, note: note || null }
     });
     if (res.count !== 1) throw new AppError('Request not found or already processed', 409);
   },

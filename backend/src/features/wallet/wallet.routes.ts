@@ -122,7 +122,7 @@ router.get('/withdrawals', requireAuth, async (req: Request, res: Response) => {
     where: { userId: req.user!.id },
     orderBy: { createdAt: 'desc' },
     take: 50,
-    select: { id: true, amount: true, status: true, note: true, payoutRef: true, fileMime: true, createdAt: true, processedAt: true }
+    select: { id: true, amount: true, status: true, inProgress: true, note: true, payoutRef: true, fileMime: true, createdAt: true, processedAt: true }
   });
   res.json({
     success: true,
@@ -131,6 +131,7 @@ router.get('/withdrawals', requireAuth, async (req: Request, res: Response) => {
         id: r.id,
         amount: r.amount.toFixed(2),
         status: r.status,
+        processing: r.status === 'PENDING' && r.inProgress,
         note: r.note,
         transactionId: r.payoutRef,
         hasProof: Boolean(r.fileMime),

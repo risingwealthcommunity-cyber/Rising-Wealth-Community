@@ -594,3 +594,6 @@
 
 .wd-search { display: flex; gap: 8px; flex: 1; min-width: 220px; }
 .wd-search input { flex: 1; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--border); background: #f4f5f7; font: inherit; }
+
+.badge.processing { background: #dbeafe; color: #1d4ed8; }
+.wd-state { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }

@@ -1963,6 +1963,24 @@ test('WITHDRAWAL: needs bank details, reserves the amount, and the wallet is deb
   assert.equal(done.pendingWithdrawals, 0);
   assert.equal(done.totalEarned, w.totalEarned, 'withdrawing is not negative income');
 
+  // the admin can move a waiting withdrawal to "Processing" (with a message) and back, and the member sees it
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${'0'.repeat(8)}-0000-0000-0000-000000000000/progress`, { on: true })).status, 409, 'unknown id');
+  assert.equal((await ask(120)).status, 201);
+  const waiting = ((await admin.call('GET', '/api/admin/withdrawals?status=PENDING')).json.data.items as any[]).find((x) => x.userId === stored.userId);
+  assert.equal(waiting.inProgress, false);
+  assert.equal((await top.c.call('POST', `/api/admin/withdrawals/${waiting.id}/progress`, { on: true })).status, 403);
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${waiting.id}/progress`, { on: 'yes' })).status, 400);
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${waiting.id}/progress`, { on: true, note: 'Paying by this evening' })).status, 200);
+  const procRow = ((await top.c.call('GET', '/api/wallet/withdrawals')).json.data.items as any[]).find((x) => x.id === waiting.id);
+  assert.deepEqual([procRow.status, procRow.processing, procRow.note], ['PENDING', true, 'Paying by this evening']);
+  assert.equal(((await admin.call('GET', '/api/admin/withdrawals?status=PROCESSING')).json.data.items as any[]).some((x) => x.id === waiting.id), true);
+  assert.equal(((await admin.call('GET', '/api/admin/withdrawals?status=PENDING')).json.data.items as any[]).some((x) => x.id === waiting.id), false, 'no longer in plain waiting');
+  assert.equal((await walletOf(top.c)).pendingWithdrawals >= 120, true, 'still reserved while processing');
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${waiting.id}/progress`, { on: false })).status, 200);
+  assert.equal(((await top.c.call('GET', '/api/wallet/withdrawals')).json.data.items as any[]).find((x) => x.id === waiting.id).processing, false);
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${waiting.id}/reject`, { note: 'test cleanup' })).status, 200);
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${waiting.id}/progress`, { on: true })).status, 409, 'a finished one cannot change state');
+
   // one bank transaction ID cannot be used to mark two withdrawals paid
   assert.equal((await ask(150)).status, 201);
   const next = ((await admin.call('GET', '/api/admin/withdrawals')).json.data.items as any[]).find((x) => x.userId === stored.userId);
@@ -1983,7 +2001,7 @@ test('WITHDRAWAL: needs bank details, reserves the amount, and the wallet is deb
   const freed = await walletOf(top.c);
   assert.equal(freed.pendingWithdrawals, 0);
   assert.equal(Number(freed.balance), Number(w.balance) - 200);
-  assert.deepEqual(((await top.c.call('GET', '/api/wallet/withdrawals')).json.data.items as any[]).map((x) => x.status).sort(), ['APPROVED', 'REJECTED', 'REJECTED']);
+  assert.deepEqual(((await top.c.call('GET', '/api/wallet/withdrawals')).json.data.items as any[]).map((x) => x.status).sort(), ['APPROVED', 'REJECTED', 'REJECTED', 'REJECTED']);
 });
 
 test('CAMPAIGNS: members send proof reports, admins approve, and the reward is paid to the wallet once', async () => {

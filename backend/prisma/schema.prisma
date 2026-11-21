@@ -310,6 +310,8 @@ model WithdrawalRequest {
   amount      Decimal       @db.Decimal(14, 2)
   status      RequestStatus @default(PENDING)
   note        String?
+  /// Still waiting for the payment, but an admin has started on it (shown to the member as "Processing").
+  inProgress  Boolean       @default(false)
   /// Filled in by the admin who paid it: the bank transaction ID and a screenshot of the payment.
   payoutRef   String?
   fileName    String?

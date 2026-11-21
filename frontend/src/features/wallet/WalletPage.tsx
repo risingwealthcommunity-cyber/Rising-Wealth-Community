@@ -40,6 +40,7 @@ interface Req {
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   reference?: string;
   transactionId?: string | null;
+  processing?: boolean;
   hasProof?: boolean;
   note: string | null;
   createdAt: string;
@@ -212,10 +213,10 @@ export default function WalletPage() {
               <tr key={w.id}>
                 <td className="amount">{inr(w.amount)}</td>
                 <td>
-                  <Status s={w.status} />
+                  <Status s={w.processing ? 'PROCESSING' : w.status} />
                 </td>
                 <td className="muted">
-                  {w.status === 'REJECTED' && w.note ? w.note : ''}
+                  {(w.status === 'REJECTED' || w.processing) && w.note ? w.note : ''}
                   {w.status === 'APPROVED' && w.transactionId && <>Transaction ID: <b>{w.transactionId}</b></>}
                   {w.status === 'APPROVED' && w.hasProof && (
                     <>

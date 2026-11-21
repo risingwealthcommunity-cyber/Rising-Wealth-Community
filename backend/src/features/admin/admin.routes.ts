@@ -183,7 +183,14 @@ router.get('/withdrawals', async (req: Request, res: Response) => {
   const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
   const items = await prisma.withdrawalRequest.findMany({
     where: {
-      ...(req.query.status === 'ALL' ? {} : { status: statusOf(req.query.status) }),
+      // PROCESSING = waiting, but an admin has started on it
+      ...(req.query.status === 'ALL'
+        ? {}
+        : req.query.status === 'PROCESSING'
+          ? { status: 'PENDING' as const, inProgress: true }
+          : req.query.status === 'PENDING'
+            ? { status: 'PENDING' as const, inProgress: false }
+            : { status: statusOf(req.query.status) }),
       ...(q
         ? {
             user: {
@@ -200,7 +207,7 @@ router.get('/withdrawals', async (req: Request, res: Response) => {
     orderBy: { createdAt: 'desc' },
     take: 200,
     select: {
-      id: true, userId: true, amount: true, status: true, note: true, payoutRef: true, fileMime: true, createdAt: true, processedAt: true,
+      id: true, userId: true, amount: true, status: true, inProgress: true, note: true, payoutRef: true, fileMime: true, createdAt: true, processedAt: true,
       user: { select: { id: true, name: true, email: true, phone: true, city: true, referralCode: true, package: true, walletBalance: true } }
     }
   });
@@ -221,6 +228,13 @@ router.get('/withdrawals/:id/proof', async (req: Request, res: Response) => {
   const row = await prisma.withdrawalRequest.findUnique({ where: { id: String(req.params.id) }, select: { fileData: true, fileMime: true } });
   if (!row?.fileData || !row.fileMime) throw new AppError('No payment screenshot on this one.', 404);
   res.json({ success: true, data: { mime: row.fileMime, data: Buffer.from(row.fileData).toString('base64') } });
+});
+
+/** Start working on a waiting withdrawal ("Processing", optionally with a message for the member), or put it back to waiting. */
+router.post('/withdrawals/:id/progress', validateBody(z.object({ on: z.boolean(), note: z.string().trim().max(200).optional() })), async (req: Request, res: Response) => {
+  const { on, note } = req.body as { on: boolean; note?: string };
+  await walletService.setWithdrawalProgress(String(req.params.id), on, note);
+  res.json({ success: true, message: on ? 'Marked as processing. The member can see it.' : 'Back to waiting.' });
 });
 
 const payoutSchema = z.object({

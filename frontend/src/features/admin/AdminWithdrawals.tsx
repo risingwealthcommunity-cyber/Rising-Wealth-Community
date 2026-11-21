@@ -5,12 +5,13 @@ import { date, inr, label } from '../../shared/format';
 import { openProofAt } from '../../shared/openProof';
 import { useRun } from '../../shared/useRun';
 
-type Status = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
+type Status = 'PENDING' | 'PROCESSING' | 'APPROVED' | 'REJECTED' | 'ALL';
 
 interface Withdrawal {
   id: string;
   amount: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  inProgress: boolean;
   note: string | null;
   payoutRef: string | null;
   hasProof: boolean;
@@ -53,6 +54,21 @@ function Row({ w, onDone }: { w: Withdrawal; onDone: () => void }) {
     void act.run(async () => {
       const picture = await compressImage(file);
       const r = await api(`/admin/withdrawals/${w.id}/approve`, { method: 'POST', body: { reference: ref.trim(), ...picture } });
+      onDone();
+      return r;
+    });
+  };
+
+  /** Waiting <-> Processing. The member sees "Processing" and the message, if you write one. */
+  const setProgress = (on: boolean) => {
+    let note: string | undefined;
+    if (on) {
+      const answer = window.prompt('Message for the member (optional), for example "Paying by this evening".');
+      if (answer === null) return;
+      note = answer.trim() || undefined;
+    }
+    void act.run(async () => {
+      const r = await api(`/admin/withdrawals/${w.id}/progress`, { method: 'POST', body: { on, ...(note ? { note } : {}) } });
       onDone();
       return r;
     });
@@ -107,6 +123,16 @@ function Row({ w, onDone }: { w: Withdrawal; onDone: () => void }) {
         </div>
       ) : (
         <div className="alert error">This member has no bank details saved.</div>
+      )}
+
+      {w.status === 'PENDING' && (
+        <div className="wd-state">
+          <span className={`badge ${w.inProgress ? 'processing' : 'pending'}`}>{w.inProgress ? 'Processing' : 'Waiting'}</span>
+          {w.inProgress && w.note && <span className="muted">Message to member: {w.note}</span>}
+          <button className="btn ghost" type="button" disabled={act.busy} onClick={() => setProgress(!w.inProgress)}>
+            {w.inProgress ? 'Back to waiting' : 'Mark as processing'}
+          </button>
+        </div>
       )}
 
       {w.status === 'PENDING' && (
@@ -173,6 +199,7 @@ export default function AdminWithdrawals({ onChanged }: { onChanged?: () => void
       <div className="team-head">
         <select value={status} onChange={(e) => setStatus(e.target.value as Status)} aria-label="Status">
           <option value="PENDING">Waiting to be paid</option>
+          <option value="PROCESSING">Processing</option>
           <option value="APPROVED">Paid</option>
           <option value="REJECTED">Rejected</option>
           <option value="ALL">All</option>
