@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth';
 import { Avatar } from './Avatar';
+import MemberFooter from './MemberFooter';
 import { Icon } from './ShellIcons';
 
 const BONUS_LINKS = [
@@ -157,6 +158,7 @@ export default function AppLayout() {
 
         <main className="shell-main">
           <Outlet />
+          <MemberFooter />
         </main>
       </div>
     </div>

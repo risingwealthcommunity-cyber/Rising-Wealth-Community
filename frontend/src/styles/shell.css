@@ -535,3 +535,12 @@
 .level.locked strong { font: 900 1.1rem 'Unbounded', sans-serif; color: #8a93a2; }
 .level.locked small, .level.locked em { color: #8a93a2; }
 .level-need { margin-top: 2px; font: 700 0.6rem 'Space Mono', monospace; letter-spacing: 0.1em; text-transform: uppercase; color: #0d1117; }
+
+/* ---------- member footer + admin overview */
+.member-footer { margin-top: 28px; padding: 20px 0 8px; border-top: 1px solid var(--border); display: grid; justify-items: center; gap: 12px; color: var(--muted); font-size: 0.8rem; text-align: center; }
+.member-footer-links { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center; }
+.member-footer-links a { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border); background: #fff; color: var(--text); transition: transform 0.15s, box-shadow 0.15s; }
+.member-footer-links a:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12); }
+.member-footer-links a.member-footer-chip { width: auto; padding: 0 16px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; text-decoration: none; }
+.admin-overview a.level { text-decoration: none; color: inherit; transition: transform 0.15s, box-shadow 0.15s; }
+.admin-overview a.level:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1); }

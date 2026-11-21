@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../../config/database';
 import { AppError } from '../../shared/errors/AppError';
@@ -32,6 +33,89 @@ router.post('/purchases/:id/confirm', async (req: Request, res: Response) => {
 router.post('/purchases/:id/reject', async (req: Request, res: Response) => {
   await packagesService.reject(String(req.params.id), req.user!.id);
   res.json({ success: true, message: 'Purchase rejected' });
+});
+
+/** One screen of numbers: how many members, and how much is waiting for an admin. */
+router.get('/overview', async (_req: Request, res: Response) => {
+  const dayAgo = new Date(Date.now() - 86_400_000);
+  const [members, active, newToday, byPackage, purchases, funds, withdrawals, reports, wallets, activation] = await Promise.all([
+    prisma.user.count({ where: { role: 'USER' } }),
+    prisma.user.count({ where: { role: 'USER', isActive: true, isVerified: true } }),
+    prisma.user.count({ where: { role: 'USER', createdAt: { gte: dayAgo } } }),
+    prisma.user.groupBy({ by: ['package'], where: { role: 'USER' }, _count: true }),
+    prisma.packagePurchase.count({ where: { status: 'PENDING' } }),
+    prisma.fundRequest.count({ where: { status: 'PENDING' } }),
+    prisma.withdrawalRequest.count({ where: { status: 'PENDING' } }),
+    prisma.campaignReport.count({ where: { status: 'PENDING' } }),
+    prisma.user.aggregate({ _sum: { walletBalance: true } }),
+    prisma.user.aggregate({ _sum: { activationBalance: true } })
+  ]);
+  res.json({
+    success: true,
+    data: {
+      members,
+      active,
+      newToday,
+      byPackage: Object.fromEntries(byPackage.map((b) => [b.package, b._count])),
+      waiting: { purchases, funds, withdrawals, reports },
+      walletTotal: Number(wallets._sum.walletBalance ?? 0),
+      activationTotal: Number(activation._sum.activationBalance ?? 0)
+    }
+  });
+});
+
+/** Member list with search (name, email, phone or Affiliate ID). Never includes hashes or tokens. */
+router.get('/members', async (req: Request, res: Response) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
+  const page = Math.max(1, Math.floor(Number(req.query.page)) || 1);
+  const pageSize = 25;
+  const where: Prisma.UserWhereInput = {
+    role: 'USER',
+    ...(q
+      ? {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { email: { contains: q, mode: 'insensitive' } },
+            { phone: { contains: q } },
+            { referralCode: { equals: q.toUpperCase() } }
+          ]
+        }
+      : {})
+  };
+  const [items, total] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: {
+        id: true, name: true, email: true, phone: true, city: true, package: true, rank: true, referralCode: true,
+        isActive: true, isVerified: true, createdAt: true, walletBalance: true, activationBalance: true,
+        sponsor: { select: { name: true, referralCode: true } }
+      }
+    }),
+    prisma.user.count({ where })
+  ]);
+  res.json({
+    success: true,
+    data: {
+      page,
+      pageSize,
+      total,
+      items: items.map((u) => ({ ...u, walletBalance: u.walletBalance.toFixed(2), activationBalance: u.activationBalance.toFixed(2) }))
+    }
+  });
+});
+
+/** Switch a member off (they are logged out and cannot sign in or act) or back on. Admin accounts are never touched here. */
+router.post('/members/:id/active', validateBody(z.object({ isActive: z.boolean() })), async (req: Request, res: Response) => {
+  const { isActive } = req.body as { isActive: boolean };
+  const done = await prisma.user.updateMany({
+    where: { id: String(req.params.id), role: 'USER' },
+    data: { isActive, ...(isActive ? {} : { refreshTokenHash: null }) }
+  });
+  if (done.count !== 1) throw new AppError('Member not found', 404);
+  res.json({ success: true, message: isActive ? 'Member switched on' : 'Member switched off and signed out' });
 });
 
 const statusOf = (v: unknown) => z.enum(['PENDING', 'APPROVED', 'REJECTED']).catch('PENDING').parse(v);

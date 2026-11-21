@@ -2024,6 +2024,39 @@ test('PROFILE: a member edits name, mobile and city; a mobile number belongs to 
   assert.equal((await b.c.call('PUT', '/api/dashboard/profile', { name: 'Bina Rao', phone: '9898989898', city: '' })).status, 409);
 });
 
+test('ADMIN: overview and member list are admin-only, and switching a member off signs them out at once', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_ad_one');
+  const row = await rowOf(m.email);
+
+  assert.equal((await m.c.call('GET', '/api/admin/overview')).status, 403);
+  assert.equal((await m.c.call('GET', '/api/admin/members')).status, 403);
+  assert.equal((await new Client().call('GET', '/api/admin/overview')).status, 401);
+
+  const o = (await admin.call('GET', '/api/admin/overview')).json.data;
+  assert.ok(o.members >= 1 && o.active >= 1);
+  assert.deepEqual(Object.keys(o.waiting).sort(), ['funds', 'purchases', 'reports', 'withdrawals']);
+
+  const found = (await admin.call('GET', `/api/admin/members?q=${encodeURIComponent('mny_ad_one')}`)).json.data;
+  assert.equal(found.total, 1);
+  assert.equal(found.items[0].email, m.email);
+  const byCode = (await admin.call('GET', `/api/admin/members?q=${row.referralCode.toLowerCase()}`)).json.data;
+  assert.equal(byCode.items[0]?.email, m.email, 'search by Affiliate ID');
+  const raw = JSON.stringify(found);
+  for (const secret of ['passwordHash', 'txnPasswordHash', 'refreshTokenHash', 'Hash']) assert.equal(raw.includes(secret), false, `no ${secret} in the list`);
+
+  assert.equal((await m.c.call('POST', `/api/admin/members/${row.id}/active`, { isActive: false })).status, 403);
+  assert.equal((await admin.call('POST', `/api/admin/members/${row.id}/active`, { isActive: 'no' })).status, 400);
+  assert.equal((await admin.call('POST', `/api/admin/members/${row.id}/active`, { isActive: false })).status, 200);
+  assert.equal((await m.c.call('GET', '/api/auth/me')).status, 401, 'signed out immediately');
+  assert.equal((await new Client().call('POST', '/api/auth/login', { email: m.email, password: 'Password123' })).status >= 400, true, 'cannot log in while off');
+  assert.equal((await admin.call('POST', `/api/admin/members/${row.id}/active`, { isActive: true })).status, 200);
+  assert.equal((await new Client().call('POST', '/api/auth/login', { email: m.email, password: 'Password123' })).status, 200);
+
+  // admin accounts are never switched off from here
+  const adminRow = await prisma.user.findFirstOrThrow({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } });
+  assert.equal((await admin.call('POST', `/api/admin/members/${adminRow.id}/active`, { isActive: false })).status, 404);
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

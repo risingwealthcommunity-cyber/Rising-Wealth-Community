@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { Contact } from '../site';
 import { SOCIALS, telLink, whatsappLink } from './contactLinks';
 
-const ICONS: Record<string, ReactNode> = {
+export const ICONS: Record<string, ReactNode> = {
   instagram: (
     <>
       <rect x="3.5" y="3.5" width="17" height="17" rx="5" />

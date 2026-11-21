@@ -12,6 +12,15 @@ interface PendingPurchase {
   createdAt: string;
   user: { name: string; email: string; package: string };
 }
+interface Overview {
+  members: number;
+  active: number;
+  newToday: number;
+  byPackage: Record<string, number>;
+  waiting: { purchases: number; funds: number; withdrawals: number; reports: number };
+  walletTotal: number;
+  activationTotal: number;
+}
 interface Period {
   id: string;
   startsAt: string;
@@ -28,10 +37,12 @@ export default function AdminPage() {
   const [pending, setPending] = useState<PendingPurchase[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [fund, setFund] = useState('0');
+  const [overview, setOverview] = useState<Overview | null>(null);
   const [msg, setMsg] = useState<Msg>(null);
   const [demat, setDemat] = useState({ referrerEmail: '', clientName: '', amount: '' });
 
   const load = useCallback(async () => {
+    api<Overview>('/admin/overview').then((r) => setOverview(r.data ?? null)).catch(() => undefined);
     const [p, per, f] = await Promise.all([
       api<{ purchases: PendingPurchase[] }>('/admin/purchases?status=PENDING'),
       api<{ periods: Period[] }>('/admin/periods'),
@@ -78,6 +89,39 @@ export default function AdminPage() {
       <h1>Admin</h1>
       {msg && <div className={`alert ${msg.type}`}>{msg.text}</div>}
 
+      <div className="levels admin-overview">
+        <Link className="level" to="/admin/members">
+          <small>Members</small>
+          <strong>{overview ? overview.members : '...'}</strong>
+          <em>{overview ? `${overview.active} active · ${overview.newToday} new in 24h` : ''}</em>
+        </Link>
+        <Link className="level" to="/admin/operations">
+          <small>Fund requests</small>
+          <strong>{overview ? overview.waiting.funds : '...'}</strong>
+          <em>waiting</em>
+        </Link>
+        <Link className="level" to="/admin/operations">
+          <small>Withdrawals</small>
+          <strong>{overview ? overview.waiting.withdrawals : '...'}</strong>
+          <em>waiting</em>
+        </Link>
+        <Link className="level" to="/admin/operations">
+          <small>Reports</small>
+          <strong>{overview ? overview.waiting.reports : '...'}</strong>
+          <em>waiting</em>
+        </Link>
+        <div className="level">
+          <small>Package payments</small>
+          <strong>{overview ? overview.waiting.purchases : '...'}</strong>
+          <em>waiting (below)</em>
+        </div>
+        <div className="level">
+          <small>Owed in wallets</small>
+          <strong>{overview ? inr(overview.walletTotal) : '...'}</strong>
+          <em>{overview ? `Activation wallets ${inr(overview.activationTotal)}` : ''}</em>
+        </div>
+      </div>
+
       <div className="card">
         <h2>Website content</h2>
         <p className="muted">
@@ -85,6 +129,9 @@ export default function AdminPage() {
           photos and certificate shown on the home page.
         </p>
         <div>
+          <Link className="btn" to="/admin/members">
+            Members
+          </Link>
           <Link className="btn" to="/admin/operations">
             Operations
           </Link>
