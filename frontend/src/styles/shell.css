@@ -251,3 +251,24 @@
 .shell .dash-code:hover { background: rgba(255, 255, 255, 0.07); }
 .dash-code small { font: 400 0.56rem "Space Mono", monospace; letter-spacing: 0.24em; color: rgba(255, 255, 255, 0.55); }
 .dash-code b { font: 700 0.92rem "Space Mono", monospace; letter-spacing: 0.08em; color: #d5d9e0; }
+
+/* ---- hero card: white */
+.shell .dash-profile {
+  color: var(--text); border: 1px solid var(--border);
+  background: radial-gradient(520px 260px at 50% 0%, rgba(15, 23, 42, 0.06), transparent 70%), repeating-radial-gradient(circle at 50% 14%, rgba(15, 23, 42, 0.035) 0 2px, transparent 2px 13px), #ffffff;
+  box-shadow: var(--shadow);
+}
+.dash-profile::after { -webkit-text-stroke: 2px rgba(15, 23, 42, 0.07); }
+.dash-avatar { color: #ffffff; background: linear-gradient(135deg, #2a313c, #0d1117); box-shadow: 0 0 0 4px #ffffff, 0 0 0 6px #0d1117, 0 14px 36px rgba(15, 23, 42, 0.25); }
+.dash-hello { color: var(--muted); }
+.shell .dash-name { color: var(--text); }
+.dash-pill { color: var(--text); border-color: rgba(15, 23, 42, 0.35); }
+.dash-pill.gold { color: #ffffff; background: #0d1117; border-color: #0d1117; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22); }
+.dash-aff { color: var(--muted); }
+.dash-aff b { color: var(--text); }
+.shell .dash-copy .btn { background: #0d1117; color: #ffffff; border: 0; box-shadow: 0 8px 22px rgba(15, 23, 42, 0.22); }
+.shell .dash-copy .btn:last-child { background: #ffffff; color: var(--text); border: 1px solid rgba(15, 23, 42, 0.3); box-shadow: none; }
+.shell .dash-code { color: var(--text); }
+.shell .dash-code:hover { background: rgba(15, 23, 42, 0.06); }
+.dash-code small { color: var(--muted); }
+.dash-code b { color: var(--text); }
