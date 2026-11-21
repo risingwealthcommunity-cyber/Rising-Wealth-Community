@@ -94,9 +94,11 @@ export default function TeamPage() {
   const [tree, setTree] = useState<TreeData | null>(null);
   const [treeFailed, setTreeFailed] = useState(false);
   const [q, setQ] = useState('');
+  const [prices, setPrices] = useState<{ PRO: number; ELITE: number } | null>(null);
 
   useEffect(() => {
     api<Team>('/team/summary').then((r) => setTeam(r.data ?? null)).catch(() => undefined);
+    api<{ PRO: number; ELITE: number }>('/packages/prices').then((r) => setPrices(r.data ?? null)).catch(() => undefined);
     loadTree();
   }, []);
 
@@ -187,12 +189,24 @@ export default function TeamPage() {
         <h2>Passive income from team levels</h2>
         <p className="muted">You earn this share of every package sold by members in your downline, level by level.</p>
         <div className="levels">
-          {team.passiveLevels.map((l) => (
-            <div className={`level${l.unlocked ? '' : ' locked'}`} key={l.level}>
-              <small>Level {l.level}</small>
-              <strong>{l.unlocked ? `${l.pct}%` : '🔒 Locked'}</strong>
-            </div>
-          ))}
+          {team.passiveLevels.map((l) => {
+            const rs = (price: number) => Math.round((price * l.pct) / 100).toLocaleString('en-IN');
+            return (
+              <div className={`level${l.unlocked ? '' : ' locked'}`} key={l.level}>
+                <small>
+                  Level {l.level}
+                  {!l.unlocked && <span className="level-lock" aria-label="Locked"> 🔒</span>}
+                </small>
+                <strong>{l.pct}%</strong>
+                {prices && (
+                  <em>
+                    ₹{rs(prices.PRO)} on PRO · ₹{rs(prices.ELITE)} on ELITE
+                  </em>
+                )}
+                {!l.unlocked && <span className="level-need">Unlocks with ELITE</span>}
+              </div>
+            );
+          })}
         </div>
         {locked.length > 0 && (
           <p className="levels-note">
