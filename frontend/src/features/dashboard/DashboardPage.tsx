@@ -213,12 +213,28 @@ export default function DashboardPage() {
           Affiliate ID: <b>{user.referralCode}</b>
         </div>
         <div className="dash-copy">
-          <button className="btn" disabled={!left} onClick={() => left && copy('left-link', link(left))}>
-            {copied === 'left-link' ? 'Copied!' : 'Copy Left Referral Link'}
-          </button>
-          <button className="btn" disabled={!right} onClick={() => right && copy('right-link', link(right))}>
-            {copied === 'right-link' ? 'Copied!' : 'Copy Right Referral Link'}
-          </button>
+          {(
+            [
+              { key: 'left', title: 'Copy Left Referral Link', side: 'LEFT', code: left },
+              { key: 'right', title: 'Copy Right Referral Link', side: 'RIGHT', code: right }
+            ] as const
+          ).map((c) => (
+            <div className="dash-copy-item" key={c.key} data-side={c.side}>
+              <button className="btn" disabled={!c.code} onClick={() => c.code && copy(`${c.key}-link`, link(c.code))}>
+                {copied === `${c.key}-link` ? 'Copied!' : c.title}
+              </button>
+              <button
+                type="button"
+                className="dash-code"
+                disabled={!c.code}
+                title="Click to copy the code"
+                onClick={() => c.code && copy(`${c.key}-code`, c.code)}
+              >
+                <small>{c.side} CODE</small>
+                <b>{copied === `${c.key}-code` ? 'Copied!' : (c.code ?? '...')}</b>
+              </button>
+            </div>
+          ))}
         </div>
       </div>
 

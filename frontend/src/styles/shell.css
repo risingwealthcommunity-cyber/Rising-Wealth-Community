@@ -244,3 +244,10 @@
 
 .shell table.ladder tr.st-locked td { opacity: 0.5; }
 .shell table.ladder tr.st-current td { background: #fff8e6; }
+
+.dash-copy { align-items: flex-start; }
+.dash-copy-item { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.shell .dash-code { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 12px; border: 0; border-radius: 10px; background: transparent; cursor: pointer; color: #fff; }
+.shell .dash-code:hover { background: rgba(255, 255, 255, 0.07); }
+.dash-code small { font: 400 0.56rem "Space Mono", monospace; letter-spacing: 0.24em; color: rgba(255, 255, 255, 0.55); }
+.dash-code b { font: 700 0.92rem "Space Mono", monospace; letter-spacing: 0.08em; color: #f3c64f; }
