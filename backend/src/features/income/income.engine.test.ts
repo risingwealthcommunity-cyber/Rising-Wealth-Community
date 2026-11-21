@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  advanceLeadership,
+  advanceTeamTargets,
+  leadershipTargets,
   computeDematIncome,
   computePackageSale,
   nextRankReached,
@@ -131,4 +134,68 @@ test('splitPool is proportional', () => {
     { id: 'a', paise: 250 },
     { id: 'b', paise: 750 }
   ]);
+});
+
+/* ---------------- Team Performance Bonus (binary targets) ---------------- */
+
+test('team: 2 left + 2 right completes target 1 and pays Rs 750', () => {
+  const r = advanceTeamTargets(0, 2, 2);
+  assert.deepEqual(r.steps.map((s) => [s.target, s.paise / 100]), [[1, 750]]);
+  assert.deepEqual([r.done, r.left, r.right], [1, 0, 0]);
+});
+
+test('team: both sides are needed, 2:1 pays nothing', () => {
+  const r = advanceTeamTargets(0, 2, 1);
+  assert.equal(r.steps.length, 0);
+  assert.deepEqual([r.done, r.left, r.right], [0, 2, 1]);
+});
+
+test('team: after target 1 the next one needs 4:4 NEW members, the old 2:2 are not counted again', () => {
+  let r = advanceTeamTargets(0, 2, 2);
+  r = advanceTeamTargets(r.done, r.left + 3, r.right + 3); // 3:3 new members is not enough for 4:4
+  assert.equal(r.steps.length, 0);
+  r = advanceTeamTargets(r.done, r.left + 1, r.right + 1); // now 4:4 fresh
+  assert.deepEqual(r.steps.map((s) => [s.target, s.paise / 100]), [[2, 1500]]);
+  assert.deepEqual([r.done, r.left, r.right], [2, 0, 0]);
+});
+
+test('team: members beyond what a target needs are kept for the next target, not lost', () => {
+  const r = advanceTeamTargets(0, 5, 2);
+  assert.deepEqual([r.done, r.left, r.right], [1, 3, 0]);
+});
+
+test('team: one big jump can complete several targets in order (2:2 then 4:4 from 6:6)', () => {
+  const r = advanceTeamTargets(0, 6, 6);
+  assert.deepEqual(r.steps.map((s) => s.target), [1, 2]);
+  assert.equal(r.steps.reduce((a, s) => a + s.paise, 0) / 100, 2250);
+  assert.deepEqual([r.left, r.right], [0, 0]);
+});
+
+test('team: the ladder is 750, 1500, 3000, 6000, 12000 and stops after the fifth', () => {
+  const r = advanceTeamTargets(0, 62, 62); // 2+4+8+16+32
+  assert.deepEqual(r.steps.map((s) => s.paise / 100), [750, 1500, 3000, 6000, 12000]);
+  assert.equal(advanceTeamTargets(r.done, 500, 500).steps.length, 0);
+});
+
+/* ---------------------------- Leadership Bonus ---------------------------- */
+
+test('leadership: thresholds are cumulative (6, 18, 42 ...)', () => {
+  assert.deepEqual(leadershipTargets().slice(0, 4).map((t) => t.threshold), [6, 18, 42, 90]);
+});
+
+test('leadership (brief example): 8 points completes the 6-point target only', () => {
+  const r = advanceLeadership(0, 8);
+  assert.deepEqual(r.steps.map((s) => s.index), [1]);
+});
+
+test('leadership (brief example): 24 points completes the 6 and the 12 point targets', () => {
+  const r = advanceLeadership(1, 24);
+  assert.deepEqual(r.steps.map((s) => s.index), [2]);
+  assert.equal(advanceLeadership(0, 24).steps.length, 2);
+  assert.equal(advanceLeadership(2, 24).steps.length, 0);
+});
+
+test('leadership: a target is paid once however many points follow', () => {
+  assert.equal(advanceLeadership(1, 17).steps.length, 0);
+  assert.equal(advanceLeadership(1, 18).steps.length, 1);
 });

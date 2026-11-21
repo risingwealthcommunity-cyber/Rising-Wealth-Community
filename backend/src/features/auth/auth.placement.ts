@@ -1,4 +1,5 @@
 import { Prisma, Leg } from '@prisma/client';
+import { awardTeamGrowth } from '../income/team.growth';
 
 type Tx = Prisma.TransactionClient;
 
@@ -26,3 +27,17 @@ export const isPlacementCollision = (err: unknown): boolean => {
   const target = String((err.meta as { target?: unknown } | undefined)?.target ?? '');
   return target.includes('parentId') || target.includes('leg');
 };
+
+/**
+ * Puts a member in the binary tree and credits their upline (team counts + leadership points) in the same
+ * transaction. A member is placed once and never moved, so this runs exactly once per member.
+ */
+export async function placeMember(tx: Tx, userId: string, sponsorId: string, leg: Leg, extra: Prisma.UserUpdateInput = {}) {
+  const placement = await findPlacement(tx, sponsorId, leg);
+  const user = await tx.user.update({
+    where: { id: userId },
+    data: { ...extra, parent: { connect: { id: placement.parentId } }, leg: placement.leg }
+  });
+  await awardTeamGrowth(tx, userId);
+  return user;
+}

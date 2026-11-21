@@ -11,7 +11,7 @@ import {
   sendVerificationEmail
 } from '../../shared/mail/mailer';
 import { googleAuth } from './auth.google';
-import { findPlacement, isPlacementCollision } from './auth.placement';
+import { isPlacementCollision, placeMember } from './auth.placement';
 import {
   ADMIN_OTP_TTL_MS,
   EMAIL_CODE_TTL_MS,
@@ -140,13 +140,7 @@ async function issueAdminOtp(user: User) {
 async function placeInTree(userId: string, sponsorId: string, leg: Leg, extra: Prisma.UserUpdateInput) {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      return await prisma.$transaction(async (tx) => {
-        const placement = await findPlacement(tx, sponsorId, leg);
-        return tx.user.update({
-          where: { id: userId },
-          data: { ...extra, parent: { connect: { id: placement.parentId } }, leg: placement.leg }
-        });
-      });
+      return await prisma.$transaction((tx) => placeMember(tx, userId, sponsorId, leg, extra), { timeout: 20_000 });
     } catch (err) {
       if (!isPlacementCollision(err)) throw err;
     }

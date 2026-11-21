@@ -1330,6 +1330,206 @@ test('pools: Trainees and non-Silver users never receive leadership bonus', asyn
   assert.equal(trainees, 0);
 });
 
+// ---------------------------------------------------------------- TEAM PERFORMANCE + LEADERSHIP BONUS
+
+const bonusesOf = async (c: Client) => (await c.call('GET', '/api/team/bonuses')).json.data;
+const rowOf = (email: string) => prisma.user.findUniqueOrThrow({ where: { email } });
+/** A member with a paid package (only paid members earn binary bonuses) and their two codes. */
+async function paidMember(sponsorCode: string, leg: 'LEFT' | 'RIGHT', name: string) {
+  const m = await signup(sponsorCode, leg, name);
+  await buy(m.c, 'PRO');
+  const row = await rowOf(m.email);
+  return { ...m, id: row.id, left: row.leftCode!, right: row.rightCode! };
+}
+const teamPaid = (c: Client) =>
+  c.call('GET', '/api/wallet/transactions').then((r) =>
+    (r.json.data.items as any[])
+      .filter((e) => e.type === 'TEAM_PERFORMANCE_BONUS')
+      .map((e) => rupees(e.amount))
+      .sort((a, b) => a - b)
+  );
+
+test('TEAM BONUS: 2 new on the left + 2 new on the right pays Rs 750 straight into the wallet', async () => {
+  const top = await paidMember('RWCROOT', 'LEFT', 'tb_top');
+  const before = await balance(top.c);
+
+  await signup(top.left, 'LEFT', 'tb_l1');
+  await signup(top.right, 'LEFT', 'tb_r1');
+  await signup(top.left, 'LEFT', 'tb_l2');
+  let b = await bonusesOf(top.c);
+  assert.equal(b.team.completed, 0, 'only 3 of 4 members so far');
+  assert.deepEqual([b.team.pendingLeft, b.team.pendingRight], [2, 1]);
+  assert.equal(await balance(top.c), before);
+
+  await signup(top.right, 'LEFT', 'tb_r2');
+  b = await bonusesOf(top.c);
+  assert.equal(b.team.completed, 1);
+  assert.equal(b.team.current.target, 2);
+  assert.equal(b.team.current.members, 4);
+  assert.deepEqual([b.team.pendingLeft, b.team.pendingRight], [0, 0]);
+  assert.deepEqual([b.team.totalLeft, b.team.totalRight], [2, 2]);
+  assert.equal(await balance(top.c), before + 750);
+  assert.equal(b.history.length, 1);
+  assert.equal(b.history[0].amount, '750.00');
+  assert.equal(b.history[0].kind, 'TEAM');
+  assert.equal(b.team.targets[0].status, 'DONE');
+  assert.equal(b.team.targets[1].status, 'CURRENT');
+  assert.equal(b.team.targets[2].status, 'LOCKED');
+});
+
+test('TEAM BONUS: the next target needs 4:4 FRESH members; the earlier 2:2 are never counted again', async () => {
+  const top = await rowOf('tb_top@test.com');
+  const topC = new Client();
+  assert.equal((await topC.call('POST', '/api/auth/login', { email: 'tb_top@test.com', password: 'Password123' })).status, 200);
+  const before = await balance(topC);
+
+  for (let i = 1; i <= 3; i++) {
+    await signup(top.leftCode!, 'LEFT', `tb2_l${i}`);
+    await signup(top.rightCode!, 'LEFT', `tb2_r${i}`);
+  }
+  let b = await bonusesOf(topC);
+  assert.equal(b.team.completed, 1, '3:3 fresh members is not enough for 4:4');
+  assert.deepEqual([b.team.pendingLeft, b.team.pendingRight], [3, 3]);
+  assert.equal(await balance(topC), before);
+
+  await signup(top.leftCode!, 'LEFT', 'tb2_l4');
+  b = await bonusesOf(topC);
+  assert.equal(b.team.completed, 1, 'both sides are needed: 4 left but only 3 right');
+  await signup(top.rightCode!, 'LEFT', 'tb2_r4');
+
+  b = await bonusesOf(topC);
+  assert.equal(b.team.completed, 2);
+  assert.equal(await balance(topC), before + 1500);
+  assert.deepEqual([b.team.pendingLeft, b.team.pendingRight], [0, 0]);
+  assert.deepEqual([b.team.totalLeft, b.team.totalRight], [6, 6]);
+  assert.equal(b.team.current.target, 3);
+  assert.equal(b.team.current.reward, 3000);
+  assert.deepEqual(await teamPaid(topC), [750, 1500]);
+});
+
+test('TEAM BONUS: the whole downline counts on the side it hangs from (not just direct referrals)', async () => {
+  const top = await paidMember('RWCROOT', 'LEFT', 'dl_top');
+  const b1 = await paidMember(top.left, 'LEFT', 'dl_b1'); // direct, LEFT
+  await signup(b1.left, 'LEFT', 'dl_c1'); // b1's own referrals sit deeper in top's LEFT
+  await signup(b1.right, 'LEFT', 'dl_c2');
+  const topRow = await rowOf('dl_top@test.com');
+  assert.deepEqual([topRow.teamLeftTotal, topRow.teamRightTotal], [3, 0]);
+  for (const e of ['dl_c1', 'dl_c2']) {
+    const m = await rowOf(`${e}@test.com`);
+    assert.notEqual(m.parentId, topRow.id, 'they are placed under b1, not directly under top');
+  }
+  // b1 has his own independent tree: his left and right each got one
+  const b1Row = await rowOf('dl_b1@test.com');
+  assert.deepEqual([b1Row.teamLeftTotal, b1Row.teamRightTotal], [1, 1]);
+});
+
+test('TEAM BONUS: a Trainee earns nothing, and an unverified signup is not counted', async () => {
+  const trainee = await signup('RWCROOT', 'LEFT', 'tr_top');
+  const t = await rowOf('tr_top@test.com');
+  await signup(t.leftCode!, 'LEFT', 'tr_l1');
+  await signup(t.rightCode!, 'LEFT', 'tr_r1');
+  const after = await rowOf('tr_top@test.com');
+  assert.deepEqual([after.teamLeftTotal, after.teamRightTotal], [0, 0]);
+  assert.equal(await balance(trainee.c), 0);
+
+  // signed up but never verified: no placement, so nothing counted for the sponsor
+  const paid = await paidMember('RWCROOT', 'LEFT', 'uv_top');
+  await new Client().call('POST', '/api/auth/signup', {
+    name: 'Unverified',
+    email: 'uv_new@test.com',
+    password: 'Password123',
+    sponsorCode: paid.left
+  });
+  assert.equal((await rowOf('uv_top@test.com')).teamLeftTotal, 0);
+});
+
+test('TEAM BONUS: members joining at the same moment can never pay a target twice or lose a count', async () => {
+  const top = await paidMember('RWCROOT', 'LEFT', 'cc_top');
+  await Promise.all([
+    ...[1, 2, 3].map((i) => signup(top.left, 'LEFT', `cc_l${i}`)),
+    ...[1, 2, 3].map((i) => signup(top.right, 'LEFT', `cc_r${i}`))
+  ]);
+  const row = await rowOf('cc_top@test.com');
+  assert.deepEqual([row.teamLeftTotal, row.teamRightTotal], [3, 3]);
+  assert.equal(row.teamTargetsDone, 1);
+  assert.deepEqual([row.teamLeftNew, row.teamRightNew], [1, 1]);
+  assert.deepEqual(await teamPaid(top.c), [750]);
+});
+
+test('TEAM BONUS: a placement never changes, and nobody has an endpoint to move a member', async () => {
+  const top = await rowOf('tb_top@test.com');
+  const kids = await prisma.user.findMany({ where: { parentId: top.id }, select: { id: true, leg: true, parentId: true } });
+  const again = await signup(top.leftCode!, 'RIGHT', 'fix_l1'); // asks for RIGHT with a LEFT code: stays LEFT
+  const a = await rowOf(again.email);
+  assert.equal(a.sponsorId, top.id);
+  assert.equal(a.leg, 'LEFT');
+  const after = await prisma.user.findMany({ where: { id: { in: kids.map((k) => k.id) } }, select: { id: true, leg: true, parentId: true } });
+  assert.deepEqual(
+    after.sort((x, y) => x.id.localeCompare(y.id)),
+    kids.sort((x, y) => x.id.localeCompare(y.id))
+  );
+  for (const url of ['/api/team/place', '/api/team/move', '/api/admin/place']) {
+    assert.ok([403, 404].includes((await again.c.call('POST', url, { userId: a.id, leg: 'RIGHT' })).status));
+  }
+});
+
+test('LEADERSHIP BONUS: points come from the new members my direct referrals sponsor; 6 points pays target 1', async () => {
+  const g = await paidMember('RWCROOT', 'LEFT', 'ld_g');
+  const gBefore = await balance(g.c);
+  const d1 = await signup(g.left, 'LEFT', 'ld_d1'); // g's direct referral
+  const d1Row = await rowOf(d1.email);
+
+  // g's direct referral joining gives g NO point (points come from what d1 sponsors)
+  assert.equal((await rowOf('ld_g@test.com')).leadershipPoints, 0);
+
+  for (let i = 1; i <= 5; i++) await signup(i % 2 ? d1Row.leftCode! : d1Row.rightCode!, 'LEFT', `ld_m${i}`);
+  let b = await bonusesOf(g.c);
+  assert.equal(b.leadership.points, 5);
+  assert.equal(b.leadership.completed, 0);
+  assert.equal(await balance(g.c), gBefore, 'one point short');
+
+  await signup(d1Row.leftCode!, 'LEFT', 'ld_m6');
+  b = await bonusesOf(g.c);
+  assert.equal(b.leadership.points, 6);
+  assert.equal(b.leadership.completed, 1);
+  assert.equal(b.leadership.current.target, 2);
+  assert.equal(b.leadership.current.threshold, 18);
+  assert.equal(await balance(g.c), gBefore + 600);
+  assert.equal(b.history.find((h: any) => h.kind === 'LEADERSHIP').amount, '600.00');
+
+  // deeper levels do not count: d1's members sponsoring more members gives g nothing
+  const m1 = await rowOf('ld_m1@test.com');
+  await signup(m1.leftCode!, 'LEFT', 'ld_deep');
+  assert.equal((await rowOf('ld_g@test.com')).leadershipPoints, 6);
+});
+
+test('LEADERSHIP BONUS (brief example): 8 points = target 1 done; 16 more members = the 12-point target done too', async () => {
+  const g = await paidMember('RWCROOT', 'LEFT', 'lb_g');
+  const gRow = await rowOf('lb_g@test.com');
+  const directs: Awaited<ReturnType<typeof rowOf>>[] = [];
+  for (const n of ['lb_a', 'lb_b']) {
+    const d = await signup(gRow.leftCode!, 'LEFT', n);
+    directs.push(await rowOf(d.email));
+  }
+  // both directs sponsor 4 each = 8 points
+  for (const d of directs) for (let i = 0; i < 4; i++) await signup(i % 2 ? d.leftCode! : d.rightCode!, 'LEFT', `${d.name}_x${i}`);
+  let b = await bonusesOf(g.c);
+  assert.deepEqual([b.leadership.points, b.leadership.completed], [8, 1]);
+
+  // 4 more directs with 2 each = 8, the first two directs sponsor 4 each again = 8  => 24 points
+  for (const n of ['lb_c', 'lb_d', 'lb_e', 'lb_f']) {
+    const d = await rowOf((await signup(gRow.leftCode!, 'LEFT', n)).email);
+    for (let i = 0; i < 2; i++) await signup(i ? d.leftCode! : d.rightCode!, 'LEFT', `${n}_x${i}`);
+  }
+  for (const d of directs) for (let i = 4; i < 8; i++) await signup(i % 2 ? d.leftCode! : d.rightCode!, 'LEFT', `${d.name}_x${i}`);
+  b = await bonusesOf(g.c);
+  assert.equal(b.leadership.points, 24);
+  assert.equal(b.leadership.completed, 2, 'targets 6 and 12 are both complete, the third (42) is not');
+  assert.equal(b.leadership.current.threshold, 42);
+  const paid = (await g.c.call('GET', '/api/wallet')).json.data.earningsByType.LEADERSHIP_TARGET_BONUS;
+  assert.equal(rupees(paid), 600 + 1200);
+});
+
 // ---------------------------------------------------------------- INTEGRITY
 
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {

@@ -68,3 +68,28 @@ export const RANKS: RankDef[] = [
   { rank: 'DYNASTY', points: 32_800, reward: 6_500_000 },
   { rank: 'ETERNAL', points: 131_000, reward: 15_000_000 }
 ];
+
+/**
+ * Team Performance Bonus (binary targets). Each target needs `members` NEW members on EACH side
+ * (left : right) that no earlier target has used. Targets are sequential.
+ */
+export interface TeamTarget {
+  members: number;
+  reward: number;
+}
+export const TEAM_TARGETS: TeamTarget[] = [
+  { members: 2, reward: 750 },
+  { members: 4, reward: 1_500 },
+  { members: 8, reward: 3_000 },
+  { members: 16, reward: 6_000 },
+  { members: 32, reward: 12_000 }
+];
+
+/**
+ * Leadership Bonus: 1 point for every new member sponsored by one of my DIRECT referrals.
+ * Target sizes double (6, 12, 24, ...) and are CUMULATIVE: thresholds are 6, 18, 42, ...
+ * ASSUMPTION (the brief gives sizes 6 and 12 but no rupee amounts): reward = LEADERSHIP_RUPEES_PER_POINT x size.
+ * Change the number below (or the list) to set the real amounts.
+ */
+export const LEADERSHIP_RUPEES_PER_POINT = 100;
+export const LEADERSHIP_TARGET_SIZES = [6, 12, 24, 48, 96, 192, 384, 768];

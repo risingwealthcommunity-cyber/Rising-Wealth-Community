@@ -73,6 +73,17 @@ model User {
   children User[]  @relation("Binary")
   leg      Leg?
 
+  // Team Performance Bonus (2:2, 4:4, ...): NEW members not yet used up by a completed target, plus lifetime totals.
+  teamLeftNew     Int @default(0)
+  teamRightNew    Int @default(0)
+  teamLeftTotal   Int @default(0)
+  teamRightTotal  Int @default(0)
+  teamTargetsDone Int @default(0)
+
+  // Leadership Bonus: 1 point per new member sponsored by one of my direct referrals (cumulative, never reset).
+  leadershipPoints      Int @default(0)
+  leadershipTargetsDone Int @default(0)
+
   // Auth (same model as the NGO system)
   isVerified           Boolean   @default(false)
   emailVerifyTokenHash String?
@@ -134,6 +145,8 @@ enum LedgerType {
   WEEKLY_BONUS
   PERFORMANCE_BONUS
   LEADERSHIP_BONUS
+  TEAM_PERFORMANCE_BONUS
+  LEADERSHIP_TARGET_BONUS
   RANK_REWARD
   COMPANY_FUND
 }

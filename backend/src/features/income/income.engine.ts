@@ -6,15 +6,19 @@ import type { LedgerType, Package, Rank } from '@prisma/client';
 import {
   DEMAT_PASSIVE_PCT,
   DIRECT_PCT,
+  LEADERSHIP_RUPEES_PER_POINT,
+  LEADERSHIP_TARGET_SIZES,
   PACKAGE_PRICE_PAISE,
   PASSIVE_LEVELS_UNLOCKED,
   PASSIVE_PCT,
   RANKS,
+  TEAM_TARGETS,
   WEEKLY_MAX_SHARES_PER_PACKAGE,
   WEEKLY_SALES_PER_SHARE,
   WEEKLY_SHARE_WEIGHT,
   type PaidPackage,
-  type RankDef
+  type RankDef,
+  type TeamTarget
 } from './plan.config';
 
 export interface UplineMember {
@@ -152,4 +156,75 @@ export function splitPool(
     .filter((p) => p.paise > 0);
 
   return { payouts, unclaimed: poolPaise - paid };
+}
+
+/* ----------------------------- Team Performance Bonus ----------------------------- */
+
+export interface TeamStep {
+  /** 1-based number of the target that was just completed. */
+  target: number;
+  members: number;
+  paise: number;
+}
+
+/**
+ * Applies the sequential binary targets to a member's NEW (unused) left/right counts.
+ * A target needs `members` on EACH side; those members are then used up (never counted again).
+ * Anything beyond what the target needed stays available for the next one.
+ */
+export function advanceTeamTargets(
+  done: number,
+  left: number,
+  right: number,
+  targets: readonly TeamTarget[] = TEAM_TARGETS
+): { steps: TeamStep[]; done: number; left: number; right: number } {
+  const steps: TeamStep[] = [];
+  let l = left;
+  let r = right;
+  let d = done;
+  for (;;) {
+    const t = targets[d];
+    if (!t || l < t.members || r < t.members) break;
+    l -= t.members;
+    r -= t.members;
+    d += 1;
+    steps.push({ target: d, members: t.members, paise: t.reward * 100 });
+  }
+  return { steps, done: d, left: l, right: r };
+}
+
+/* ------------------------------- Leadership Bonus -------------------------------- */
+
+export interface LeadershipTarget {
+  index: number;
+  size: number;
+  /** Total points needed (cumulative). */
+  threshold: number;
+  paise: number;
+}
+
+export function leadershipTargets(
+  sizes: readonly number[] = LEADERSHIP_TARGET_SIZES,
+  perPoint: number = LEADERSHIP_RUPEES_PER_POINT
+): LeadershipTarget[] {
+  let total = 0;
+  return sizes.map((size, i) => {
+    total += size;
+    return { index: i + 1, size, threshold: total, paise: size * perPoint * 100 };
+  });
+}
+
+/** Targets newly reached when a member's cumulative points go up. */
+export function advanceLeadership(
+  done: number,
+  points: number,
+  targets: readonly LeadershipTarget[] = leadershipTargets()
+): { steps: LeadershipTarget[]; done: number } {
+  const steps: LeadershipTarget[] = [];
+  let d = done;
+  while (targets[d] && points >= targets[d].threshold) {
+    steps.push(targets[d]);
+    d += 1;
+  }
+  return { steps, done: d };
 }
