@@ -286,7 +286,7 @@
 .shell-label { color: var(--muted); }
 .shell .shell-side a, .shell .shell-side button.shell-group, .shell .shell-foot button { color: var(--text); }
 .shell .shell-side a:hover, .shell .shell-side button.shell-group:hover, .shell .shell-foot button:hover { background: rgba(15, 23, 42, 0.06); color: var(--text); }
-.shell .shell-side a.active, .shell .shell-side button.shell-group.active { background: #eceff3; color: var(--text); box-shadow: inset 3px 0 0 #0d1117; }
+.shell .shell-side a.active, .shell .shell-side button.shell-group.active { background: #eceff3; color: var(--text); box-shadow: none; }
 .shell-sub { border-left-color: var(--border); }
 .shell-foot { border-top-color: var(--border); }
 .shell.mobile-open .shell-side { box-shadow: 14px 0 44px rgba(15, 23, 42, 0.18); }
