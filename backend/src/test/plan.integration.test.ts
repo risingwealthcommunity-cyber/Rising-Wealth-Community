@@ -1771,6 +1771,259 @@ test('WALLET: transactions can be filtered by income type, and a bogus type is i
 
 // ---------------------------------------------------------------- INTEGRITY
 
+// ---------------------------------------------------------------- WALLETS, ACTIVATION, WITHDRAWALS, CAMPAIGNS
+
+const TXN = 'TxnPass#2026';
+const REPORT_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+const setTxn = (c: Client, extra: object = { loginPassword: 'Password123' }) => c.call('POST', '/api/wallet/txn-password', { newPassword: TXN, ...extra });
+const walletOf = async (c: Client) => (await c.call('GET', '/api/wallet')).json.data;
+const actOf = async (c: Client) => (await c.call('GET', '/api/wallet/activation')).json.data;
+async function addFund(c: Client, amount: number, ref = 'UTR123456') {
+  const r = await c.call('POST', '/api/wallet/fund', { amount, reference: ref });
+  assert.equal(r.status, 201, JSON.stringify(r.json));
+  const list = (await admin.call('GET', '/api/admin/fund-requests')).json.data.items as any[];
+  const mine = list.find((x) => x.reference === ref && x.status === 'PENDING');
+  assert.ok(mine, 'the request shows up for the admin');
+  const ok = await admin.call('POST', `/api/admin/fund-requests/${mine.id}/approve`);
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  return mine.id as string;
+}
+
+test('TXN PASSWORD: needed before money moves, set only with the login password, and locks after 5 wrong guesses', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_tp_one');
+  assert.equal((await m.c.call('POST', '/api/wallet/transfer', { amount: 10, txnPassword: 'x' })).status, 400, 'no transaction password yet');
+  assert.equal((await setTxn(m.c, { loginPassword: 'WrongPass1' })).status, 401);
+  assert.equal((await setTxn(m.c, {})).status, 401, 'login password is required');
+  assert.equal((await m.c.call('POST', '/api/wallet/txn-password', { newPassword: 'short', loginPassword: 'Password123' })).status, 400);
+  assert.equal((await setTxn(m.c)).status, 200);
+  assert.equal((await walletOf(m.c)).hasTxnPassword, true);
+
+  // 5 wrong guesses lock it, even the right password is refused during the lock
+  for (let i = 0; i < 4; i++) assert.equal((await m.c.call('POST', '/api/wallet/transfer', { amount: 10, txnPassword: 'nope' + i })).status, 401);
+  assert.equal((await m.c.call('POST', '/api/wallet/transfer', { amount: 10, txnPassword: 'nope5' })).status, 429);
+  assert.equal((await m.c.call('POST', '/api/wallet/transfer', { amount: 10, txnPassword: TXN })).status, 429, 'locked');
+});
+
+test('ADD FUND: an admin approves a payment reference and it lands in the activation wallet, once', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_af_one');
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { amount: -5, reference: 'UTR1234' })).status, 400);
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { amount: 100, reference: 'ab' })).status, 400);
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { amount: 10.123, reference: 'UTR1234' })).status, 400, 'at most 2 decimals');
+
+  const id = await addFund(m.c, 5000, 'UTR-AF-1');
+  assert.equal((await actOf(m.c)).activation, 5000);
+  assert.equal((await admin.call('POST', `/api/admin/fund-requests/${id}/approve`)).status, 409, 'cannot be approved twice');
+  assert.equal((await actOf(m.c)).activation, 5000);
+
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { amount: 700, reference: 'UTR-AF-2' })).status, 201);
+  const pending = ((await admin.call('GET', '/api/admin/fund-requests')).json.data.items as any[]).find((x) => x.reference === 'UTR-AF-2');
+  assert.equal((await admin.call('POST', `/api/admin/fund-requests/${pending.id}/reject`, { note: 'no such payment' })).status, 200);
+  assert.equal((await actOf(m.c)).activation, 5000, 'a rejected request adds nothing');
+  const mine = (await m.c.call('GET', '/api/wallet/fund')).json.data.items as any[];
+  assert.deepEqual(mine.map((x) => x.status).sort(), ['APPROVED', 'REJECTED']);
+  assert.equal((await m.c.call('POST', '/api/admin/fund-requests/x/approve')).status, 403, 'members cannot approve');
+});
+
+test('ACTIVATION: paying from the activation wallet upgrades yourself or your team, and runs the income plan', async () => {
+  const prices = (await new Client().call('GET', '/api/packages/prices')).json.data as { PRO: number; ELITE: number };
+  const top = await paidMember('RWCROOT', 'LEFT', 'mny_ac_top'); // PRO, sponsor of the others
+  const mate = await signup(top.left, 'LEFT', 'mny_ac_mate'); // in top's team, TRAINEE
+  const outsider = await signup('RWCROOT', 'RIGHT', 'mny_ac_out');
+  const mateRow = await rowOf(mate.email);
+  const outRow = await rowOf(outsider.email);
+  await setTxn(top.c);
+  await addFund(top.c, prices.PRO + prices.ELITE + 500, 'UTR-AC-1');
+  const before = (await walletOf(top.c)).totalEarned;
+
+  const ask = (body: object) => top.c.call('POST', '/api/wallet/activate', { txnPassword: TXN, ...body });
+  assert.equal((await ask({ affiliateId: mateRow.referralCode, package: 'PRO', txnPassword: 'wrong' })).status, 401);
+  assert.equal((await ask({ affiliateId: outRow.referralCode, package: 'PRO' })).status, 403, 'not in your team');
+  assert.equal((await ask({ affiliateId: 'RWCNOSUCH', package: 'PRO' })).status, 404);
+  assert.equal((await ask({ affiliateId: (await rowOf(top.email)).referralCode, package: 'PRO' })).status, 409, 'already PRO');
+
+  const r = await ask({ affiliateId: mateRow.referralCode.toLowerCase(), package: 'PRO' });
+  assert.equal(r.status, 201, JSON.stringify(r.json));
+  assert.equal((await rowOf(mate.email)).package, 'PRO');
+  assert.equal((await actOf(top.c)).activation, prices.ELITE + 500);
+  assert.ok((await walletOf(top.c)).totalEarned > before, 'the sponsor earned direct income from the sale');
+  assert.equal((await ask({ affiliateId: mateRow.referralCode, package: 'PRO' })).status, 409, 'cannot buy the same package twice');
+
+  // own ID: PRO -> ELITE
+  assert.equal((await ask({ affiliateId: (await rowOf(top.email)).referralCode, package: 'ELITE' })).status, 201);
+  assert.equal((await rowOf(top.email)).package, 'ELITE');
+  const left = (await actOf(top.c)).activation;
+  assert.equal(left, 500);
+  // not enough money left
+  assert.equal((await ask({ affiliateId: (await rowOf(outsider.email)).referralCode, package: 'PRO' })).status, 403);
+  const hist = (await actOf(top.c)).entries as any[];
+  assert.equal(hist.filter((e) => e.kind === 'SPEND').length, 2);
+  assert.equal(hist.filter((e) => e.kind === 'FUND_ADDED').length, 1);
+  // purchases are recorded and confirmed
+  const purchases = await prisma.packagePurchase.findMany({ where: { reference: 'ACTIVATION_WALLET' } });
+  assert.ok(purchases.length >= 2 && purchases.every((p) => p.status === 'CONFIRMED'));
+});
+
+test('ACTIVATION: concurrent upgrades cannot spend the same money twice', async () => {
+  const prices = (await new Client().call('GET', '/api/packages/prices')).json.data as { PRO: number; ELITE: number };
+  const top = await paidMember('RWCROOT', 'RIGHT', 'mny_cc_top');
+  const a = await signup(top.left, 'LEFT', 'mny_cc_a');
+  const b = await signup(top.right, 'LEFT', 'mny_cc_b');
+  await setTxn(top.c);
+  await addFund(top.c, prices.PRO + 10, 'UTR-CC-1'); // enough for exactly one
+  const codes = [(await rowOf(a.email)).referralCode, (await rowOf(b.email)).referralCode];
+  const res = await Promise.all(codes.map((affiliateId) => top.c.call('POST', '/api/wallet/activate', { affiliateId, package: 'PRO', txnPassword: TXN })));
+  assert.deepEqual(res.map((r) => r.status).sort(), [201, 400]);
+  assert.equal((await actOf(top.c)).activation, 10);
+});
+
+test('TRANSFER: wallet money moves to the activation wallet and the ledger stays balanced', async () => {
+  const top = await paidMember('RWCROOT', 'LEFT', 'mny_tr_top');
+  const buyer = await signup(top.left, 'LEFT', 'mny_tr_buyer');
+  await buy(buyer.c, 'PRO'); // direct income for tr_top
+  await setTxn(top.c);
+  const w = await walletOf(top.c);
+  assert.ok(w.available > 100);
+  assert.equal((await top.c.call('POST', '/api/wallet/transfer', { amount: w.available + 1, txnPassword: TXN })).status, 400, 'more than available');
+  assert.equal((await top.c.call('POST', '/api/wallet/transfer', { amount: 100, txnPassword: 'bad' })).status, 401);
+  assert.equal((await top.c.call('POST', '/api/wallet/transfer', { amount: 100, txnPassword: TXN })).status, 200);
+  const after = await walletOf(top.c);
+  assert.equal(Number(after.balance), Number(w.balance) - 100);
+  assert.equal(after.activationBalance, 100);
+  assert.equal(after.totalEarned, w.totalEarned, 'moving money is not income');
+  const ledger = (await top.c.call('GET', '/api/wallet/transactions')).json.data.items as any[];
+  assert.ok(ledger.some((e) => e.type === 'WALLET_TRANSFER' && Number(e.amount) === -100));
+});
+
+test('WITHDRAWAL: needs bank details, reserves the amount, and the wallet is debited only on approval', async () => {
+  const top = await paidMember('RWCROOT', 'LEFT', 'mny_wd_top');
+  const buyer = await signup(top.left, 'LEFT', 'mny_wd_buyer');
+  await buy(buyer.c, 'PRO');
+  await setTxn(top.c);
+  const w = await walletOf(top.c);
+  assert.ok(w.available >= 500);
+  const ask = (amount: number, txnPassword = TXN) => top.c.call('POST', '/api/wallet/withdraw', { amount, txnPassword });
+
+  assert.equal((await ask(200)).status, 400, 'bank details first');
+  const bank = { bankName: 'State Bank', accountNumber: '123456789012', ifsc: 'SBIN0001234', upiId: 'wd.top@upi' };
+  assert.equal((await top.c.call('PUT', '/api/wallet/bank', { ...bank, ifsc: 'BAD', txnPassword: TXN })).status, 400);
+  assert.equal((await top.c.call('PUT', '/api/wallet/bank', { ...bank, accountNumber: '12ab', txnPassword: TXN })).status, 400);
+  assert.equal((await top.c.call('PUT', '/api/wallet/bank', { ...bank, txnPassword: 'wrong' })).status, 401);
+  assert.equal((await top.c.call('PUT', '/api/wallet/bank', { ...bank, ifsc: 'sbin0001234', txnPassword: TXN })).status, 200);
+
+  const masked = (await top.c.call('GET', '/api/wallet/bank')).json;
+  assert.equal(masked.data.bank.account.endsWith('9012'), true);
+  assert.equal(JSON.stringify(masked).includes('123456789012'), false, 'the account number is never sent unmasked');
+  assert.equal((await top.c.call('POST', '/api/wallet/bank/unlock', { txnPassword: 'wrong' })).status, 401);
+  assert.equal((await top.c.call('POST', '/api/wallet/bank/unlock', { txnPassword: TXN })).json.data.bank.account, '123456789012');
+  const stored = await prisma.bankDetails.findUniqueOrThrow({ where: { userId: (await rowOf(top.email)).id } });
+  assert.equal(stored.accountEnc.includes('123456789012'), false, 'stored encrypted');
+
+  assert.equal((await ask(50)).status, 400, 'below the minimum');
+  assert.equal((await ask(w.available + 1)).status, 400, 'more than available');
+  assert.equal((await ask(200, 'wrong')).status, 401);
+  assert.equal((await ask(200)).status, 201);
+  const mid = await walletOf(top.c);
+  assert.equal(Number(mid.balance), Number(w.balance), 'nothing leaves the wallet until approval');
+  assert.equal(mid.pendingWithdrawals, 200);
+  assert.equal(mid.available, w.available - 200, 'but it is reserved');
+  assert.equal((await ask(mid.available + 1)).status, 400, 'the reserved part cannot be requested again');
+
+  const listed = ((await admin.call('GET', '/api/admin/withdrawals')).json.data.items as any[]).find((x) => x.userId === (stored.userId));
+  assert.equal(listed.bank.account, '123456789012', 'the admin sees where to pay');
+  assert.equal((await top.c.call('POST', `/api/admin/withdrawals/${listed.id}/approve`)).status, 403);
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${listed.id}/approve`)).status, 200);
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${listed.id}/approve`)).status, 409, 'once only');
+  const done = await walletOf(top.c);
+  assert.equal(Number(done.balance), Number(w.balance) - 200);
+  assert.equal(done.totalPaid, 200);
+  assert.equal(done.pendingWithdrawals, 0);
+  assert.equal(done.totalEarned, w.totalEarned, 'withdrawing is not negative income');
+
+  // a rejected request frees the reservation
+  assert.equal((await ask(300)).status, 201);
+  const second = ((await admin.call('GET', '/api/admin/withdrawals')).json.data.items as any[]).find((x) => x.userId === stored.userId);
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${second.id}/reject`, { note: 'wrong account' })).status, 200);
+  const freed = await walletOf(top.c);
+  assert.equal(freed.pendingWithdrawals, 0);
+  assert.equal(Number(freed.balance), Number(w.balance) - 200);
+  assert.deepEqual(((await top.c.call('GET', '/api/wallet/withdrawals')).json.data.items as any[]).map((x) => x.status).sort(), ['APPROVED', 'REJECTED']);
+});
+
+test('CAMPAIGNS: members send proof reports, admins approve, and the reward is paid to the wallet once', async () => {
+  const m = await signup('RWCROOT', 'RIGHT', 'mny_cp_one');
+  const other = await signup('RWCROOT', 'RIGHT', 'mny_cp_two');
+  const camp = { title: 'Demat opening', description: 'Open a demat account', reward: 300, url: 'https://example.com/open', videoUrl: '', needsProof: true, isActive: true };
+
+  assert.equal((await m.c.call('POST', '/api/admin/campaigns', camp)).status, 403, 'members cannot create campaigns');
+  assert.equal((await admin.call('POST', '/api/admin/campaigns', { ...camp, url: 'http://example.com' })).status, 400);
+  assert.equal((await admin.call('POST', '/api/admin/campaigns', { ...camp, reward: -1 })).status, 400);
+  const created = await admin.call('POST', '/api/admin/campaigns', camp);
+  assert.equal(created.status, 201, JSON.stringify(created.json));
+  const cid = created.json.data.id as string;
+  const noProof = await admin.call('POST', '/api/admin/campaigns', { ...camp, title: 'Instagram promo', needsProof: false, reward: 50 });
+  const off = await admin.call('POST', '/api/admin/campaigns', { ...camp, title: 'Old one', isActive: false });
+
+  const list = (await m.c.call('GET', '/api/campaigns')).json.data.items as any[];
+  assert.ok(list.some((c) => c.id === cid) && list.some((c) => c.id === noProof.json.data.id));
+  assert.ok(!list.some((c) => c.id === off.json.data.id), 'inactive campaigns are hidden');
+
+  const body = { campaignId: cid, holderName: 'Ravi Kumar', mobile: '9876543210', fileName: 'proof.png', fileData: REPORT_PNG };
+  assert.equal((await m.c.call('POST', '/api/campaigns/reports', { ...body, mobile: '12345' })).status, 400);
+  assert.equal((await m.c.call('POST', '/api/campaigns/reports', { ...body, fileData: Buffer.from('<html>not an image</html>').toString('base64') })).status, 400, 'must really be an image');
+  assert.equal((await m.c.call('POST', '/api/campaigns/reports', { ...body, fileData: 'A'.repeat(950_000) })).status, 413);
+  assert.equal((await m.c.call('POST', '/api/campaigns/reports', { ...body, campaignId: noProof.json.data.id })).status, 404, 'no reports for a no-proof campaign');
+  const sent = await m.c.call('POST', '/api/campaigns/reports', body);
+  assert.equal(sent.status, 201, JSON.stringify(sent.json));
+  assert.equal((await other.c.call('POST', '/api/campaigns/reports', body)).status, 409, 'same mobile, same campaign');
+  const rid = sent.json.data.id as string;
+
+  // owner can edit and read it, others cannot
+  assert.equal((await m.c.call('PUT', `/api/campaigns/reports/${rid}`, { holderName: 'Ravi K Sharma', mobile: '9876543210' })).status, 200);
+  assert.equal((await other.c.call('PUT', `/api/campaigns/reports/${rid}`, { holderName: 'Hacker', mobile: '9876543211' })).status, 404);
+  assert.equal((await other.c.call('GET', `/api/campaigns/reports/${rid}/file`)).status, 404);
+  assert.equal((await m.c.call('GET', `/api/campaigns/reports/${rid}/file`)).json.data.mime, 'image/png');
+  assert.equal((await admin.call('GET', `/api/campaigns/reports/${rid}/file`)).status, 200);
+  const mine = (await m.c.call('GET', '/api/campaigns/reports')).json.data.items as any[];
+  assert.equal(mine[0].holderName, 'Ravi K Sharma');
+  assert.equal(JSON.stringify(mine).includes('fileData'), false);
+
+  const w0 = Number((await walletOf(m.c)).balance);
+  const pending = ((await admin.call('GET', '/api/admin/reports')).json.data.items as any[]).find((x) => x.id === rid);
+  assert.equal(pending.user.name.length > 0, true);
+  assert.equal((await m.c.call('POST', `/api/admin/reports/${rid}/approve`)).status, 403);
+  assert.equal((await admin.call('POST', `/api/admin/reports/${rid}/approve`)).status, 200);
+  assert.equal((await admin.call('POST', `/api/admin/reports/${rid}/approve`)).status, 409, 'rewarded once');
+  assert.equal(Number((await walletOf(m.c)).balance), w0 + 300);
+  const ledger = (await m.c.call('GET', '/api/wallet/transactions')).json.data.items as any[];
+  assert.ok(ledger.some((e) => e.type === 'CAMPAIGN_REWARD' && Number(e.amount) === 300));
+  assert.deepEqual((await m.c.call('GET', '/api/campaigns/stats')).json.data, { total: 1, approved: 1, earnings: 300 });
+
+  // an approved report is a record: it cannot be edited or deleted
+  assert.equal((await m.c.call('PUT', `/api/campaigns/reports/${rid}`, { holderName: 'Changed', mobile: '9876543210' })).status, 409);
+  assert.equal((await m.c.call('DELETE', `/api/campaigns/reports/${rid}`)).status, 409);
+
+  // rejected + deleted reports pay nothing; a campaign with reports is switched off, not deleted
+  const second = await m.c.call('POST', '/api/campaigns/reports', { ...body, mobile: '9123456780' });
+  assert.equal((await admin.call('POST', `/api/admin/reports/${second.json.data.id}/reject`, { note: 'blurry' })).status, 200);
+  const third = await m.c.call('POST', '/api/campaigns/reports', { ...body, mobile: '9123456781' });
+  assert.equal((await m.c.call('DELETE', `/api/campaigns/reports/${third.json.data.id}`)).status, 200);
+  assert.equal(Number((await walletOf(m.c)).balance), w0 + 300);
+  assert.equal((await admin.call('DELETE', `/api/admin/campaigns/${cid}`)).status, 200);
+  assert.ok(!((await m.c.call('GET', '/api/campaigns')).json.data.items as any[]).some((c) => c.id === cid));
+  assert.equal((await prisma.campaign.findUnique({ where: { id: cid } }))?.isActive, false);
+});
+
+test('PROFILE: a member edits name, mobile and city; a mobile number belongs to one account', async () => {
+  const a = await signup('RWCROOT', 'LEFT', 'mny_pf_a');
+  const b = await signup('RWCROOT', 'LEFT', 'mny_pf_b');
+  assert.equal((await a.c.call('PUT', '/api/dashboard/profile', { name: 'A', phone: '', city: '' })).status, 400);
+  assert.equal((await a.c.call('PUT', '/api/dashboard/profile', { name: 'Asha Rao', phone: '123', city: '' })).status, 400);
+  assert.equal((await a.c.call('PUT', '/api/dashboard/profile', { name: 'Asha Rao', phone: '9898989898', city: 'Pune' })).status, 200);
+  const me = (await a.c.call('GET', '/api/auth/me')).json.data.user;
+  assert.deepEqual([me.name, me.phone, me.city], ['Asha Rao', '9898989898', 'Pune']);
+  assert.equal((await b.c.call('PUT', '/api/dashboard/profile', { name: 'Bina Rao', phone: '9898989898', city: '' })).status, 409);
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

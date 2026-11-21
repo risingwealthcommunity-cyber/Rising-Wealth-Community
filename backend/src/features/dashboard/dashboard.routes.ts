@@ -115,6 +115,36 @@ router.put('/avatar', requireAuth, async (req: Request, res: Response) => {
   res.json({ success: true, data: { avatar: key } });
 });
 
+/** Account details a member can edit. Email stays fixed: it is the login. */
+router.put('/profile', requireAuth, async (req: Request, res: Response) => {
+  const b = (req.body ?? {}) as { name?: unknown; phone?: unknown; city?: unknown };
+  const name = typeof b.name === 'string' ? b.name.trim() : '';
+  const phone = typeof b.phone === 'string' ? b.phone.trim() : '';
+  const city = typeof b.city === 'string' ? b.city.trim() : '';
+  if (name.length < 2 || name.length > 80) {
+    res.status(400).json({ success: false, message: 'Enter your name (2 to 80 letters).' });
+    return;
+  }
+  if (phone && !/^[6-9][0-9]{9}$/.test(phone)) {
+    res.status(400).json({ success: false, message: 'Enter a valid 10 digit mobile number.' });
+    return;
+  }
+  if (city.length > 60) {
+    res.status(400).json({ success: false, message: 'City is too long.' });
+    return;
+  }
+  try {
+    await prisma.user.update({ where: { id: req.user!.id }, data: { name, phone: phone || null, city: city || null } });
+  } catch (err) {
+    if ((err as { code?: string }).code === 'P2002') {
+      res.status(409).json({ success: false, message: 'That mobile number is used by another account.' });
+      return;
+    }
+    throw err;
+  }
+  res.json({ success: true, message: 'Profile updated.' });
+});
+
 /**
  * Top 10 members by total income earned (credits only, the company fund excluded). Only first name + last initial,
  * the chosen avatar and rank are shown. The caller always gets their own position too, so they can see it when

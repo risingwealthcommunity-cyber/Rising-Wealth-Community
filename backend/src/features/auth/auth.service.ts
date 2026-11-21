@@ -56,6 +56,7 @@ export const toSafeUser = (user: User) => ({
   phone: user.phone,
   photoUrl: user.photoUrl,
   avatar: user.avatar,
+  city: user.city,
   role: user.role,
   package: user.package,
   rank: user.rank,

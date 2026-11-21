@@ -111,6 +111,15 @@ model User {
 
   // Wallet (rupees, 2 decimals)
   walletBalance Decimal @default(0) @db.Decimal(14, 2)
+  /// Money that can only be spent on activating / upgrading IDs. Filled by approved fund requests or a transfer from the wallet.
+  activationBalance Decimal @default(0) @db.Decimal(14, 2)
+
+  /// Separate password that must be typed to move money. Wrong guesses lock it for a while.
+  txnPasswordHash   String?
+  txnFailedAttempts Int       @default(0)
+  txnLockedUntil    DateTime?
+
+  city String?
 
   // Binary points in HALF-points (PRO = 0.5 => 1, ELITE = 1 => 2).
   // rank*  : "new points" for the next rank, reset to 0 on every rank-up.
@@ -124,6 +133,11 @@ model User {
   ledger         LedgerEntry[]      @relation("LedgerOwner")
   ledgerSources  LedgerEntry[]      @relation("LedgerSource")
   dematReferrals DematReferral[]
+  activationEntries ActivationEntry[]
+  fundRequests      FundRequest[]
+  withdrawals       WithdrawalRequest[]
+  bankDetails       BankDetails?
+  campaignReports   CampaignReport[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -150,6 +164,10 @@ enum LedgerType {
   TEAM_PERFORMANCE_BONUS
   LEADERSHIP_TARGET_BONUS
   RANK_REWARD
+  CAMPAIGN_REWARD
+  /// Negative rows: money leaving the wallet.
+  WITHDRAWAL
+  WALLET_TRANSFER
   COMPANY_FUND
 }
 
@@ -231,4 +249,113 @@ model SiteSetting {
   key       String   @id
   value     Json
   updatedAt DateTime @updatedAt
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ActivationKind {
+  FUND_ADDED
+  TRANSFER_IN
+  SPEND
+}
+
+/// Every movement of the activation wallet (signed amount). activationBalance = the sum of a member's rows.
+model ActivationEntry {
+  id        String         @id @default(uuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id])
+  kind      ActivationKind
+  amount    Decimal        @db.Decimal(14, 2)
+  note      String?
+  createdAt DateTime       @default(now())
+
+  @@index([userId, createdAt])
+}
+
+/// "I paid this much, here is the bank reference": an admin checks it and credits the activation wallet.
+model FundRequest {
+  id          String        @id @default(uuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  amount      Decimal       @db.Decimal(14, 2)
+  reference   String
+  status      RequestStatus @default(PENDING)
+  note        String?
+  createdAt   DateTime      @default(now())
+  processedAt DateTime?
+  processedBy String?
+
+  @@index([userId])
+  @@index([status, createdAt])
+}
+
+/// The wallet is only debited when an admin approves (and pays) the request.
+model WithdrawalRequest {
+  id          String        @id @default(uuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  amount      Decimal       @db.Decimal(14, 2)
+  status      RequestStatus @default(PENDING)
+  note        String?
+  createdAt   DateTime      @default(now())
+  processedAt DateTime?
+  processedBy String?
+
+  @@index([userId])
+  @@index([status, createdAt])
+}
+
+/// Payout details. The account number is stored encrypted.
+model BankDetails {
+  userId     String   @id
+  user       User     @relation(fields: [userId], references: [id])
+  bankName   String
+  accountEnc String
+  ifsc       String
+  upiId      String
+  updatedAt  DateTime @updatedAt
+}
+
+/// Something members can promote for a reward (for example a Demat account opening).
+model Campaign {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  reward      Decimal  @db.Decimal(14, 2)
+  /// The link members share (or open).
+  url         String
+  videoUrl    String
+  /// true = a member submits a proof report that an admin approves before the reward is paid.
+  needsProof  Boolean  @default(true)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  reports CampaignReport[]
+}
+
+model CampaignReport {
+  id          String        @id @default(uuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  campaignId  String
+  campaign    Campaign      @relation(fields: [campaignId], references: [id])
+  holderName  String
+  mobile      String
+  fileName    String
+  fileMime    String
+  fileData    Bytes
+  status      RequestStatus @default(PENDING)
+  note        String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  processedAt DateTime?
+  processedBy String?
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([campaignId])
 }

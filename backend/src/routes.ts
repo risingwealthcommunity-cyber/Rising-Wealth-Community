@@ -6,6 +6,7 @@ import { teamRoutes } from './features/team';
 import { adminRoutes } from './features/admin';
 import { siteRoutes } from './features/site';
 import dashboardRoutes from './features/dashboard/dashboard.routes';
+import { campaignRoutes, campaignAdminRoutes } from './features/campaigns/campaigns.routes';
 
 const router = Router();
 
@@ -18,7 +19,9 @@ router.use('/auth', authRoutes);
 router.use('/packages', packagesRoutes);
 router.use('/wallet', walletRoutes);
 router.use('/team', teamRoutes);
+router.use('/admin', campaignAdminRoutes);
 router.use('/admin', adminRoutes);
+router.use('/campaigns', campaignRoutes);
 router.use('/site', siteRoutes);
 router.use('/dashboard', dashboardRoutes);
 

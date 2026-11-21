@@ -5,6 +5,7 @@ import { AppError } from '../../shared/errors/AppError';
 import { validateBody } from '../../shared/middleware/validate.middleware';
 import { requireAuth, requireRole } from '../auth';
 import { packagesService } from '../packages';
+import { walletService } from '../wallet/wallet.service';
 import { closePayoutPeriod, distributeDematReferral, paiseToDecimal } from '../income/income.service';
 
 const dematSchema = z.object({
@@ -31,6 +32,37 @@ router.post('/purchases/:id/confirm', async (req: Request, res: Response) => {
 router.post('/purchases/:id/reject', async (req: Request, res: Response) => {
   await packagesService.reject(String(req.params.id), req.user!.id);
   res.json({ success: true, message: 'Purchase rejected' });
+});
+
+const statusOf = (v: unknown) => z.enum(['PENDING', 'APPROVED', 'REJECTED']).catch('PENDING').parse(v);
+const noteOf = (body: unknown) => z.object({ note: z.string().trim().max(200).optional() }).catch({}).parse(body ?? {}).note;
+const who = { select: { id: true, name: true, email: true, phone: true, referralCode: true } };
+
+router.get('/fund-requests', async (req: Request, res: Response) => {
+  const items = await prisma.fundRequest.findMany({ where: { status: statusOf(req.query.status) }, orderBy: { createdAt: 'desc' }, take: 200, include: { user: who } });
+  res.json({ success: true, data: { items: items.map((r) => ({ ...r, amount: r.amount.toFixed(2) })) } });
+});
+router.post('/fund-requests/:id/approve', async (req: Request, res: Response) => {
+  await walletService.approveFund(String(req.params.id), req.user!.id);
+  res.json({ success: true, message: 'Added to the activation wallet' });
+});
+router.post('/fund-requests/:id/reject', async (req: Request, res: Response) => {
+  await walletService.rejectFund(String(req.params.id), req.user!.id, noteOf(req.body));
+  res.json({ success: true, message: 'Request rejected' });
+});
+
+router.get('/withdrawals', async (req: Request, res: Response) => {
+  const items = await prisma.withdrawalRequest.findMany({ where: { status: statusOf(req.query.status) }, orderBy: { createdAt: 'desc' }, take: 200, include: { user: who } });
+  const withBank = await Promise.all(items.map(async (r) => ({ ...r, amount: r.amount.toFixed(2), bank: await walletService.bankForAdmin(r.userId) })));
+  res.json({ success: true, data: { items: withBank } });
+});
+router.post('/withdrawals/:id/approve', async (req: Request, res: Response) => {
+  await walletService.approveWithdrawal(String(req.params.id), req.user!.id);
+  res.json({ success: true, message: 'Approved. The amount left the member wallet.' });
+});
+router.post('/withdrawals/:id/reject', async (req: Request, res: Response) => {
+  await walletService.rejectWithdrawal(String(req.params.id), req.user!.id, noteOf(req.body));
+  res.json({ success: true, message: 'Request rejected' });
 });
 
 router.post('/demat', validateBody(dematSchema), async (req: Request, res: Response) => {

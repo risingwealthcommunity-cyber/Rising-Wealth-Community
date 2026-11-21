@@ -70,6 +70,67 @@ export const packagesService = {
     }, TX_OPTIONS);
   },
 
+  /**
+   * Pays for a package out of the payer's activation wallet, for themselves or for someone in their downline.
+   * Confirmed on the spot: the same income plan runs as for an admin-confirmed purchase.
+   */
+  async activateFromWallet(payerId: string, targetAffiliateId: string, pkg: PaidPackage) {
+    const payer = await prisma.user.findUniqueOrThrow({ where: { id: payerId }, select: { id: true, referralCode: true } });
+    const code = targetAffiliateId.trim().toUpperCase();
+
+    let target = await prisma.user.findUnique({ where: { referralCode: code } });
+    if (!target || !target.isVerified || !target.isActive) throw new AppError('No active member has that Affiliate ID.', 404);
+    if (target.id !== payer.id) {
+      const inside = await prisma.$queryRaw<{ c: bigint }[]>`
+        WITH RECURSIVE d AS (
+          SELECT id FROM "User" WHERE "parentId" = ${payer.id}
+          UNION ALL
+          SELECT u.id FROM "User" u JOIN d ON u."parentId" = d.id
+        )
+        SELECT COUNT(*) AS c FROM d WHERE id = ${target.id}`;
+      if (Number(inside[0]?.c ?? 0) === 0) throw new AppError('You can only activate yourself or members in your own team.', 403);
+    }
+    const buyer = target;
+    const price = PACKAGE_PRICE_PAISE[pkg];
+
+    return prisma.$transaction(async (tx) => {
+      const fresh = await tx.user.findUniqueOrThrow({ where: { id: buyer.id } });
+      if (PACKAGE_TIER[pkg] <= PACKAGE_TIER[fresh.package]) throw new AppError(`${fresh.name} already has ${fresh.package} or higher.`, 409);
+      if (await tx.packagePurchase.findFirst({ where: { userId: buyer.id, status: 'PENDING' } })) {
+        throw new AppError('That member already has a purchase waiting for confirmation.', 409);
+      }
+
+      const paid = await tx.user.updateMany({
+        where: { id: payer.id, activationBalance: { gte: paiseToDecimal(price) } },
+        data: { activationBalance: { decrement: paiseToDecimal(price) } }
+      });
+      if (paid.count !== 1) throw new AppError('Not enough money in your activation wallet.', 400);
+      await tx.activationEntry.create({
+        data: {
+          userId: payer.id,
+          kind: 'SPEND',
+          amount: paiseToDecimal(-price),
+          note: buyer.id === payer.id ? `Upgraded own ID to ${pkg}` : `Activated ${pkg} for ${buyer.name}`
+        }
+      });
+
+      const purchase = await tx.packagePurchase.create({
+        data: {
+          userId: buyer.id,
+          package: pkg,
+          amount: paiseToDecimal(price),
+          status: 'CONFIRMED',
+          reference: 'ACTIVATION_WALLET',
+          confirmedAt: new Date(),
+          confirmedBy: payer.id
+        }
+      });
+      await tx.user.update({ where: { id: buyer.id }, data: { package: pkg } });
+      await distributePackageSale(tx, { purchaseId: purchase.id, buyerId: buyer.id, sponsorId: fresh.sponsorId, package: pkg });
+      return { purchaseId: purchase.id, memberName: buyer.name, package: pkg };
+    }, TX_OPTIONS);
+  },
+
   async reject(purchaseId: string, adminId: string) {
     const res = await prisma.packagePurchase.updateMany({
       where: { id: purchaseId, status: 'PENDING' },
