@@ -20,6 +20,7 @@ export const Icon = {
   wallet: svg(<><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3" /><rect x="4" y="8" width="16" height="11" rx="2.5" /><circle cx="16" cy="13.5" r="1.2" /></>),
   shield: svg(<path d="M12 3 5 6v5.5c0 4.3 2.9 7.6 7 9 4.1-1.4 7-4.7 7-9V6z" />),
   logout: svg(<><path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4" /><path d="M15 8l4 4-4 4M19 12H9" /></>),
+  edit: svg(<path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4" />),
   menu: svg(<path d="M4 7h16M4 12h16M4 17h16" />),
   chevron: svg(<path d="m7 10 5 5 5-5" />),
   key: svg(<><circle cx="8" cy="15" r="4" /><path d="m11 12 8-8M16 7l2 2" /></>)

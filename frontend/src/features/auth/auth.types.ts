@@ -6,6 +6,8 @@ export interface User {
   email: string;
   phone: string | null;
   photoUrl: string | null;
+  /** Key of the preset avatar the member chose (a1..a12), or null for initials. */
+  avatar: string | null;
   role: 'USER' | 'ADMIN' | 'SUPER_ADMIN';
   package: Package;
   rank: string;

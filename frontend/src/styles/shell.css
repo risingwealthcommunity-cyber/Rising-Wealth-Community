@@ -313,3 +313,24 @@
 .board-row:nth-child(1) .board-pos { background: #d3d8df; color: var(--text); }
 .board-row:nth-child(2) .board-pos { background: #e3e6eb; color: var(--text); }
 .board-row:nth-child(3) .board-pos { background: #eef0f4; color: var(--text); }
+
+/* ---------- avatars: presets + picker */
+.shell .shell-avatar, .shell .dash-avatar { overflow: hidden; padding: 0; }
+.avatar-svg { display: block; border-radius: 50%; }
+.avatar-initials { display: grid; place-items: center; font: 900 1em 'Unbounded', sans-serif; color: var(--text, #0d1117); }
+.shell .dash-avatar { position: relative; overflow: visible; border: 0; cursor: pointer; background: #fff; }
+.shell .dash-avatar:hover .dash-avatar-edit, .shell .dash-avatar:focus-visible .dash-avatar-edit { transform: scale(1.1); }
+.dash-avatar-edit { position: absolute; right: -2px; bottom: -2px; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: #0d1117; color: #fff; box-shadow: 0 0 0 3px #fff; transition: transform 0.15s; }
+.dash-avatar-edit svg { width: 16px; height: 16px; }
+.avp-scrim { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: rgba(13, 17, 23, 0.45); }
+.avp { width: min(480px, 100%); max-height: 90vh; overflow: auto; background: #fff; color: #0d1117; border-radius: 22px; padding: 22px; box-shadow: 0 30px 80px rgba(15, 23, 42, 0.35); }
+.avp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.avp-head h2 { margin: 0; font-size: 1.1rem; color: #0d1117; }
+.avp-x { border: 0; background: #eceff3; color: #0d1117; width: 34px; height: 34px; border-radius: 50%; font-size: 1.3rem; line-height: 1; cursor: pointer; }
+.avp-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; justify-items: center; }
+.avp-item { border: 0; padding: 3px; border-radius: 50%; background: transparent; cursor: pointer; box-shadow: 0 0 0 2px transparent; transition: transform 0.15s, box-shadow 0.15s; }
+.avp-item:hover:not(:disabled) { transform: scale(1.06); box-shadow: 0 0 0 2px #c3c9d2; }
+.avp-item.on { box-shadow: 0 0 0 3px #0d1117; }
+.avp-item:disabled { opacity: 0.6; cursor: wait; }
+.avp-reset { margin-top: 16px; width: 100%; }
+@media (max-width: 420px) { .avp-grid { grid-template-columns: repeat(3, 1fr); } }

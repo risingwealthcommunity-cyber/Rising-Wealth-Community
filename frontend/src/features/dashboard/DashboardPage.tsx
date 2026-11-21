@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
+import { Avatar } from '../../shared/components/Avatar';
+import AvatarPicker from '../../shared/components/AvatarPicker';
 import { Icon } from '../../shared/components/ShellIcons';
 import { inr, label, typeLabel } from '../../shared/format';
 import { useAuth } from '../auth';
@@ -15,14 +17,6 @@ interface Summary {
   chart: { today: Point[]; week: Point[]; month: Point[] };
   breakdown: { type: string; amount: number }[];
 }
-
-const initials = (name: string) =>
-  name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? '')
-    .join('');
 
 const TYPE_COLOR: Record<string, string> = {
   DEMAT_DIRECT: '#2a313c',
@@ -151,7 +145,8 @@ function Donut({ rows, total }: { rows: Summary['breakdown']; total: number }) {
 }
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const [picking, setPicking] = useState(false);
   const [data, setData] = useState<Summary | null>(null);
   const [failed, setFailed] = useState(false);
   const [range, setRange] = useState<Range>('today');
@@ -199,9 +194,15 @@ export default function DashboardPage() {
   return (
     <>
       <div className="card dash-profile">
-        <div className="dash-avatar" aria-hidden="true">
-          {initials(user.name)}
-        </div>
+        <button type="button" className="dash-avatar" aria-label="Change your avatar" onClick={() => setPicking(true)}>
+          <Avatar avatar={user.avatar} name={user.name} size={108} />
+          <span className="dash-avatar-edit" aria-hidden="true">
+            {Icon.edit}
+          </span>
+        </button>
+        {picking && (
+          <AvatarPicker current={user.avatar} name={user.name} onSaved={refreshUser} onClose={() => setPicking(false)} />
+        )}
         <span className="dash-hello">Welcome back</span>
         <h1 className="dash-name">{user.name}</h1>
         <div className="dash-tags">

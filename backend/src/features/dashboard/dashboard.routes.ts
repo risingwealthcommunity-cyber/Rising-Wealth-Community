@@ -29,7 +29,7 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
   const [me, recent, byType, teamRows] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { name: true, package: true, rank: true, referralCode: true, leftCode: true, rightCode: true, walletBalance: true }
+      select: { name: true, avatar: true, package: true, rank: true, referralCode: true, leftCode: true, rightCode: true, walletBalance: true }
     }),
     prisma.ledgerEntry.findMany({
       where: { userId, createdAt: { gte: new Date(monthStart) }, amount: { gt: 0 } },
@@ -79,6 +79,7 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
     data: {
       profile: {
         name: me.name,
+        avatar: me.avatar,
         package: me.package,
         rank: me.rank,
         affiliateId: me.referralCode,
@@ -98,6 +99,19 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
       breakdown
     }
   });
+});
+
+/** The preset avatars members can pick from (drawn in the frontend). Anything else is rejected. */
+export const AVATAR_KEYS = Array.from({ length: 12 }, (_, i) => `a${i + 1}`);
+
+router.put('/avatar', requireAuth, async (req: Request, res: Response) => {
+  const key = (req.body as { avatar?: unknown } | undefined)?.avatar;
+  if (key !== null && !(typeof key === 'string' && AVATAR_KEYS.includes(key))) {
+    res.status(400).json({ success: false, message: 'Pick one of the avatars from the list.' });
+    return;
+  }
+  await prisma.user.update({ where: { id: req.user!.id }, data: { avatar: key } });
+  res.json({ success: true, data: { avatar: key } });
 });
 
 /** Top members by direct referrals. Only first name + last initial and rank are shown to other members. */

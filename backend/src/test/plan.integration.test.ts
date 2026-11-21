@@ -1568,6 +1568,27 @@ test('DASHBOARD: totals, charts and the income breakdown all agree with the ledg
   assert.ok(d.stats.passive >= 0);
 });
 
+test('AVATAR: a member can pick a preset, it shows on /me and the dashboard, and anything else is refused', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'av_one');
+  assert.equal((await m.c.call('GET', '/api/auth/me')).json.data.user.avatar, null);
+
+  const ok = await m.c.call('PUT', '/api/dashboard/avatar', { avatar: 'a7' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  assert.equal((await m.c.call('GET', '/api/auth/me')).json.data.user.avatar, 'a7');
+  assert.equal((await m.c.call('GET', '/api/dashboard/summary')).json.data.profile.avatar, 'a7');
+
+  for (const bad of ['a13', 'a0', '../x', '<img>', 7, undefined]) {
+    const r = await m.c.call('PUT', '/api/dashboard/avatar', { avatar: bad });
+    assert.equal(r.status, 400, `rejects ${String(bad)}`);
+  }
+  assert.equal((await m.c.call('GET', '/api/auth/me')).json.data.user.avatar, 'a7', 'bad requests change nothing');
+
+  assert.equal((await m.c.call('PUT', '/api/dashboard/avatar', { avatar: null })).status, 200);
+  assert.equal((await m.c.call('GET', '/api/auth/me')).json.data.user.avatar, null);
+  const anon = await new Client().call('PUT', '/api/dashboard/avatar', { avatar: 'a1' });
+  assert.equal(anon.status, 401);
+});
+
 test('DASHBOARD: older income lands in the 30-day figures but not in today or the last 7 days', async () => {
   const m = await signup('RWCROOT', 'RIGHT', 'db_old');
   const row = await rowOf('db_old@test.com');

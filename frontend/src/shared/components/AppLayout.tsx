@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth';
+import { Avatar } from './Avatar';
 import { Icon } from './ShellIcons';
 
 const BONUS_LINKS = [
@@ -8,14 +9,6 @@ const BONUS_LINKS = [
   { to: '/bonuses/team', label: 'Team Performance Bonus', icon: Icon.bars },
   { to: '/bonuses/weekly', label: 'Weekly Bonus', icon: Icon.calendar }
 ];
-
-const initials = (name: string) =>
-  name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? '')
-    .join('');
 
 const readCollapsed = () => {
   try {
@@ -78,7 +71,7 @@ export default function AppLayout() {
             <small>{user?.package}</small>
           </div>
           <div className="shell-avatar" title={user?.name}>
-            {initials(user?.name ?? '')}
+            <Avatar avatar={user?.avatar} name={user?.name ?? ''} size={46} />
           </div>
         </div>
       </header>

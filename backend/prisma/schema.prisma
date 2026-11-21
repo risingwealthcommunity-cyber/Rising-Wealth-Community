@@ -90,6 +90,8 @@ model User {
   emailVerifyExpiry    DateTime?
   googleId             String?   @unique
   photoUrl             String?
+  /// Key of one of the preset avatars the member picked (a1..a12). Null = show initials.
+  avatar               String?
   twoFactorOtpHash     String?
   twoFactorOtpExpiry   DateTime?
   twoFactorAttempts     Int       @default(0)
