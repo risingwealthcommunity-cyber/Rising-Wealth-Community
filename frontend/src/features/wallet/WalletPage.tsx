@@ -3,6 +3,9 @@ import type { FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
 import { date, inr, label, typeLabel } from '../../shared/format';
+import { useRef } from 'react';
+import PaymentBox from '../../shared/components/PaymentBox';
+import { compressImage } from '../../shared/compressImage';
 import { toAmount, useRun } from '../../shared/useRun';
 
 interface Summary {
@@ -66,6 +69,8 @@ export default function WalletPage() {
   const wd = useRun();
   const [fAmount, setFAmount] = useState('');
   const [fRef, setFRef] = useState('');
+  const [fFile, setFFile] = useState<File | null>(null);
+  const fFileRef = useRef<HTMLInputElement>(null);
   const [wAmount, setWAmount] = useState('');
   const [wPass, setWPass] = useState('');
 
@@ -73,10 +78,14 @@ export default function WalletPage() {
     e.preventDefault();
     const n = toAmount(fAmount);
     if (Number.isNaN(n)) return fund.setMsg({ type: 'error', text: 'Enter a valid amount.' });
+    if (!fFile) return fund.setMsg({ type: 'error', text: 'Add the screenshot of your payment.' });
     void fund.run(async () => {
-      const r = await api('/wallet/fund', { method: 'POST', body: { amount: n, reference: fRef } });
+      const picture = await compressImage(fFile);
+      const r = await api('/wallet/fund', { method: 'POST', body: { amount: n, reference: fRef, ...picture } });
       setFAmount('');
       setFRef('');
+      setFFile(null);
+      if (fFileRef.current) fFileRef.current.value = '';
       await load();
       return r;
     });
@@ -131,17 +140,22 @@ export default function WalletPage() {
       {showFund && (
         <form className="card" onSubmit={addFund}>
           <h2>Add fund</h2>
+          <PaymentBox />
           <p className="muted">
-            Pay the amount to the company account, then enter the payment reference (UTR). Once an admin has checked the payment the money appears in your{' '}
+            Scan the QR and pay. Then enter the amount, the transaction ID and a screenshot of the payment. Once an admin has checked it, the money appears in your{' '}
             <Link to="/activation">activation wallet</Link>.
           </p>
           <div className="form-row">
             <input value={fAmount} inputMode="decimal" onChange={(e) => setFAmount(e.target.value)} placeholder="Amount paid" aria-label="Amount paid" />
-            <input value={fRef} onChange={(e) => setFRef(e.target.value)} placeholder="Payment reference (UTR)" aria-label="Payment reference" maxLength={100} />
-            <button className="btn" disabled={fund.busy || !fAmount || fRef.trim().length < 4}>
-              Send
-            </button>
+            <input value={fRef} onChange={(e) => setFRef(e.target.value)} placeholder="Transaction ID (UTR)" aria-label="Transaction ID" maxLength={100} />
           </div>
+          <label className="pay-file">
+            Payment screenshot
+            <input ref={fFileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFFile(e.target.files?.[0] ?? null)} />
+          </label>
+          <button className="btn" disabled={fund.busy || !fAmount || fRef.trim().length < 4 || !fFile}>
+            {fund.busy ? 'Sending...' : 'Send for approval'}
+          </button>
           {fund.msg && <div className={`alert ${fund.msg.type}`}>{fund.msg.text}</div>}
         </form>
       )}

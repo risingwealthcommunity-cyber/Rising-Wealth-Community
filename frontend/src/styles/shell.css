@@ -544,3 +544,9 @@
 .member-footer-links a.member-footer-chip { width: auto; padding: 0 16px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; text-decoration: none; }
 .admin-overview a.level { text-decoration: none; color: inherit; transition: transform 0.15s, box-shadow 0.15s; }
 .admin-overview a.level:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1); }
+
+/* ---------- payment QR box */
+.pay-box { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; padding: 16px; border: 1px dashed var(--border); border-radius: 18px; background: #f9fafb; }
+.pay-qr { width: 200px; height: 200px; object-fit: contain; border-radius: 14px; background: #fff; padding: 8px; border: 1px solid var(--border); }
+.pay-info { display: grid; gap: 8px; justify-items: start; flex: 1; min-width: 220px; }
+.pay-file { display: grid; gap: 6px; font-size: 0.85rem; color: var(--muted); margin: 8px 0; }

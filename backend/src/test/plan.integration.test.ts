@@ -95,8 +95,12 @@ async function balance(c: Client) {
 let admin: Client;
 
 /** User requests a package, admin confirms it. */
+let utrSeq = 0;
+/** What a member sends with every payment: the transaction ID and a screenshot. */
+const payProof = () => ({ reference: `UTR-BUY-${++utrSeq}-${Date.now()}`, fileName: 'pay.png', fileData: PNG.toString('base64') });
+
 async function buy(c: Client, pkg: 'PRO' | 'ELITE') {
-  const p = await c.call('POST', '/api/packages/purchase', { package: pkg });
+  const p = await c.call('POST', '/api/packages/purchase', { package: pkg, ...payProof() });
   assert.equal(p.status, 201, JSON.stringify(p.json));
   const ok = await admin.call('POST', `/api/admin/purchases/${p.json.data.purchase.id}/confirm`);
   assert.equal(ok.status, 200, JSON.stringify(ok.json));
@@ -1192,21 +1196,21 @@ test('income: Trainee sponsor earns nothing from package sales', async () => {
 
 test('packages: no partial/duplicate/downgrade purchases', async () => {
   const u = await signup('RWCROOT', 'LEFT', 'rules');
-  assert.equal((await u.c.call('POST', '/api/packages/purchase', { package: 'PRO' })).status, 201);
-  assert.equal((await u.c.call('POST', '/api/packages/purchase', { package: 'ELITE' })).status, 409); // pending exists
+  assert.equal((await u.c.call('POST', '/api/packages/purchase', { package: 'PRO', ...payProof() })).status, 201);
+  assert.equal((await u.c.call('POST', '/api/packages/purchase', { package: 'ELITE', ...payProof() })).status, 409); // pending exists
   const pending = await admin.call('GET', '/api/admin/purchases?status=PENDING');
   const mine = pending.json.data.purchases.find((p: any) => p.user.email === 'rules@test.com');
   assert.equal(mine.amount, '2499');
   await admin.call('POST', `/api/admin/purchases/${mine.id}/confirm`);
-  assert.equal((await u.c.call('POST', '/api/packages/purchase', { package: 'PRO' })).status, 400); // already PRO
-  assert.equal((await u.c.call('POST', '/api/packages/purchase', { package: 'ELITE' })).status, 201); // upgrade
+  assert.equal((await u.c.call('POST', '/api/packages/purchase', { package: 'PRO', ...payProof() })).status, 400); // already PRO
+  assert.equal((await u.c.call('POST', '/api/packages/purchase', { package: 'ELITE', ...payProof() })).status, 201); // upgrade
 });
 
 test('packages: confirming twice / concurrently pays only once', async () => {
   const a = await signup('RWCROOT', 'LEFT', 'race_a');
   await buy(a.c, 'PRO');
   const b = await signup(a.user.referralCode, 'LEFT', 'race_b');
-  const p = await b.c.call('POST', '/api/packages/purchase', { package: 'PRO' });
+  const p = await b.c.call('POST', '/api/packages/purchase', { package: 'PRO', ...payProof() });
   const before = await balance(a.c);
   const results = await Promise.all(
     [1, 2, 3].map(() => admin.call('POST', `/api/admin/purchases/${p.json.data.purchase.id}/confirm`))
@@ -1774,12 +1778,14 @@ test('WALLET: transactions can be filtered by income type, and a bogus type is i
 // ---------------------------------------------------------------- WALLETS, ACTIVATION, WITHDRAWALS, CAMPAIGNS
 
 const TXN = 'TxnPass#2026';
+const FUND_PROOF = { fileName: 'pay.png', fileData: '' }; // filled in below, once REPORT_PNG exists
 const REPORT_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+FUND_PROOF.fileData = REPORT_PNG;
 const setTxn = (c: Client, extra: object = { loginPassword: 'Password123' }) => c.call('POST', '/api/wallet/txn-password', { newPassword: TXN, ...extra });
 const walletOf = async (c: Client) => (await c.call('GET', '/api/wallet')).json.data;
 const actOf = async (c: Client) => (await c.call('GET', '/api/wallet/activation')).json.data;
 async function addFund(c: Client, amount: number, ref = 'UTR123456') {
-  const r = await c.call('POST', '/api/wallet/fund', { amount, reference: ref });
+  const r = await c.call('POST', '/api/wallet/fund', { ...FUND_PROOF, amount, reference: ref });
   assert.equal(r.status, 201, JSON.stringify(r.json));
   const list = (await admin.call('GET', '/api/admin/fund-requests')).json.data.items as any[];
   const mine = list.find((x) => x.reference === ref && x.status === 'PENDING');
@@ -1806,16 +1812,16 @@ test('TXN PASSWORD: needed before money moves, set only with the login password,
 
 test('ADD FUND: an admin approves a payment reference and it lands in the activation wallet, once', async () => {
   const m = await signup('RWCROOT', 'LEFT', 'mny_af_one');
-  assert.equal((await m.c.call('POST', '/api/wallet/fund', { amount: -5, reference: 'UTR1234' })).status, 400);
-  assert.equal((await m.c.call('POST', '/api/wallet/fund', { amount: 100, reference: 'ab' })).status, 400);
-  assert.equal((await m.c.call('POST', '/api/wallet/fund', { amount: 10.123, reference: 'UTR1234' })).status, 400, 'at most 2 decimals');
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { ...FUND_PROOF, amount: -5, reference: 'UTR1234' })).status, 400);
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { ...FUND_PROOF, amount: 100, reference: 'ab' })).status, 400);
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { ...FUND_PROOF, amount: 10.123, reference: 'UTR1234' })).status, 400, 'at most 2 decimals');
 
   const id = await addFund(m.c, 5000, 'UTR-AF-1');
   assert.equal((await actOf(m.c)).activation, 5000);
   assert.equal((await admin.call('POST', `/api/admin/fund-requests/${id}/approve`)).status, 409, 'cannot be approved twice');
   assert.equal((await actOf(m.c)).activation, 5000);
 
-  assert.equal((await m.c.call('POST', '/api/wallet/fund', { amount: 700, reference: 'UTR-AF-2' })).status, 201);
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { ...FUND_PROOF, amount: 700, reference: 'UTR-AF-2' })).status, 201);
   const pending = ((await admin.call('GET', '/api/admin/fund-requests')).json.data.items as any[]).find((x) => x.reference === 'UTR-AF-2');
   assert.equal((await admin.call('POST', `/api/admin/fund-requests/${pending.id}/reject`, { note: 'no such payment' })).status, 200);
   assert.equal((await actOf(m.c)).activation, 5000, 'a rejected request adds nothing');
@@ -2093,15 +2099,15 @@ test('SECURITY: two simultaneous upgrades of the same member charge once and pay
 
 test('SECURITY: no one approves their own request, and a payment reference is credited once', async () => {
   // an admin is also a member: they can ask, but another admin must approve
-  assert.equal((await admin.call('POST', '/api/wallet/fund', { amount: 100, reference: 'UTR-OWN-1' })).status, 201);
+  assert.equal((await admin.call('POST', '/api/wallet/fund', { ...FUND_PROOF, amount: 100, reference: 'UTR-OWN-1' })).status, 201);
   const own = ((await admin.call('GET', '/api/admin/fund-requests')).json.data.items as any[]).find((x) => x.reference === 'UTR-OWN-1');
   assert.equal((await admin.call('POST', `/api/admin/fund-requests/${own.id}/approve`)).status, 403);
 
   // the same reference from anyone else (any letter case) is refused while it is pending or approved
   const m = await signup('RWCROOT', 'LEFT', 'mny_sec_ref');
-  assert.equal((await m.c.call('POST', '/api/wallet/fund', { amount: 100, reference: 'utr-own-1' })).status, 409);
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { ...FUND_PROOF, amount: 100, reference: 'utr-own-1' })).status, 409);
   await addFund(m.c, 100, 'UTR-REF-ONCE');
-  assert.equal((await m.c.call('POST', '/api/wallet/fund', { amount: 100, reference: 'utr-ref-once' })).status, 409, 'already credited');
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { ...FUND_PROOF, amount: 100, reference: 'utr-ref-once' })).status, 409, 'already credited');
 
   // admin cannot approve their own campaign report either
   const camp = (await admin.call('POST', '/api/admin/campaigns', { title: 'Own report test', description: '', reward: 10, url: 'https://example.com', videoUrl: '', needsProof: true, isActive: true })).json.data;
@@ -2123,6 +2129,59 @@ test('SECURITY: parallel transaction-password guesses cannot beat the 5-try limi
   assert.equal((await m.c.call('GET', '/api/wallet/transactions?page=Infinity')).status, 200);
   assert.equal((await admin.call('PUT', '/api/site/content/constructor', { items: [] })).status, 404);
   assert.equal((await admin.call('PUT', '/api/site/content/toString', { items: [] })).status, 404);
+});
+
+test('PAYMENT: the admin sets the QR and UPI details, and every payment must come with a transaction ID and a screenshot', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_pay_one');
+  assert.equal((await new Client().call('GET', '/api/site/payment')).status, 401, 'members only');
+  const empty = (await m.c.call('GET', '/api/site/payment')).json.data;
+  assert.deepEqual([empty.upiId, empty.qrUrl], ['', null]);
+
+  assert.equal((await m.c.call('PUT', '/api/site/content/payment', { upiId: 'rwc@upi', payeeName: 'RWC', note: '' })).status, 403);
+  assert.equal((await admin.call('PUT', '/api/site/content/payment', { upiId: 'not a upi', payeeName: 'RWC', note: '' })).status, 400);
+  assert.equal((await admin.call('PUT', '/api/site/content/payment', { upiId: 'rwc@okbank', payeeName: 'Rising Wealth', note: 'Pay the exact amount.' })).status, 200);
+  assert.equal((await putImage(admin, 'payment-qr', PNG, 'image/png')).status, 200);
+  assert.equal((await putImage(m.c, 'payment-qr', PNG, 'image/png')).status, 403, 'only an admin sets the QR');
+  const shown = (await m.c.call('GET', '/api/site/payment')).json.data;
+  assert.deepEqual([shown.upiId, shown.payeeName, shown.note], ['rwc@okbank', 'Rising Wealth', 'Pay the exact amount.']);
+  assert.match(shown.qrUrl, /^\/api\/site\/assets\/payment-qr\?v=\d+$/);
+
+  // fund request: amount + transaction ID + screenshot, all required
+  const base = { amount: 500, reference: 'UTR-PAY-ONE' };
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', base)).status, 400, 'screenshot missing');
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { ...base, fileName: 'x.png', fileData: Buffer.from('<html>no</html>').toString('base64') })).status, 400, 'must be a real image');
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { ...base, fileName: 'x.png', fileData: 'A'.repeat(950_000) })).status, 413);
+  const sent = await m.c.call('POST', '/api/wallet/fund', { ...base, ...FUND_PROOF });
+  assert.equal(sent.status, 201, JSON.stringify(sent.json));
+
+  const listed = ((await admin.call('GET', '/api/admin/fund-requests')).json.data.items as any[]).find((x) => x.reference === 'UTR-PAY-ONE');
+  assert.ok(listed);
+  assert.equal(JSON.stringify(listed).includes('fileData'), false, 'the list never carries the picture');
+  const proof = await admin.call('GET', `/api/admin/fund-requests/${listed.id}/proof`);
+  assert.equal(proof.json.data.mime, 'image/png');
+  assert.equal((await m.c.call('GET', `/api/admin/fund-requests/${listed.id}/proof`)).status, 403);
+
+  // package purchase: same rules, and the picture never leaks through the member or admin lists
+  const buyer = await signup('RWCROOT', 'RIGHT', 'mny_pay_two');
+  const pbase = { package: 'PRO', reference: 'UTR-PAY-PKG' };
+  assert.equal((await buyer.c.call('POST', '/api/packages/purchase', pbase)).status, 400, 'transaction ID and screenshot are required');
+  assert.equal((await buyer.c.call('POST', '/api/packages/purchase', { package: 'PRO', fileName: 'p.png', fileData: PNG.toString('base64') })).status, 400, 'transaction ID is required');
+  const bought = await buyer.c.call('POST', '/api/packages/purchase', { ...pbase, fileName: 'p.png', fileData: PNG.toString('base64') });
+  assert.equal(bought.status, 201, JSON.stringify(bought.json));
+  assert.equal(JSON.stringify(bought.json).includes('fileData'), false);
+  assert.equal(JSON.stringify((await buyer.c.call('GET', '/api/packages/mine')).json).includes('fileData'), false);
+  const pending = ((await admin.call('GET', '/api/admin/purchases?status=PENDING')).json.data.purchases as any[]).find((x) => x.reference === 'UTR-PAY-PKG');
+  assert.ok(pending);
+  assert.equal(JSON.stringify(pending).includes('fileData'), false);
+  assert.equal((await admin.call('GET', `/api/admin/purchases/${pending.id}/proof`)).json.data.mime, 'image/png');
+  assert.equal((await buyer.c.call('GET', `/api/admin/purchases/${pending.id}/proof`)).status, 403);
+  const confirmed = await admin.call('POST', `/api/admin/purchases/${pending.id}/confirm`);
+  assert.equal(confirmed.status, 200);
+  assert.equal(JSON.stringify(confirmed.json).includes('fileData'), false);
+
+  // the same transaction ID cannot pay twice
+  const other = await signup('RWCROOT', 'RIGHT', 'mny_pay_three');
+  assert.equal((await other.c.call('POST', '/api/packages/purchase', { package: 'PRO', reference: 'utr-pay-pkg', fileName: 'p.png', fileData: PNG.toString('base64') })).status, 409);
 });
 
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {

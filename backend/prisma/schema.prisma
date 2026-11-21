@@ -179,6 +179,10 @@ model PackagePurchase {
   amount      Decimal        @db.Decimal(14, 2)
   status      PurchaseStatus @default(PENDING)
   reference   String? // payment reference / UTR entered by user
+  /// The payment screenshot the member sent (kept in the database, compressed in the browser).
+  fileName    String?
+  fileMime    String?
+  fileData    Bytes?
   createdAt   DateTime       @default(now())
   confirmedAt DateTime?
   confirmedBy String?
@@ -283,6 +287,10 @@ model FundRequest {
   user        User          @relation(fields: [userId], references: [id])
   amount      Decimal       @db.Decimal(14, 2)
   reference   String
+  /// The payment screenshot the member sent (kept in the database, compressed in the browser).
+  fileName    String?
+  fileMime    String?
+  fileData    Bytes?
   status      RequestStatus @default(PENDING)
   note        String?
   createdAt   DateTime      @default(now())

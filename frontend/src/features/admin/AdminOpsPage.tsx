@@ -5,6 +5,7 @@ import { api } from '../../shared/api/apiClient';
 import { date, inr, label } from '../../shared/format';
 import { useRun } from '../../shared/useRun';
 import { openProof } from '../campaigns/ReportsPage';
+import { openProofAt } from '../../shared/openProof';
 
 type Status = 'PENDING' | 'APPROVED' | 'REJECTED';
 type Tab = 'funds' | 'withdrawals' | 'reports' | 'campaigns';
@@ -288,9 +289,14 @@ export default function AdminOpsPage() {
             <>
               {who(r.user)}
               <small>
-                <b>{inr(r.amount)}</b> · reference <b>{r.reference}</b>
+                <b>{inr(r.amount)}</b> · transaction ID <b>{r.reference}</b>
               </small>
             </>
+          )}
+          extra={(r) => (
+            <button className="btn ghost" type="button" onClick={() => void openProofAt(`/admin/fund-requests/${r.id}/proof`)}>
+              View screenshot
+            </button>
           )}
         />
       )}

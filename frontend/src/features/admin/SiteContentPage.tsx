@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { DEFAULT_CONTACT, DEFAULT_MILESTONES, useSiteContent } from '../site';
 import ContactEditor from './ContactEditor';
+import PaymentEditor from './PaymentEditor';
 import ImageSlot from './ImageSlot';
 import ListEditor from './ListEditor';
 import MilestonesEditor from './MilestonesEditor';
@@ -94,6 +95,8 @@ export default function SiteContentPage() {
           />
 
           <TrainingEditor />
+
+          <PaymentEditor asset={content.assets['payment-qr']} onChanged={reload} />
 
           <ContactEditor saved={{ ...DEFAULT_CONTACT, ...(content.contact ?? {}) }} onSaved={reload} />
         </>

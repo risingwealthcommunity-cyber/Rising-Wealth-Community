@@ -10,7 +10,7 @@ import type { SettingName } from './site.validator';
  * backgrounds) plus one slot per team member / review, keyed by that item's id.
  */
 export const ASSET_KEY_PATTERN =
-  /^(about-image|certificate|feature-[1-6]|milestone-[1-6]|team-[a-f0-9]{10}|review-[a-f0-9]{10})$/;
+  /^(about-image|certificate|payment-qr|feature-[1-6]|milestone-[1-6]|team-[a-f0-9]{10}|review-[a-f0-9]{10})$/;
 
 export const MAX_ASSET_BYTES = 6 * 1024 * 1024;
 export const ASSET_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -105,6 +105,20 @@ export const siteService = {
       await prisma.siteSetting.upsert({ where: { key: name }, create: { key: name, value }, update: { value } });
     }
     return this.getContent();
+  },
+
+  /** How members pay: the QR image and the details printed next to it. For signed-in members only. */
+  async getPayment() {
+    const [details, qr] = await Promise.all([
+      readSetting<{ upiId?: string; payeeName?: string; note?: string }>('payment'),
+      prisma.siteAsset.findUnique({ where: { key: 'payment-qr' }, select: { updatedAt: true } })
+    ]);
+    return {
+      upiId: details?.upiId ?? '',
+      payeeName: details?.payeeName ?? '',
+      note: details?.note ?? '',
+      qrUrl: qr ? assetUrl('payment-qr', qr.updatedAt) : null
+    };
   },
 
   /** Training lessons are for signed-in members only, so they are not part of the public home page content. */

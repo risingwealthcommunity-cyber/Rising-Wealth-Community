@@ -7,6 +7,9 @@ import { PACKAGE_PRICE_PAISE, PACKAGE_TIER, type PaidPackage } from '../income/p
 /** Packages a member may be on for an upgrade to the key to still be an upgrade. */
 const LOWER_THAN: Record<PaidPackage, Package[]> = { PRO: ['TRAINEE'], ELITE: ['TRAINEE', 'PRO'] };
 
+/** Purchase columns that are safe to send around. The payment screenshot is only ever served by its own endpoint. */
+const PURCHASE_FIELDS = { id: true, userId: true, package: true, amount: true, status: true, reference: true, createdAt: true, confirmedAt: true, confirmedBy: true } as const;
+
 const TX_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
 export const packagesService = {
@@ -16,7 +19,7 @@ export const packagesService = {
   }),
 
   /** User asks for a package. The full price is always required (no partial upgrades). */
-  async createPurchase(userId: string, pkg: PaidPackage, reference?: string) {
+  async createPurchase(userId: string, pkg: PaidPackage, reference: string, file: { data: Buffer; mime: string; name: string }) {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new AppError('User not found', 404);
 
@@ -27,20 +30,26 @@ export const packagesService = {
     const pending = await prisma.packagePurchase.findFirst({ where: { userId, status: 'PENDING' } });
     if (pending) throw new AppError('You already have a purchase awaiting confirmation', 409);
 
+    const used = await prisma.packagePurchase.findFirst({
+      where: { reference: { equals: reference.trim(), mode: 'insensitive' }, status: { in: ['PENDING', 'CONFIRMED'] } }
+    });
+    if (used) throw new AppError('That transaction ID was already submitted.', 409);
+
     return prisma.packagePurchase.create({
-      data: { userId, package: pkg, amount: paiseToDecimal(PACKAGE_PRICE_PAISE[pkg]), reference }
+      data: { userId, package: pkg, amount: paiseToDecimal(PACKAGE_PRICE_PAISE[pkg]), reference: reference.trim(), fileName: file.name, fileMime: file.mime, fileData: file.data },
+      select: PURCHASE_FIELDS
     });
   },
 
   listMine: (userId: string) =>
-    prisma.packagePurchase.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+    prisma.packagePurchase.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, select: PURCHASE_FIELDS }),
 
   listForAdmin: (status: 'PENDING' | 'CONFIRMED' | 'REJECTED') =>
     prisma.packagePurchase.findMany({
       where: { status },
       orderBy: { createdAt: 'desc' },
       take: 200,
-      include: { user: { select: { id: true, name: true, email: true, package: true, referralCode: true } } }
+      select: { ...PURCHASE_FIELDS, user: { select: { id: true, name: true, email: true, package: true, referralCode: true } } }
     }),
 
   /** Admin verified the payment: activate the package and run the whole income plan atomically. */
@@ -71,7 +80,7 @@ export const packagesService = {
         package: pkg
       });
 
-      return tx.packagePurchase.findUniqueOrThrow({ where: { id: purchaseId } });
+      return tx.packagePurchase.findUniqueOrThrow({ where: { id: purchaseId }, select: PURCHASE_FIELDS });
     }, TX_OPTIONS);
   },
 

@@ -43,6 +43,12 @@ export const trainingSchema = z.object({
     .max(50, 'At most 50 lessons')
 });
 
+export const paymentSchema = z.object({
+  upiId: text(60).refine((v) => v === '' || /^[A-Za-z0-9._-]{2,}@[A-Za-z]{2,}$/.test(v), 'Enter a valid UPI ID, like name@bank'),
+  payeeName: text(60),
+  note: text(300)
+});
+
 export const contactSchema = z.object({
   phone,
   whatsapp: phone,
@@ -59,7 +65,8 @@ export const SETTING_SCHEMAS = {
   team: teamSchema,
   reviews: reviewsSchema,
   contact: contactSchema,
-  training: trainingSchema
+  training: trainingSchema,
+  payment: paymentSchema
 } as const;
 
 export type SettingName = keyof typeof SETTING_SCHEMAS;

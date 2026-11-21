@@ -133,14 +133,17 @@ export const walletService = {
 
   // ------------------------------------------------------------------ add fund (activation wallet)
 
-  async createFundRequest(userId: string, rupees: number, reference: string) {
+  async createFundRequest(userId: string, rupees: number, reference: string, file: { data: Buffer; mime: string; name: string }) {
     const open = await prisma.fundRequest.count({ where: { userId, status: 'PENDING' } });
     if (open >= 3) throw new AppError('You already have 3 requests waiting. Please wait for them to be checked.', 409);
     const used = await prisma.fundRequest.findFirst({
       where: { reference: { equals: reference.trim(), mode: 'insensitive' }, status: { in: ['PENDING', 'APPROVED'] } }
     });
     if (used) throw new AppError('That payment reference was already submitted.', 409);
-    return prisma.fundRequest.create({ data: { userId, amount: dec(rupees), reference: reference.trim() } });
+    return prisma.fundRequest.create({
+      data: { userId, amount: dec(rupees), reference: reference.trim(), fileName: file.name, fileMime: file.mime, fileData: file.data },
+      select: { id: true }
+    });
   },
 
   async approveFund(id: string, adminId: string) {

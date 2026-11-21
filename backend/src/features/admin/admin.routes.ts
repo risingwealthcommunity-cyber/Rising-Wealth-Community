@@ -123,9 +123,27 @@ const noteOf = (body: unknown) => z.object({ note: z.string().trim().max(200).op
 const who = { select: { id: true, name: true, email: true, phone: true, referralCode: true } };
 
 router.get('/fund-requests', async (req: Request, res: Response) => {
-  const items = await prisma.fundRequest.findMany({ where: { status: statusOf(req.query.status) }, orderBy: { createdAt: 'desc' }, take: 200, include: { user: who } });
+  const items = await prisma.fundRequest.findMany({
+    where: { status: statusOf(req.query.status) },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+    select: { id: true, amount: true, reference: true, status: true, note: true, createdAt: true, user: who }
+  });
   res.json({ success: true, data: { items: items.map((r) => ({ ...r, amount: r.amount.toFixed(2) })) } });
 });
+
+/** The screenshot a member sent with a payment (fund request or package purchase), as base64. */
+const proofOf = (kind: 'fund' | 'purchase') => async (req: Request, res: Response) => {
+  const where = { id: String(req.params.id) };
+  const row =
+    kind === 'fund'
+      ? await prisma.fundRequest.findUnique({ where, select: { fileData: true, fileMime: true } })
+      : await prisma.packagePurchase.findUnique({ where, select: { fileData: true, fileMime: true } });
+  if (!row?.fileData || !row.fileMime) throw new AppError('No screenshot was sent with this one.', 404);
+  res.json({ success: true, data: { mime: row.fileMime, data: Buffer.from(row.fileData).toString('base64') } });
+};
+router.get('/fund-requests/:id/proof', proofOf('fund'));
+router.get('/purchases/:id/proof', proofOf('purchase'));
 router.post('/fund-requests/:id/approve', async (req: Request, res: Response) => {
   await walletService.approveFund(String(req.params.id), req.user!.id);
   res.json({ success: true, message: 'Added to the activation wallet' });

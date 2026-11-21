@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../shared/api/apiClient';
 import { date, inr, label } from '../../shared/format';
+import PaymentBox from '../../shared/components/PaymentBox';
+import { compressImage } from '../../shared/compressImage';
 import { useAuth } from '../auth';
 
 interface Purchase {
@@ -30,6 +32,7 @@ export default function PackagesPage() {
   const { user } = useAuth();
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [reference, setReference] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -46,15 +49,21 @@ export default function PackagesPage() {
   const hasPending = purchases.some((p) => p.status === 'PENDING');
 
   const buy = async (pkg: 'PRO' | 'ELITE') => {
+    if (reference.trim().length < 4 || !file) {
+      setMsg({ type: 'error', text: 'Enter the transaction ID and add the payment screenshot first.' });
+      return;
+    }
     setBusy(true);
     setMsg(null);
     try {
+      const picture = await compressImage(file);
       const res = await api('/packages/purchase', {
         method: 'POST',
-        body: { package: pkg, reference: reference || undefined }
+        body: { package: pkg, reference: reference.trim(), ...picture }
       });
       setMsg({ type: 'success', text: res.message ?? 'Request created' });
       setReference('');
+      setFile(null);
       await load();
     } catch (err) {
       setMsg({ type: 'error', text: (err as Error).message });
@@ -72,13 +81,18 @@ export default function PackagesPage() {
 
       {msg && <div className={`alert ${msg.type}`}>{msg.text}</div>}
 
-      <div className="card">
+      <div className="card stack">
+        <PaymentBox />
         <label>
-          Payment reference (UTR / transaction id)
-          <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Enter after you pay" />
+          Transaction ID (UTR)
+          <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Enter after you pay" maxLength={100} />
+        </label>
+        <label className="pay-file">
+          Payment screenshot
+          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         </label>
         <small className="muted">
-          Pay the amount to the company account, then request activation. An admin confirms your payment.
+          Scan the QR, pay the full price of the package, then choose it below. An admin checks your payment and activates it.
         </small>
       </div>
 
