@@ -14,11 +14,11 @@ import {
 } from '../features/auth';
 import AppLayout from '../shared/components/AppLayout';
 import { AdminPage, SiteContentPage } from '../features/admin';
-import { DashboardPage } from '../features/dashboard';
+import { DashboardPage, LeaderboardPage, TrainingPage } from '../features/dashboard';
 import { LandingPage } from '../features/landing';
 import { PackagesPage } from '../features/packages';
 import { BonusesPage, TeamPage } from '../features/team';
-import { WalletPage } from '../features/wallet';
+import { WalletPage, WeeklyBonusPage } from '../features/wallet';
 
 function AdminOnly({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -47,7 +47,13 @@ export default function App() {
           <Route path="/packages" element={<PackagesPage />} />
           <Route path="/wallet" element={<WalletPage />} />
           <Route path="/team" element={<TeamPage />} />
-          <Route path="/bonuses" element={<BonusesPage />} />
+          <Route path="/bonuses" element={<Navigate to="/bonuses/team" replace />} />
+          <Route path="/bonuses/team" element={<BonusesPage view="team" />} />
+          <Route path="/bonuses/leadership" element={<BonusesPage view="leadership" />} />
+          <Route path="/bonuses/weekly" element={<WeeklyBonusPage />} />
+          <Route path="/training" element={<TrainingPage />} />
+          <Route path="/leaderboard" element={<LeaderboardPage />} />
+          <Route path="/activation" element={<PackagesPage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />
           <Route path="/admin" element={<AdminOnly><AdminPage /></AdminOnly>} />
           <Route path="/admin/site" element={<AdminOnly><SiteContentPage /></AdminOnly>} />

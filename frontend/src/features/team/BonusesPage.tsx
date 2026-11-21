@@ -28,7 +28,7 @@ interface Bonuses {
 const pct = (value: number, target: number) => Math.min(100, Math.round((value / target) * 100));
 const statusText: Record<Status, string> = { DONE: 'Completed', CURRENT: 'In progress', LOCKED: 'Locked' };
 
-export default function BonusesPage() {
+export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
   const [data, setData] = useState<Bonuses | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -43,11 +43,13 @@ export default function BonusesPage() {
   const { team, leadership } = data;
   const cur = team.current;
   const lcur = leadership.current;
-  const earned = data.history.reduce((sum, h) => sum + Number(h.amount), 0);
+  const kind = view === 'team' ? 'TEAM' : 'LEADERSHIP';
+  const mine = data.history.filter((h) => h.kind === kind);
+  const earned = mine.reduce((sum, h) => sum + Number(h.amount), 0);
 
   return (
     <>
-      <h1>Bonuses</h1>
+      <h1>{view === 'team' ? 'Team Performance Bonus' : 'Leadership Bonus'}</h1>
 
       {!data.eligible && (
         <div className="alert">
@@ -58,23 +60,43 @@ export default function BonusesPage() {
 
       <div className="grid">
         <div className="card stat">
-          <span className="muted">Earned from these bonuses</span>
+          <span className="muted">Earned from this bonus</span>
           <strong>{inr(earned)}</strong>
         </div>
-        <div className="card stat">
-          <span className="muted">Team targets completed</span>
-          <strong>
-            {team.completed} / {team.targets.length}
-          </strong>
-        </div>
-        <div className="card stat">
-          <span className="muted">Leadership points</span>
-          <strong>{leadership.points}</strong>
-        </div>
+        {view === 'team' ? (
+          <>
+            <div className="card stat">
+              <span className="muted">Targets completed</span>
+              <strong>
+                {team.completed} / {team.targets.length}
+              </strong>
+            </div>
+            <div className="card stat">
+              <span className="muted">Whole team (left / right)</span>
+              <strong>
+                {team.totalLeft} / {team.totalRight}
+              </strong>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="card stat">
+              <span className="muted">Leadership points</span>
+              <strong>{leadership.points}</strong>
+            </div>
+            <div className="card stat">
+              <span className="muted">Targets completed</span>
+              <strong>
+                {leadership.completed} / {leadership.targets.length}
+              </strong>
+            </div>
+          </>
+        )}
       </div>
 
+      {view === 'team' && (
       <div className="card" data-testid="team-card">
-        <h2>Team Performance Bonus</h2>
+        <h2>Your progress</h2>
         <p className="muted">
           New members on your LEFT and your RIGHT team (your whole downline counts). Each target needs the same number on both
           sides, fresh members only: members used for one target are never counted again.
@@ -136,8 +158,11 @@ export default function BonusesPage() {
         </table>
       </div>
 
+      )}
+
+      {view === 'leadership' && (
       <div className="card" data-testid="leadership-card">
-        <h2>Leadership Bonus</h2>
+        <h2>Your progress</h2>
         <p className="muted">
           You get 1 Leadership Point for every new member sponsored by one of your direct referrals. Targets are cumulative and each
           one pays as soon as you reach it.
@@ -184,14 +209,16 @@ export default function BonusesPage() {
         </table>
       </div>
 
+      )}
+
       <div className="card" data-testid="bonus-history">
         <h2>Bonus history</h2>
-        {data.history.length === 0 && (
+        {mine.length === 0 && (
           <p className="muted">No bonus yet. It is credited to your wallet the moment a target is completed.</p>
         )}
         <table>
           <tbody>
-            {data.history.map((h) => (
+            {mine.map((h) => (
               <tr key={h.id}>
                 <td>
                   {h.kind === 'TEAM' ? 'Team target' : 'Leadership target'} {h.target}

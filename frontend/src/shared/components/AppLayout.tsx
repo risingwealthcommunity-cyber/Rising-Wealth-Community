@@ -1,10 +1,60 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth';
+import { Icon } from './ShellIcons';
+
+const BONUS_LINKS = [
+  { to: '/bonuses/leadership', label: 'Leadership Bonus', icon: Icon.star },
+  { to: '/bonuses/team', label: 'Team Performance Bonus', icon: Icon.bars },
+  { to: '/bonuses/weekly', label: 'Weekly Bonus', icon: Icon.calendar }
+];
+
+const initials = (name: string) =>
+  name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('');
+
+const readCollapsed = () => {
+  try {
+    return localStorage.getItem('rwc-sidebar') === 'closed';
+  } catch {
+    return false;
+  }
+};
 
 export default function AppLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
+
+  // desktop: sidebar can be collapsed (remembered); phone: it slides over the page
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [bonusOpen, setBonusOpen] = useState(pathname.startsWith('/bonuses'));
+
+  useEffect(() => setMobileOpen(false), [pathname]);
+  useEffect(() => {
+    if (pathname.startsWith('/bonuses')) setBonusOpen(true);
+  }, [pathname]);
+
+  const toggle = () => {
+    if (window.matchMedia('(max-width: 900px)').matches) {
+      setMobileOpen((v) => !v);
+      return;
+    }
+    setCollapsed((v) => {
+      try {
+        localStorage.setItem('rwc-sidebar', v ? 'open' : 'closed');
+      } catch {
+        /* storage unavailable */
+      }
+      return !v;
+    });
+  };
 
   const onLogout = async () => {
     await logout();
@@ -12,24 +62,95 @@ export default function AppLayout() {
   };
 
   return (
-    <div>
-      <header className="topbar">
-        <strong>RWC</strong>
-        <nav>
-          <NavLink to="/dashboard">Dashboard</NavLink>
-          <NavLink to="/packages">Packages</NavLink>
-          <NavLink to="/wallet">Wallet</NavLink>
-          <NavLink to="/team">Team</NavLink>
-          <NavLink to="/bonuses">Bonuses</NavLink>
-          {isAdmin && <NavLink to="/admin">Admin</NavLink>}
-          <button className="btn ghost" onClick={onLogout}>
-            Logout
-          </button>
-        </nav>
+    <div className={`shell${collapsed ? ' collapsed' : ''}${mobileOpen ? ' mobile-open' : ''}`}>
+      <header className="shell-top">
+        <button className="shell-burger" aria-label="Toggle menu" aria-expanded={mobileOpen || !collapsed} onClick={toggle}>
+          {Icon.menu}
+        </button>
+        <img className="shell-logo" src="/logo.png" alt="" width="44" height="44" />
+        <div className="shell-brand">
+          <strong>RISING WEALTH COMMUNITY</strong>
+          <span>EARN WITHOUT INVESTING</span>
+        </div>
+        <div className="shell-avatar" title={user?.name}>
+          {initials(user?.name ?? '')}
+        </div>
       </header>
-      <main className="content">
-        <Outlet />
-      </main>
+
+      <div className="shell-body">
+        <aside className="shell-side" aria-label="Main menu">
+          <nav>
+            <NavLink to="/dashboard">
+              {Icon.dashboard}
+              <span>Dashboard</span>
+            </NavLink>
+            <NavLink to="/training">
+              {Icon.book}
+              <span>Training Library</span>
+            </NavLink>
+            <NavLink to="/leaderboard">
+              {Icon.trophy}
+              <span>Leaderboard</span>
+            </NavLink>
+            <NavLink to="/team">
+              {Icon.users}
+              <span>My Team</span>
+            </NavLink>
+
+            <button
+              type="button"
+              className={`shell-group${pathname.startsWith('/bonuses') ? ' active' : ''}`}
+              aria-expanded={bonusOpen}
+              onClick={() => setBonusOpen((v) => !v)}
+            >
+              {Icon.plus}
+              <span>Bonuses</span>
+              <i className={`shell-caret${bonusOpen ? ' open' : ''}`}>{Icon.chevron}</i>
+            </button>
+            {bonusOpen && (
+              <div className="shell-sub">
+                {BONUS_LINKS.map((l) => (
+                  <NavLink key={l.to} to={l.to}>
+                    {l.icon}
+                    <span>{l.label}</span>
+                  </NavLink>
+                ))}
+              </div>
+            )}
+
+            <NavLink to="/activation">
+              {Icon.bolt}
+              <span>Activation</span>
+            </NavLink>
+            <NavLink to="/wallet">
+              {Icon.wallet}
+              <span>Wallet</span>
+            </NavLink>
+            {isAdmin && (
+              <NavLink to="/admin">
+                {Icon.shield}
+                <span>Admin</span>
+              </NavLink>
+            )}
+          </nav>
+
+          <div className="shell-foot">
+            <NavLink to="/set-password">
+              {Icon.key}
+              <span>Password</span>
+            </NavLink>
+            <button type="button" onClick={onLogout}>
+              {Icon.logout}
+              <span>Logout</span>
+            </button>
+          </div>
+        </aside>
+        <div className="shell-scrim" onClick={() => setMobileOpen(false)} />
+
+        <main className="shell-main">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

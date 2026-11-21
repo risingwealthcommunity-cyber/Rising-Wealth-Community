@@ -4,6 +4,7 @@ import ContactEditor from './ContactEditor';
 import ImageSlot from './ImageSlot';
 import ListEditor from './ListEditor';
 import MilestonesEditor from './MilestonesEditor';
+import TrainingEditor from './TrainingEditor';
 
 const PAGE_IMAGES = [
   { key: 'about-image', title: 'About section image', hint: 'Shown beside the About text. Landscape works best, e.g. 1200 x 800.' },
@@ -91,6 +92,8 @@ export default function SiteContentPage() {
             assets={content.assets}
             onSaved={reload}
           />
+
+          <TrainingEditor />
 
           <ContactEditor saved={{ ...DEFAULT_CONTACT, ...(content.contact ?? {}) }} onSaved={reload} />
         </>
