@@ -12,7 +12,10 @@ export const label = (value: string): string =>
 const TYPE_LABELS: Record<string, string> = {
   TEAM_PERFORMANCE_BONUS: 'Team performance bonus',
   LEADERSHIP_TARGET_BONUS: 'Leadership bonus',
-  LEADERSHIP_BONUS: 'Leadership pool'
+  LEADERSHIP_BONUS: 'Leadership pool',
+  CAMPAIGN_REWARD: 'Campaign reward',
+  WALLET_TRANSFER: 'Moved to activation wallet',
+  WITHDRAWAL: 'Withdrawal'
 };
 export const typeLabel = (type: string): string => TYPE_LABELS[type] ?? label(type);
 

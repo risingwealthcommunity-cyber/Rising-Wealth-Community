@@ -118,6 +118,14 @@ export default function AppLayout() {
               </div>
             )}
 
+            <NavLink to="/campaigns">
+              {Icon.megaphone}
+              <span>Active Campaigns</span>
+            </NavLink>
+            <NavLink to="/reports">
+              {Icon.upload}
+              <span>Submit Reports</span>
+            </NavLink>
             <NavLink to="/activation">
               {Icon.bolt}
               <span>Activation</span>

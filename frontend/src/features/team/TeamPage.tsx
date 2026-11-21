@@ -34,11 +34,12 @@ interface TreeData {
 const pct = (value: number, target: number) => Math.min(100, Math.round((value / target) * 100));
 const sub = (n: TreeNode) => (n.rank === 'NONE' ? label(n.package) : label(n.rank));
 
-function Slot({ node, onOpen, top }: { node: TreeNode | null; onOpen: (id: string) => void; top?: boolean }) {
+function Slot({ node, onOpen, top, leg }: { node: TreeNode | null; onOpen: (id: string) => void; top?: boolean; leg?: 'LEFT' | 'RIGHT' }) {
   const { user } = useAuth();
   if (!node) {
     return (
       <li>
+        {leg && <i className="tn-leg">{leg} team</i>}
         <div className="tnode empty">
           <span className="tn-avatar">+</span>
           <small>Empty</small>
@@ -49,8 +50,10 @@ function Slot({ node, onOpen, top }: { node: TreeNode | null; onOpen: (id: strin
   const hasKids = !!(node.left || node.right);
   return (
     <li className={top ? 'top' : undefined}>
+      {leg && <i className="tn-leg">{leg} team</i>}
       <button
         type="button"
+        data-pkg={node.package}
         className={`tnode${top ? ' me' : ''}`}
         onClick={() => !top && (hasKids || node.more) && onOpen(node.id)}
         disabled={top || (!hasKids && !node.more)}
@@ -61,12 +64,12 @@ function Slot({ node, onOpen, top }: { node: TreeNode | null; onOpen: (id: strin
           {node.more && <i className="tn-more">+</i>}
         </span>
         <b>{node.name}</b>
-        <small>{sub(node)}</small>
+        <small className="tn-chip">{sub(node)}</small>
       </button>
       {(hasKids || (!node.more && top)) && (
         <ul>
-          <Slot node={node.left} onOpen={onOpen} />
-          <Slot node={node.right} onOpen={onOpen} />
+          <Slot node={node.left} onOpen={onOpen} leg={top ? 'LEFT' : undefined} />
+          <Slot node={node.right} onOpen={onOpen} leg={top ? 'RIGHT' : undefined} />
         </ul>
       )}
     </li>
@@ -170,6 +173,11 @@ export default function TeamPage() {
         {tree && (
           <>
             <Tree node={tree.tree} onOpen={(id) => loadTree(id)} />
+            <div className="tree-legend">
+              <span><i style={{ background: '#94a3b8' }} />Trainee</span>
+              <span><i style={{ background: '#3b82f6' }} />Pro</span>
+              <span><i style={{ background: '#8b5cf6' }} />Elite</span>
+            </div>
             <p className="muted tree-hint">Tap a member with a + to open their branch. New members are placed on the side their sponsor's code chose.</p>
           </>
         )}

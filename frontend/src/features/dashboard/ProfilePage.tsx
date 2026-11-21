@@ -1,43 +1,116 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
 import { Avatar } from '../../shared/components/Avatar';
 import AvatarPicker from '../../shared/components/AvatarPicker';
+import { Icon } from '../../shared/components/ShellIcons';
 import { date, inr, label } from '../../shared/format';
+import { useRun } from '../../shared/useRun';
 import { useAuth } from '../auth';
 
-interface Stats {
-  stats: { total: number; team: number };
-}
-interface Board {
-  me: { position: number };
+interface Bank {
+  bankName: string;
+  account: string;
+  ifsc: string;
+  upiId: string;
 }
 
 export default function ProfilePage() {
   const { user, refreshUser } = useAuth();
   const [picking, setPicking] = useState(false);
-  const [stats, setStats] = useState<Stats['stats'] | null>(null);
+  const [total, setTotal] = useState<number | null>(null);
   const [place, setPlace] = useState<number | null>(null);
   const [directs, setDirects] = useState<number | null>(null);
+  const [team, setTeam] = useState<number | null>(null);
+  const [reports, setReports] = useState<{ total: number; approved: number; earnings: number } | null>(null);
+  const [hasTxn, setHasTxn] = useState<boolean | null>(null);
+  const [masked, setMasked] = useState<Bank | null>(null);
 
-  useEffect(() => {
-    api<Stats>('/dashboard/summary').then((r) => setStats(r.data?.stats ?? null)).catch(() => undefined);
-    api<Board>('/dashboard/leaderboard').then((r) => setPlace(r.data?.me.position ?? 0)).catch(() => undefined);
+  const load = useCallback(() => {
+    api<{ stats: { total: number; team: number } }>('/dashboard/summary').then((r) => { setTotal(r.data?.stats.total ?? 0); setTeam(r.data?.stats.team ?? 0); }).catch(() => undefined);
+    api<{ me: { position: number } }>('/dashboard/leaderboard').then((r) => setPlace(r.data?.me.position ?? 0)).catch(() => undefined);
     api<{ directReferrals: unknown[] }>('/team/summary').then((r) => setDirects(r.data?.directReferrals.length ?? 0)).catch(() => undefined);
+    api<{ total: number; approved: number; earnings: number }>('/campaigns/stats').then((r) => setReports(r.data ?? null)).catch(() => undefined);
+    api<{ hasTxnPassword: boolean }>('/wallet').then((r) => setHasTxn(r.data?.hasTxnPassword ?? false)).catch(() => undefined);
+    api<{ bank: Bank | null }>('/wallet/bank').then((r) => setMasked(r.data?.bank ?? null)).catch(() => undefined);
   }, []);
+  useEffect(load, [load]);
+
+  // ---- account details
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({ name: '', phone: '', city: '' });
+  const account = useRun();
+  const startEdit = () => {
+    if (!user) return;
+    setForm({ name: user.name, phone: user.phone ?? '', city: user.city ?? '' });
+    setEditing(true);
+    account.setMsg(null);
+  };
+  const saveAccount = (e: FormEvent) => {
+    e.preventDefault();
+    void account.run(async () => {
+      const r = await api('/dashboard/profile', { method: 'PUT', body: form });
+      await refreshUser();
+      setEditing(false);
+      return r;
+    });
+  };
+
+  // ---- bank & UPI
+  const bank = useRun();
+  const [unlockPass, setUnlockPass] = useState('');
+  const [txnForBank, setTxnForBank] = useState<string | null>(null); // set while unlocked
+  const [fields, setFields] = useState({ bankName: '', accountNumber: '', ifsc: '', upiId: '' });
+  const unlock = (e: FormEvent) => {
+    e.preventDefault();
+    void bank.run(async () => {
+      const r = await api<{ bank: Bank | null }>('/wallet/bank/unlock', { method: 'POST', body: { txnPassword: unlockPass } });
+      const b = r.data?.bank;
+      setFields({ bankName: b?.bankName ?? '', accountNumber: b?.account ?? '', ifsc: b?.ifsc ?? '', upiId: b?.upiId ?? '' });
+      setTxnForBank(unlockPass);
+      setUnlockPass('');
+    }, 'Unlocked. You can edit your details now.');
+  };
+  const saveBank = (e: FormEvent) => {
+    e.preventDefault();
+    void bank.run(async () => {
+      const r = await api('/wallet/bank', { method: 'PUT', body: { ...fields, txnPassword: txnForBank } });
+      setTxnForBank(null);
+      load();
+      return r;
+    });
+  };
+
+  // ---- transaction password
+  const txn = useRun();
+  const [tp, setTp] = useState({ login: '', current: '', next: '', again: '' });
+  const saveTxn = (e: FormEvent) => {
+    e.preventDefault();
+    if (tp.next !== tp.again) return txn.setMsg({ type: 'error', text: 'The two new passwords do not match.' });
+    void txn.run(async () => {
+      const r = await api('/wallet/txn-password', {
+        method: 'POST',
+        body: { newPassword: tp.next, loginPassword: tp.login || undefined, currentTxnPassword: tp.current || undefined }
+      });
+      setTp({ login: '', current: '', next: '', again: '' });
+      load();
+      return r;
+    });
+  };
 
   if (!user) return null;
 
   const rows: [string, string][] = [
-    ['Name', user.name],
-    ['Email', user.email],
     ['Mobile', user.phone ?? 'Not added'],
+    ['Email', user.email],
+    ['City', user.city ?? 'Not added'],
     ['Package', label(user.package)],
-    ['Rank', user.rank === 'NONE' ? 'Not ranked yet' : label(user.rank)],
     ['Affiliate ID', user.referralCode],
-    ['Joined', date(user.createdAt)],
+    ['Join date', date(user.createdAt)],
     ['Leaderboard rank', place === null ? '...' : place > 0 ? `#${place}` : 'Not ranked yet']
   ];
+  const n = (v: number | null) => (v === null ? '...' : String(v));
 
   return (
     <>
@@ -48,7 +121,7 @@ export default function ProfilePage() {
           <button type="button" className="dash-avatar profile-avatar" aria-label="Change your avatar" onClick={() => setPicking(true)}>
             <Avatar avatar={user.avatar} name={user.name} size={108} />
             <span className="dash-avatar-edit" aria-hidden="true">
-              ✎
+              {Icon.edit}
             </span>
           </button>
           <h2>{user.name}</h2>
@@ -64,40 +137,154 @@ export default function ProfilePage() {
 
         <div className="card">
           <h2>Account details</h2>
-          <dl className="profile-rows">
-            {rows.map(([k, v]) => (
-              <div key={k}>
-                <dt>{k}</dt>
-                <dd>{v}</dd>
+          {!editing ? (
+            <>
+              <dl className="profile-rows">
+                {rows.map(([k, v]) => (
+                  <div key={k}>
+                    <dt>{k}</dt>
+                    <dd>{v}</dd>
+                  </div>
+                ))}
+              </dl>
+              {account.msg && <div className={`alert ${account.msg.type}`}>{account.msg.text}</div>}
+              <div className="profile-actions">
+                <button className="btn" type="button" onClick={startEdit}>
+                  Edit account details
+                </button>
+                <Link className="btn ghost" to="/activation">
+                  Upgrade package
+                </Link>
               </div>
-            ))}
-          </dl>
-          <div className="profile-actions">
-            <Link className="btn ghost" to="/set-password">
-              {user.hasPassword ? 'Change password' : 'Set a password'}
-            </Link>
-            <Link className="btn ghost" to="/activation">
-              Upgrade package
-            </Link>
-          </div>
+            </>
+          ) : (
+            <form className="stack" onSubmit={saveAccount}>
+              <label>
+                Name
+                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={80} required />
+              </label>
+              <label>
+                Mobile number
+                <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} inputMode="numeric" maxLength={10} placeholder="10 digit mobile" />
+              </label>
+              <label>
+                City
+                <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} maxLength={60} />
+              </label>
+              <small className="muted">Your email is your login, so it cannot be changed here.</small>
+              {account.msg && <div className={`alert ${account.msg.type}`}>{account.msg.text}</div>}
+              <div className="profile-actions">
+                <button className="btn" disabled={account.busy}>
+                  Save
+                </button>
+                <button className="btn ghost" type="button" onClick={() => setEditing(false)}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
         </div>
+      </div>
+
+      <div className="card">
+        <h2>Bank &amp; UPI details</h2>
+        <p className="muted">Withdrawals are paid here. The account number is stored encrypted and shown hidden until you unlock it.</p>
+        {txnForBank === null ? (
+          <form className="stack" onSubmit={unlock}>
+            <div className="bank-grid">
+              <input readOnly value={masked?.bankName ?? ''} placeholder="Bank name" aria-label="Bank name" />
+              <input readOnly value={masked?.account ?? ''} placeholder="Account number" aria-label="Account number" />
+              <input readOnly value={masked?.ifsc ?? ''} placeholder="IFSC code" aria-label="IFSC code" />
+              <input readOnly value={masked?.upiId ?? ''} placeholder="UPI ID" aria-label="UPI ID" />
+            </div>
+            {hasTxn === false ? (
+              <div className="alert">Set a transaction password below first, then you can add your bank details.</div>
+            ) : (
+              <div className="form-row">
+                <input type="password" value={unlockPass} onChange={(e) => setUnlockPass(e.target.value)} placeholder="Transaction password" autoComplete="off" aria-label="Transaction password" />
+                <button className="btn" disabled={bank.busy || !unlockPass}>
+                  Unlock bank details
+                </button>
+              </div>
+            )}
+            {bank.msg && <div className={`alert ${bank.msg.type}`}>{bank.msg.text}</div>}
+          </form>
+        ) : (
+          <form className="stack" onSubmit={saveBank}>
+            <div className="bank-grid">
+              <input value={fields.bankName} onChange={(e) => setFields({ ...fields, bankName: e.target.value })} placeholder="Bank name" aria-label="Bank name" maxLength={60} required />
+              <input value={fields.accountNumber} onChange={(e) => setFields({ ...fields, accountNumber: e.target.value })} placeholder="Account number" aria-label="Account number" inputMode="numeric" maxLength={20} required />
+              <input value={fields.ifsc} onChange={(e) => setFields({ ...fields, ifsc: e.target.value.toUpperCase() })} placeholder="IFSC code" aria-label="IFSC code" maxLength={11} required />
+              <input value={fields.upiId} onChange={(e) => setFields({ ...fields, upiId: e.target.value })} placeholder="UPI ID (optional)" aria-label="UPI ID" maxLength={60} />
+            </div>
+            {bank.msg && <div className={`alert ${bank.msg.type}`}>{bank.msg.text}</div>}
+            <div className="profile-actions">
+              <button className="btn" disabled={bank.busy}>
+                Save bank details
+              </button>
+              <button className="btn ghost" type="button" onClick={() => setTxnForBank(null)}>
+                Lock
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
       <div className="card">
         <h2>Performance</h2>
         <div className="levels">
           <div className="level">
+            <small>Total reports</small>
+            <strong>{reports ? reports.total : '...'}</strong>
+          </div>
+          <div className="level">
+            <small>Approved</small>
+            <strong>{reports ? reports.approved : '...'}</strong>
+          </div>
+          <div className="level">
+            <small>Campaign earnings</small>
+            <strong>{reports ? inr(reports.earnings) : '...'}</strong>
+          </div>
+          <div className="level">
             <small>Total earnings</small>
-            <strong>{stats ? inr(stats.total) : '...'}</strong>
+            <strong>{total === null ? '...' : inr(total)}</strong>
           </div>
           <div className="level">
             <small>Direct referrals</small>
-            <strong>{directs ?? '...'}</strong>
+            <strong>{n(directs)}</strong>
           </div>
           <div className="level">
             <small>Total team</small>
-            <strong>{stats ? stats.team : '...'}</strong>
+            <strong>{n(team)}</strong>
           </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2>Security settings</h2>
+        <div className="security-grid">
+          <div className="level">
+            <b>Login password</b>
+            <small className="muted">{user.hasPassword ? 'Used to sign in.' : 'You sign in with Google. Add a password to also sign in with email.'}</small>
+            <Link className="btn" to="/set-password">
+              {user.hasPassword ? 'Reset login password' : 'Set a login password'}
+            </Link>
+          </div>
+          <form className="level stack" onSubmit={saveTxn}>
+            <b>Transaction password</b>
+            <small className="muted">Needed for transfers, activations, withdrawals and bank details. 5 wrong tries lock it for 15 minutes.</small>
+            {user.hasPassword ? (
+              <input type="password" value={tp.login} onChange={(e) => setTp({ ...tp, login: e.target.value })} placeholder="Your login password" autoComplete="current-password" aria-label="Login password" />
+            ) : (
+              hasTxn && <input type="password" value={tp.current} onChange={(e) => setTp({ ...tp, current: e.target.value })} placeholder="Current transaction password" autoComplete="off" aria-label="Current transaction password" />
+            )}
+            <input type="password" value={tp.next} onChange={(e) => setTp({ ...tp, next: e.target.value })} placeholder="New transaction password (8+ characters)" autoComplete="new-password" aria-label="New transaction password" />
+            <input type="password" value={tp.again} onChange={(e) => setTp({ ...tp, again: e.target.value })} placeholder="Repeat the new password" autoComplete="new-password" aria-label="Repeat the new transaction password" />
+            {txn.msg && <div className={`alert ${txn.msg.type}`}>{txn.msg.text}</div>}
+            <button className="btn" disabled={txn.busy || tp.next.length < 8}>
+              {hasTxn ? 'Reset transaction password' : 'Set transaction password'}
+            </button>
+          </form>
         </div>
       </div>
 

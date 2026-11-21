@@ -13,7 +13,9 @@ import {
   useAuth
 } from '../features/auth';
 import AppLayout from '../shared/components/AppLayout';
-import { AdminPage, SiteContentPage } from '../features/admin';
+import { ActivationPage } from '../features/activation';
+import { AdminOpsPage, AdminPage, SiteContentPage } from '../features/admin';
+import { CampaignsPage, ReportsPage } from '../features/campaigns';
 import { DashboardPage, LeaderboardPage, ProfilePage, TrainingPage } from '../features/dashboard';
 import { LandingPage } from '../features/landing';
 import { PackagesPage } from '../features/packages';
@@ -54,10 +56,13 @@ export default function App() {
           <Route path="/training" element={<TrainingPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/activation" element={<PackagesPage />} />
+          <Route path="/activation" element={<ActivationPage />} />
+          <Route path="/campaigns" element={<CampaignsPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />
           <Route path="/admin" element={<AdminOnly><AdminPage /></AdminOnly>} />
           <Route path="/admin/site" element={<AdminOnly><SiteContentPage /></AdminOnly>} />
+          <Route path="/admin/operations" element={<AdminOnly><AdminOpsPage /></AdminOnly>} />
         </Route>
       </Route>
 

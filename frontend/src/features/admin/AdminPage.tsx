@@ -85,6 +85,9 @@ export default function AdminPage() {
           photos and certificate shown on the home page.
         </p>
         <div>
+          <Link className="btn" to="/admin/operations">
+            Operations
+          </Link>
           <Link className="btn" to="/admin/site">
             Open website content
           </Link>

@@ -16,6 +16,8 @@ export const Icon = {
   star: svg(<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.5 9.7l5.9-.9z" />),
   bars: svg(<path d="M5 20V10M12 20V4M19 20v-7" />),
   calendar: svg(<><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></>),
+  megaphone: svg(<path d="M4 10v4a1 1 0 0 0 1 1h2l5 4V5L7 9H5a1 1 0 0 0-1 1zM16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" />),
+  upload: svg(<path d="M12 16V4M7 9l5-5 5 5M5 20h14" />),
   bolt: svg(<path d="M13 3 5 13.5h6L10 21l8-10.5h-6z" />),
   wallet: svg(<><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3" /><rect x="4" y="8" width="16" height="11" rx="2.5" /><circle cx="16" cy="13.5" r="1.2" /></>),
   shield: svg(<path d="M12 3 5 6v5.5c0 4.3 2.9 7.6 7 9 4.1-1.4 7-4.7 7-9V6z" />),
