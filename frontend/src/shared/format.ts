@@ -8,4 +8,12 @@ export const label = (value: string): string =>
     .map((w) => w[0].toUpperCase() + w.slice(1))
     .join(' ');
 
-export const date = (value: string): string => new Date(value).toLocaleString('en-IN');
+/** Wallet / ledger type names as members should read them. */
+const TYPE_LABELS: Record<string, string> = {
+  TEAM_PERFORMANCE_BONUS: 'Team performance bonus',
+  LEADERSHIP_TARGET_BONUS: 'Leadership bonus',
+  LEADERSHIP_BONUS: 'Leadership pool'
+};
+export const typeLabel = (type: string): string => TYPE_LABELS[type] ?? label(type);
+
+export const date =(value: string): string => new Date(value).toLocaleString('en-IN');

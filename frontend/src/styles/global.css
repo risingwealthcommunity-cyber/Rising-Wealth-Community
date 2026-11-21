@@ -145,3 +145,8 @@ textarea { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8
 .code-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: #fafaff; }
 .code-value { font: 700 1.35rem 'Space Mono', ui-monospace, monospace; letter-spacing: 0.06em; word-break: break-all; }
 .code-card .copy-row { flex-wrap: wrap; margin-top: 4px; }
+
+/* bonuses page */
+table.ladder { margin-top: 12px; }
+table.ladder tr.st-locked td { opacity: 0.55; }
+table.ladder tr.st-current td { font-weight: 600; }

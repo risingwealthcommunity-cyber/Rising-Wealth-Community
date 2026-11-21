@@ -20,6 +20,7 @@ export default function AppLayout() {
           <NavLink to="/packages">Packages</NavLink>
           <NavLink to="/wallet">Wallet</NavLink>
           <NavLink to="/team">Team</NavLink>
+          <NavLink to="/bonuses">Bonuses</NavLink>
           {isAdmin && <NavLink to="/admin">Admin</NavLink>}
           <button className="btn ghost" onClick={onLogout}>
             Logout

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../shared/api/apiClient';
-import { date, inr, label } from '../../shared/format';
+import { date, inr, typeLabel } from '../../shared/format';
 
 interface Summary {
   balance: string;
@@ -50,7 +50,7 @@ export default function WalletPage() {
         <div className="grid">
           {Object.entries(summary.earningsByType).map(([type, amount]) => (
             <div className="card stat" key={type}>
-              <span className="muted">{label(type)}</span>
+              <span className="muted">{typeLabel(type)}</span>
               <strong>{inr(amount)}</strong>
             </div>
           ))}
@@ -65,7 +65,7 @@ export default function WalletPage() {
             {tx?.items.map((e) => (
               <tr key={e.id}>
                 <td>
-                  {label(e.type)}
+                  {typeLabel(e.type)}
                   {e.level ? ` (L${e.level})` : ''}
                 </td>
                 <td className="muted">{e.from ?? e.note ?? ''}</td>

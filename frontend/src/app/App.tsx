@@ -17,7 +17,7 @@ import { AdminPage, SiteContentPage } from '../features/admin';
 import { DashboardPage } from '../features/dashboard';
 import { LandingPage } from '../features/landing';
 import { PackagesPage } from '../features/packages';
-import { TeamPage } from '../features/team';
+import { BonusesPage, TeamPage } from '../features/team';
 import { WalletPage } from '../features/wallet';
 
 function AdminOnly({ children }: { children: ReactNode }) {
@@ -47,6 +47,7 @@ export default function App() {
           <Route path="/packages" element={<PackagesPage />} />
           <Route path="/wallet" element={<WalletPage />} />
           <Route path="/team" element={<TeamPage />} />
+          <Route path="/bonuses" element={<BonusesPage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />
           <Route path="/admin" element={<AdminOnly><AdminPage /></AdminOnly>} />
           <Route path="/admin/site" element={<AdminOnly><SiteContentPage /></AdminOnly>} />
