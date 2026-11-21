@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { requireAuth } from '../auth';
 
@@ -114,34 +115,52 @@ router.put('/avatar', requireAuth, async (req: Request, res: Response) => {
   res.json({ success: true, data: { avatar: key } });
 });
 
-/** Top members by direct referrals. Only first name + last initial and rank are shown to other members. */
+/**
+ * Top 10 members by total income earned (credits only, the company fund excluded). Only first name + last initial,
+ * the chosen avatar and rank are shown. The caller always gets their own position too, so they can see it when
+ * they are not in the top 10. Members who have not earned anything yet are not ranked.
+ */
 router.get('/leaderboard', requireAuth, async (req: Request, res: Response) => {
-  const rows = await prisma.user.findMany({
-    where: { isActive: true, isVerified: true, role: 'USER', referrals: { some: {} } },
-    orderBy: [{ referrals: { _count: 'desc' } }, { createdAt: 'asc' }],
-    take: 20,
-    select: { id: true, name: true, rank: true, package: true, _count: { select: { referrals: true } } }
-  });
-
+  const userId = req.user!.id;
   const short = (name: string) => {
     const [first, ...rest] = name.trim().split(/\s+/);
     const last = rest[rest.length - 1];
     return last ? `${first} ${last[0].toUpperCase()}.` : first;
   };
 
-  res.json({
-    success: true,
-    data: {
-      items: rows.map((r, i) => ({
-        position: i + 1,
-        name: short(r.name),
-        rank: r.rank,
-        package: r.package,
-        directs: r._count.referrals,
-        me: r.id === req.user!.id
-      }))
-    }
+  type Row = { id: string; name: string; avatar: string | null; rank: string; package: string; total: unknown; pos: bigint };
+  const ranked = (where: Prisma.Sql, limit: number) => prisma.$queryRaw<Row[]>`
+    WITH earned AS (
+      SELECT u.id, u.name, u.avatar, u.rank::text AS rank, u.package::text AS package, u."createdAt",
+             SUM(l.amount) AS total
+      FROM "User" u
+      JOIN "LedgerEntry" l ON l."userId" = u.id AND l.amount > 0 AND l.type <> 'COMPANY_FUND'
+      WHERE u."isActive" AND u."isVerified" AND u.role = 'USER'
+      GROUP BY u.id
+    ), ordered AS (
+      SELECT *, ROW_NUMBER() OVER (ORDER BY total DESC, "createdAt" ASC, id ASC) AS pos FROM earned
+    )
+    SELECT id, name, avatar, rank, package, total, pos FROM ordered WHERE ${where} ORDER BY pos LIMIT ${limit}`;
+
+  const [top, mine] = await Promise.all([ranked(Prisma.sql`pos <= 10`, 10), ranked(Prisma.sql`id = ${userId}`, 1)]);
+  const view = (r: Row) => ({
+    position: Number(r.pos),
+    name: short(r.name),
+    avatar: r.avatar,
+    rank: r.rank,
+    package: r.package,
+    total: rupees(Number(r.total)),
+    me: r.id === userId
   });
+
+  let me: ReturnType<typeof view> | null = mine[0] ? view(mine[0]) : null;
+  if (!me) {
+    // not ranked yet: nothing earned
+    const self = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { name: true, avatar: true, rank: true, package: true } });
+    me = { position: 0, name: short(self.name), avatar: self.avatar, rank: self.rank, package: self.package, total: 0, me: true };
+  }
+
+  res.json({ success: true, data: { items: top.map(view), me } });
 });
 
 export default router;

@@ -1615,24 +1615,108 @@ test('DASHBOARD: only signed-in members can see it', async () => {
   assert.equal((await new Client().call('GET', '/api/site/training')).status, 401);
 });
 
-test('LEADERBOARD: ranked by direct referrals, shows only a short name, and never leaks ids, emails or money', async () => {
+test('LEADERBOARD: top 10 by income earned, short names only, and the caller always sees their own position', async () => {
   const star = await signup('RWCROOT', 'LEFT', 'lbstar');
   const row = await rowOf('lbstar@test.com');
-  await prisma.user.update({ where: { id: row.id }, data: { name: 'Priya Kumari Sharma' } });
-  for (let i = 0; i < 4; i++) await signup(i % 2 ? row.leftCode! : row.rightCode!, 'LEFT', `lbstar_f${i}`);
+  await prisma.user.update({ where: { id: row.id }, data: { name: 'Priya Kumari Sharma', avatar: 'a3' } });
+  // give 12 members known earnings so a caller outside the top 10 exists
+  const names = Array.from({ length: 12 }, (_, i) => `lbm${i}`);
+  const members = [];
+  for (const n of names) members.push(await signup('RWCROOT', 'LEFT', n));
+  for (let i = 0; i < members.length; i++) {
+    const u = await rowOf(`${names[i]}@test.com`);
+    await prisma.ledgerEntry.create({ data: { userId: u.id, type: 'DIRECT_INCOME', amount: 1_000_000 - i * 1000 } });
+    await prisma.ledgerEntry.create({ data: { userId: u.id, type: 'COMPANY_FUND', amount: 9_999_999 } }); // never counts
+    await prisma.ledgerEntry.create({ data: { userId: u.id, type: 'DIRECT_INCOME', amount: -5 } }); // debits never count
+    await prisma.user.update({ where: { id: u.id }, data: { walletBalance: 1_000_000 - i * 1000 - 5 + 9_999_999 } });
+  }
 
-  const r = await star.c.call('GET', '/api/dashboard/leaderboard');
+  const r = await members[11].c.call('GET', '/api/dashboard/leaderboard');
   assert.equal(r.status, 200);
   const items = r.json.data.items as any[];
-  assert.ok(items.length >= 1 && items.length <= 20);
-  const counts = items.map((i) => i.directs);
-  assert.deepEqual(counts, [...counts].sort((a, b) => b - a), 'sorted by directs, high to low');
-  const me = items.find((i) => i.me);
-  assert.ok(me, 'the caller is flagged');
-  assert.equal(me.name, 'Priya S.');
-  assert.equal(me.directs, 4);
-  for (const it of items) assert.deepEqual(Object.keys(it).sort(), ['directs', 'me', 'name', 'package', 'position', 'rank']);
+  assert.equal(items.length, 10, 'only the top 10 are listed');
+  const totals = items.map((i) => i.total);
+  assert.deepEqual(totals, [...totals].sort((a, b) => b - a), 'sorted by income, high to low');
+  assert.deepEqual(items.map((i) => i.position), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.equal(items[0].total, 1_000_000, 'company fund and debits are not counted');
+  assert.ok(items.every((i) => !i.me), 'the 12th member is not in the top 10');
+  const me = r.json.data.me;
+  assert.equal(me.position, 12);
+  assert.equal(me.total, 1_000_000 - 11 * 1000);
+  assert.equal(me.me, true);
+
+  // a member inside the top 10 is flagged in the list and still gets `me`
+  const first = await members[0].c.call('GET', '/api/dashboard/leaderboard');
+  assert.equal(first.json.data.items[0].me, true);
+  assert.equal(first.json.data.me.position, 1);
+
+  // someone who has earned nothing is not ranked
+  const zero = (await star.c.call('GET', '/api/dashboard/leaderboard')).json.data;
+  assert.equal(zero.me.position, 0);
+  assert.equal(zero.me.total, 0);
+  assert.equal(zero.me.name, 'Priya S.');
+  assert.equal(zero.me.avatar, 'a3');
+
+  for (const it of [...items, zero.me]) assert.deepEqual(Object.keys(it).sort(), ['avatar', 'me', 'name', 'package', 'position', 'rank', 'total']);
   assert.ok(!JSON.stringify(r.json).includes('@'), 'no email addresses');
+});
+
+test('TREE: shows the binary tree a few levels at a time, with counts per side, and only your own branches', async () => {
+  const top = await paidMember('RWCROOT', 'LEFT', 'tt_top');
+  const a = await signup(top.left, 'LEFT', 'tt_a'); // top.left
+  await signup(top.right, 'LEFT', 'tt_b'); // top.right
+  let parentCode = (await rowOf(a.email)).leftCode!;
+  const chain = [] as string[];
+  for (const n of ['tt_a1', 'tt_a2', 'tt_a3']) {
+    const m = await signup(parentCode, 'LEFT', n);
+    chain.push(m.email);
+    parentCode = (await rowOf(m.email)).leftCode!;
+  }
+  // tt_a -> tt_a1 -> tt_a2 -> tt_a3 all down the left; top is depth 0, so tt_a3 is at depth 4
+
+  const r = await top.c.call('GET', '/api/team/tree');
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const d = r.json.data;
+  assert.equal(d.isMe, true);
+  assert.deepEqual(d.counts, { left: 4, right: 1, total: 5 });
+  assert.equal(d.tree.name, 'You');
+  assert.ok(d.tree.left && d.tree.right);
+  assert.equal(d.tree.right.left, null);
+  assert.equal(d.tree.right.right, null);
+  assert.equal(d.tree.right.more, false);
+  const a2 = d.tree.left.left.left; // depth 3 = the last drawn row
+  assert.ok(a2, 'three levels below the top are drawn');
+  assert.equal(a2.left, null, 'the fourth level is not drawn');
+  assert.equal(a2.more, true, 'but the member is marked as having more below');
+  assert.equal(d.tree.left.more, false);
+  for (const node of [d.tree, d.tree.left, a2]) {
+    assert.deepEqual(Object.keys(node).sort(), ['avatar', 'id', 'joinedAt', 'left', 'more', 'name', 'package', 'rank', 'right']);
+  }
+  assert.ok(!JSON.stringify(d).includes('@'), 'no email addresses');
+
+  // walk into a branch: re-centred on that member, counts stay yours
+  const branch = await top.c.call('GET', `/api/team/tree?root=${a2.id}`);
+  assert.equal(branch.status, 200);
+  assert.equal(branch.json.data.isMe, false);
+  assert.equal(branch.json.data.tree.id, a2.id);
+  assert.ok(branch.json.data.tree.left, 'the hidden member is now drawn');
+  assert.deepEqual(branch.json.data.counts, d.counts);
+
+  // other members cannot read your branches; junk ids are refused
+  const stranger = await signup('RWCROOT', 'RIGHT', 'tt_stranger');
+  assert.equal((await stranger.c.call('GET', `/api/team/tree?root=${a2.id}`)).status, 404);
+  assert.equal((await stranger.c.call('GET', `/api/team/tree?root=${top.id}`)).status, 404);
+  assert.equal((await top.c.call('GET', '/api/team/tree?root=not-an-id')).status, 400);
+  assert.equal((await new Client().call('GET', '/api/team/tree')).status, 401);
+
+  // passive income levels follow the package: PRO opens 1-7, ELITE 1-12
+  const pro = (await top.c.call('GET', '/api/team/summary')).json.data;
+  assert.equal(pro.passiveLevels.length, 12);
+  assert.deepEqual(pro.passiveLevels.map((l: any) => l.unlocked), [...Array(7).fill(true), ...Array(5).fill(false)]);
+  assert.equal(pro.passiveLevels[0].pct, 5);
+  await buy(top.c, 'ELITE');
+  const elite = (await top.c.call('GET', '/api/team/summary')).json.data;
+  assert.ok(elite.passiveLevels.every((l: any) => l.unlocked));
 });
 
 test('TRAINING: members read lessons, only admins write them, and only https links are accepted', async () => {

@@ -1,29 +1,197 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
-import { date, inr, label } from '../../shared/format';
+import { Avatar } from '../../shared/components/Avatar';
+import { useAuth } from '../auth';
+import { date, label } from '../../shared/format';
 
 interface Team {
   rank: string;
+  package: string;
+  passiveLevels: { level: number; pct: number; unlocked: boolean }[];
   points: { left: number; right: number; unmatchedLeft: number; unmatchedRight: number };
   nextRank: { rank: string; requiredEachLeg: number; reward: number } | null;
-  directReferrals: { id: string; name: string; package: string; leg: string | null; createdAt: string }[];
+  directReferrals: { id: string; name: string; avatar: string | null; package: string; leg: string | null; createdAt: string }[];
+}
+
+interface TreeNode {
+  id: string;
+  name: string;
+  avatar: string | null;
+  package: string;
+  rank: string;
+  joinedAt: string;
+  more: boolean;
+  left: TreeNode | null;
+  right: TreeNode | null;
+}
+interface TreeData {
+  tree: TreeNode;
+  isMe: boolean;
+  counts: { left: number; right: number; total: number };
 }
 
 const pct = (value: number, target: number) => Math.min(100, Math.round((value / target) * 100));
+const sub = (n: TreeNode) => (n.rank === 'NONE' ? label(n.package) : label(n.rank));
+
+function Slot({ node, onOpen, top }: { node: TreeNode | null; onOpen: (id: string) => void; top?: boolean }) {
+  const { user } = useAuth();
+  if (!node) {
+    return (
+      <li>
+        <div className="tnode empty">
+          <span className="tn-avatar">+</span>
+          <small>Empty</small>
+        </div>
+      </li>
+    );
+  }
+  const hasKids = !!(node.left || node.right);
+  return (
+    <li className={top ? 'top' : undefined}>
+      <button
+        type="button"
+        className={`tnode${top ? ' me' : ''}`}
+        onClick={() => !top && (hasKids || node.more) && onOpen(node.id)}
+        disabled={top || (!hasKids && !node.more)}
+        title={node.more ? 'Open this branch' : node.name}
+      >
+        <span className="tn-avatar">
+          <Avatar avatar={node.avatar} name={top ? (user?.name ?? node.name) : node.name} size={56} />
+          {node.more && <i className="tn-more">+</i>}
+        </span>
+        <b>{node.name}</b>
+        <small>{sub(node)}</small>
+      </button>
+      {(hasKids || (!node.more && top)) && (
+        <ul>
+          <Slot node={node.left} onOpen={onOpen} />
+          <Slot node={node.right} onOpen={onOpen} />
+        </ul>
+      )}
+    </li>
+  );
+}
+
+/** Keeps the empty slots only under members that are drawn with children space (not at the last row). */
+function Tree({ node, onOpen }: { node: TreeNode; onOpen: (id: string) => void }) {
+  return (
+    <div className="tree-scroll">
+      <div className="tree">
+        <ul>
+          <Slot node={node} onOpen={onOpen} top />
+        </ul>
+      </div>
+    </div>
+  );
+}
 
 export default function TeamPage() {
   const [team, setTeam] = useState<Team | null>(null);
+  const [tree, setTree] = useState<TreeData | null>(null);
+  const [treeFailed, setTreeFailed] = useState(false);
+  const [q, setQ] = useState('');
 
   useEffect(() => {
     api<Team>('/team/summary').then((r) => setTeam(r.data ?? null)).catch(() => undefined);
+    loadTree();
   }, []);
+
+  const loadTree = (root?: string) => {
+    setTreeFailed(false);
+    api<TreeData>(`/team/tree${root ? `?root=${root}` : ''}`)
+      .then((r) => setTree(r.data ?? null))
+      .catch(() => setTreeFailed(true));
+  };
 
   if (!team) return <p className="muted">Loading...</p>;
   const next = team.nextRank;
+  const direct = team.directReferrals.filter((r) => r.name.toLowerCase().includes(q.trim().toLowerCase()));
+  const locked = team.passiveLevels.filter((l) => !l.unlocked);
 
   return (
     <>
       <h1>My team</h1>
+
+      <div className="card">
+        <div className="team-head">
+          <h2>Direct team ({team.directReferrals.length})</h2>
+          <input className="team-search" placeholder="Search by name..." value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search your direct team" />
+        </div>
+        {team.directReferrals.length === 0 && <p className="muted">Share your link from the dashboard to build your team.</p>}
+        {team.directReferrals.length > 0 && direct.length === 0 && <p className="muted">No one matches that name.</p>}
+        <div className="direct-list">
+          {direct.map((r) => (
+            <div className="direct-row" key={r.id}>
+              <Avatar avatar={r.avatar} name={r.name} size={44} />
+              <span className="direct-name">
+                {r.name}
+                <small>Joined: {date(r.createdAt)}</small>
+              </span>
+              <span className="badge">{label(r.package)}</span>
+              <span className="badge">{r.leg ? label(r.leg) : '-'}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="dash-stats team-counts">
+        <div className="card dash-stat">
+          <div>
+            <span>Left team</span>
+            <strong>{tree?.counts.left ?? '...'}</strong>
+          </div>
+        </div>
+        <div className="card dash-stat">
+          <div>
+            <span>Right team</span>
+            <strong>{tree?.counts.right ?? '...'}</strong>
+          </div>
+        </div>
+        <div className="card dash-stat">
+          <div>
+            <span>Total team</span>
+            <strong>{tree?.counts.total ?? '...'}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="team-head">
+          <h2>Team tree</h2>
+          {tree && !tree.isMe && (
+            <button className="btn ghost" type="button" onClick={() => loadTree()}>
+              Back to me
+            </button>
+          )}
+        </div>
+        {treeFailed && <p className="muted">Could not load your tree. Please try again.</p>}
+        {!tree && !treeFailed && <p className="muted">Loading...</p>}
+        {tree && (
+          <>
+            <Tree node={tree.tree} onOpen={(id) => loadTree(id)} />
+            <p className="muted tree-hint">Tap a member with a + to open their branch. New members are placed on the side their sponsor's code chose.</p>
+          </>
+        )}
+      </div>
+
+      <div className="card">
+        <h2>Passive income from team levels</h2>
+        <p className="muted">You earn this share of every package sold by members in your downline, level by level.</p>
+        <div className="levels">
+          {team.passiveLevels.map((l) => (
+            <div className={`level${l.unlocked ? '' : ' locked'}`} key={l.level}>
+              <small>Level {l.level}</small>
+              <strong>{l.unlocked ? `${l.pct}%` : '🔒 Locked'}</strong>
+            </div>
+          ))}
+        </div>
+        {locked.length > 0 && (
+          <p className="levels-note">
+            Upgrade to <Link to="/activation">ELITE</Link> to unlock levels {locked[0].level}-{locked[locked.length - 1].level} and earn on the whole 12-level team.
+          </p>
+        )}
+      </div>
 
       <div className="grid">
         <div className="card stat">
@@ -43,7 +211,7 @@ export default function TeamPage() {
       {next && (
         <div className="card">
           <h2>
-            Next rank: {label(next.rank)} ({inr(next.reward)} one-time)
+            Next rank: {label(next.rank)} (₹{next.reward.toLocaleString('en-IN')} one-time)
           </h2>
           <p className="muted">
             Needs {next.requiredEachLeg} : {next.requiredEachLeg} new points. Points reset after every rank.
@@ -60,23 +228,6 @@ export default function TeamPage() {
           ))}
         </div>
       )}
-
-      <div className="card">
-        <h2>Direct referrals ({team.directReferrals.length})</h2>
-        {team.directReferrals.length === 0 && <p className="muted">Share your link from the dashboard to build your team.</p>}
-        <table>
-          <tbody>
-            {team.directReferrals.map((r) => (
-              <tr key={r.id}>
-                <td>{r.name}</td>
-                <td>{label(r.package)}</td>
-                <td className="muted">{r.leg ?? '-'}</td>
-                <td className="muted">{date(r.createdAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </>
   );
 }

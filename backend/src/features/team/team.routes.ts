@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../../config/database';
 import { requireAuth } from '../auth';
-import { RANKS, TEAM_TARGETS } from '../income/plan.config';
+import { PASSIVE_LEVELS_UNLOCKED, PASSIVE_PCT, RANKS, TEAM_TARGETS } from '../income/plan.config';
 import { leadershipTargets } from '../income/income.engine';
 
 const router = Router();
@@ -12,12 +12,12 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
   const [me, referrals] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { rank: true, rankLeftHalf: true, rankRightHalf: true, matchLeftHalf: true, matchRightHalf: true }
+      select: { package: true, rank: true, rankLeftHalf: true, rankRightHalf: true, matchLeftHalf: true, matchRightHalf: true }
     }),
     prisma.user.findMany({
       where: { sponsorId: userId },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, name: true, package: true, leg: true, createdAt: true }
+      select: { id: true, name: true, avatar: true, package: true, leg: true, createdAt: true }
     })
   ]);
 
@@ -28,6 +28,9 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
     success: true,
     data: {
       rank: me.rank,
+      package: me.package,
+      // passive income from team levels: % of every package sale in your downline, per level
+      passiveLevels: PASSIVE_PCT.map((pct, i) => ({ level: i + 1, pct, unlocked: PASSIVE_LEVELS_UNLOCKED[me.package] >= i + 1 })),
       points: {
         left: me.rankLeftHalf / 2,
         right: me.rankRightHalf / 2,
@@ -112,6 +115,118 @@ router.get('/bonuses', requireAuth, async (req: Request, res: Response) => {
         note: h.note,
         createdAt: h.createdAt
       }))
+    }
+  });
+});
+
+const TREE_ROWS = 3; // levels shown below the top node (so 4 rows including it)
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface TreeNode {
+  id: string;
+  name: string;
+  avatar: string | null;
+  package: string;
+  rank: string;
+  joinedAt: Date;
+  /** This member has people below them that are not drawn: open the branch to see them. */
+  more: boolean;
+  left: TreeNode | null;
+  right: TreeNode | null;
+}
+
+/** First name + last initial, the same short form the leaderboard uses. */
+const shortName = (name: string) => {
+  const [first, ...rest] = name.trim().split(/\s+/);
+  const last = rest[rest.length - 1];
+  return last ? `${first} ${last[0].toUpperCase()}.` : first;
+};
+
+/**
+ * The binary tree under a member: a few levels at a time, each member's LEFT and RIGHT child as placed at signup.
+ * `?root=<id>` re-centres it on someone in your own downline, so a deep tree can be walked branch by branch.
+ */
+router.get('/tree', requireAuth, async (req: Request, res: Response) => {
+  const me = req.user!.id;
+  const wanted = typeof req.query.root === 'string' ? req.query.root : '';
+  if (wanted && !UUID.test(wanted)) {
+    res.status(400).json({ success: false, message: 'Invalid branch.' });
+    return;
+  }
+  const rootId = wanted || me;
+
+  if (rootId !== me) {
+    const inside = await prisma.$queryRaw<{ c: bigint }[]>`
+      WITH RECURSIVE d AS (
+        SELECT id FROM "User" WHERE "parentId" = ${me}
+        UNION ALL
+        SELECT u.id FROM "User" u JOIN d ON u."parentId" = d.id
+      )
+      SELECT COUNT(*) AS c FROM d WHERE id = ${rootId}`;
+    if (Number(inside[0]?.c ?? 0) === 0) {
+      res.status(404).json({ success: false, message: 'That member is not in your team.' });
+      return;
+    }
+  }
+
+  // one extra level is read only to know whether a drawn member has more below them
+  const maxDepth = TREE_ROWS + 1;
+  const [rows, sides, rootRow] = await Promise.all([
+    prisma.$queryRaw<
+      { id: string; parentId: string; leg: string; depth: number; name: string; avatar: string | null; package: string; rank: string; createdAt: Date }[]
+    >`
+      WITH RECURSIVE d AS (
+        SELECT id, "parentId", leg, 1 AS depth FROM "User" WHERE "parentId" = ${rootId}
+        UNION ALL
+        SELECT u.id, u."parentId", u.leg, d.depth + 1 FROM "User" u JOIN d ON u."parentId" = d.id WHERE d.depth < ${maxDepth}
+      )
+      SELECT d.id, d."parentId", d.leg::text AS leg, d.depth, u.name, u.avatar, u.package::text AS package, u.rank::text AS rank, u."createdAt"
+      FROM d JOIN "User" u ON u.id = d.id`,
+    prisma.$queryRaw<{ side: string; c: bigint }[]>`
+      WITH RECURSIVE d AS (
+        SELECT id, leg AS side FROM "User" WHERE "parentId" = ${me}
+        UNION ALL
+        SELECT u.id, d.side FROM "User" u JOIN d ON u."parentId" = d.id
+      )
+      SELECT side::text AS side, COUNT(*) AS c FROM d GROUP BY side`,
+    prisma.user.findUniqueOrThrow({
+      where: { id: rootId },
+      select: { id: true, name: true, avatar: true, package: true, rank: true, createdAt: true }
+    })
+  ]);
+
+  const byParent = new Map<string, typeof rows>();
+  for (const r of rows) byParent.set(r.parentId, [...(byParent.get(r.parentId) ?? []), r]);
+
+  const build = (id: string, info: { name: string; avatar: string | null; package: string; rank: string; createdAt: Date }, depth: number): TreeNode => {
+    const kids = byParent.get(id) ?? [];
+    const child = (leg: string) => {
+      const k = kids.find((x) => x.leg === leg);
+      return k && depth < TREE_ROWS ? build(k.id, { ...k }, depth + 1) : null;
+    };
+    return {
+      id,
+      name: id === me ? 'You' : shortName(info.name),
+      avatar: info.avatar,
+      package: info.package,
+      rank: info.rank,
+      joinedAt: info.createdAt,
+      more: depth >= TREE_ROWS && kids.length > 0,
+      left: child('LEFT'),
+      right: child('RIGHT')
+    };
+  };
+
+  const count = (s: string) => Number(sides.find((x) => x.side === s)?.c ?? 0);
+  const left = count('LEFT');
+  const right = count('RIGHT');
+
+  res.json({
+    success: true,
+    data: {
+      tree: build(rootRow.id, rootRow, 0),
+      isMe: rootId === me,
+      counts: { left, right, total: left + right }
     }
   });
 });
