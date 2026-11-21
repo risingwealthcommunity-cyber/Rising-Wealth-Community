@@ -211,7 +211,14 @@ export default function RegisterPage() {
               <span>Code found ({preview.sponsorName}). Choose the side below.</span>
             ) : preview && !preview.valid ? (
               <span style={{ color: '#a11a1a' }}>We could not find this code. Check it with the person who invited you.</span>
-            ) : undefined
+            ) : previewFailed ? (
+              <span>Could not check this code right now. You can still choose a side below.</span>
+            ) : (
+              <span>
+                Your sponsor has a LEFT code and a RIGHT code. The code you use decides which side you join, so there is
+                nothing else to choose.
+              </span>
+            )
           }
         />
 
