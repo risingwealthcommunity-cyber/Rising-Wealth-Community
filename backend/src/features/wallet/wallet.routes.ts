@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { LedgerType } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { requireAuth } from '../auth';
 
@@ -23,7 +24,9 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
 router.get('/transactions', requireAuth, async (req: Request, res: Response) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const pageSize = 25;
-  const where = { userId: req.user!.id };
+  // optional filter by income type (only real ledger types are accepted)
+  const type = typeof req.query.type === 'string' && req.query.type in LedgerType ? (req.query.type as LedgerType) : undefined;
+  const where = { userId: req.user!.id, ...(type ? { type } : {}) };
 
   const [items, total] = await Promise.all([
     prisma.ledgerEntry.findMany({

@@ -5,6 +5,7 @@ import { walletRoutes } from './features/wallet';
 import { teamRoutes } from './features/team';
 import { adminRoutes } from './features/admin';
 import { siteRoutes } from './features/site';
+import dashboardRoutes from './features/dashboard/dashboard.routes';
 
 const router = Router();
 
@@ -19,5 +20,6 @@ router.use('/wallet', walletRoutes);
 router.use('/team', teamRoutes);
 router.use('/admin', adminRoutes);
 router.use('/site', siteRoutes);
+router.use('/dashboard', dashboardRoutes);
 
 export default router;

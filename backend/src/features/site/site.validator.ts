@@ -29,6 +29,12 @@ export const reviewsSchema = z.object({
     .max(30, 'At most 30 reviews')
 });
 
+export const trainingSchema = z.object({
+  items: z
+    .array(z.object({ title: text(80, 1), description: text(300), url: httpsUrl.refine((v) => v !== '', 'Add a link starting with https://') }))
+    .max(50, 'At most 50 lessons')
+});
+
 export const contactSchema = z.object({
   phone,
   whatsapp: phone,
@@ -44,7 +50,8 @@ export const SETTING_SCHEMAS = {
   milestones: milestonesSchema,
   team: teamSchema,
   reviews: reviewsSchema,
-  contact: contactSchema
+  contact: contactSchema,
+  training: trainingSchema
 } as const;
 
 export type SettingName = keyof typeof SETTING_SCHEMAS;

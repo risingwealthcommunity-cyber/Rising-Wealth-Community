@@ -1530,6 +1530,121 @@ test('LEADERSHIP BONUS (brief example): 8 points = target 1 done; 16 more member
   assert.equal(rupees(paid), 600 + 1200);
 });
 
+// ---------------------------------------------------------------- DASHBOARD, LEADERBOARD, TRAINING
+
+test('DASHBOARD: totals, charts and the income breakdown all agree with the ledger and the wallet', async () => {
+  const top = await paidMember('RWCROOT', 'LEFT', 'db_top');
+  await signup(top.left, 'LEFT', 'db_l1');
+  await signup(top.right, 'LEFT', 'db_r1');
+  await signup(top.left, 'LEFT', 'db_l2');
+  await signup(top.right, 'LEFT', 'db_r2'); // completes 2:2 => Rs 750
+  const buyer = await signup(top.left, 'LEFT', 'db_buyer');
+  await buy(buyer.c, 'ELITE'); // direct + passive income for db_top
+
+  const r = await top.c.call('GET', '/api/dashboard/summary');
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const d = r.json.data;
+  const bal = await balance(top.c);
+
+  assert.equal(d.profile.package, 'PRO');
+  assert.match(d.profile.leftCode, /^RWCL/);
+  assert.equal(d.stats.total, bal, 'total income equals the wallet (nothing was withdrawn)');
+  assert.equal(d.stats.wallet, bal);
+  assert.equal(rupees(d.breakdown.reduce((s: number, b: any) => s + b.amount, 0)), d.stats.total, 'breakdown adds up to the total');
+  assert.ok(d.breakdown.some((b: any) => b.type === 'TEAM_PERFORMANCE_BONUS' && b.amount === 750));
+  assert.ok(d.breakdown.every((b: any) => b.type !== 'COMPANY_FUND' && b.amount > 0));
+  assert.deepEqual(d.breakdown.map((b: any) => b.amount), [...d.breakdown.map((b: any) => b.amount)].sort((a: number, b: number) => b - a));
+
+  // everything was earned just now: today = 7 days = 30 days = total
+  assert.equal(d.stats.today, d.stats.total);
+  assert.equal(d.stats.last7, d.stats.total);
+  assert.equal(d.stats.last30, d.stats.total);
+  const sumOf = (rows: any[]) => rupees(rows.reduce((s, x) => s + x.amount, 0));
+  assert.equal(sumOf(d.chart.today), d.stats.today);
+  assert.equal(sumOf(d.chart.week), d.stats.last7);
+  assert.equal(sumOf(d.chart.month), d.stats.last30);
+  assert.deepEqual([d.chart.today.length, d.chart.week.length, d.chart.month.length], [8, 7, 6]);
+  assert.equal(d.stats.team, 5, 'all five members hang under db_top in the binary tree');
+  assert.ok(d.stats.passive >= 0);
+});
+
+test('DASHBOARD: older income lands in the 30-day figures but not in today or the last 7 days', async () => {
+  const m = await signup('RWCROOT', 'RIGHT', 'db_old');
+  const row = await rowOf('db_old@test.com');
+  const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
+  await prisma.ledgerEntry.createMany({
+    data: [
+      { userId: row.id, type: 'DEMAT_DIRECT', amount: 100, createdAt: daysAgo(3) },
+      { userId: row.id, type: 'DEMAT_DIRECT', amount: 1000, createdAt: daysAgo(20) },
+      { userId: row.id, type: 'DEMAT_DIRECT', amount: 10000, createdAt: daysAgo(60) } // outside 30 days
+    ]
+  });
+  await prisma.user.update({ where: { id: row.id }, data: { walletBalance: 11100 } }); // keep wallet = ledger
+  const d = (await m.c.call('GET', '/api/dashboard/summary')).json.data;
+  assert.equal(d.stats.today, 0);
+  assert.equal(d.stats.last7, 100);
+  assert.equal(d.stats.last30, 1100);
+  assert.equal(d.stats.total, 11100);
+  assert.equal(d.chart.month.reduce((s: number, x: any) => s + x.amount, 0), 1100);
+});
+
+test('DASHBOARD: only signed-in members can see it', async () => {
+  assert.equal((await new Client().call('GET', '/api/dashboard/summary')).status, 401);
+  assert.equal((await new Client().call('GET', '/api/dashboard/leaderboard')).status, 401);
+  assert.equal((await new Client().call('GET', '/api/site/training')).status, 401);
+});
+
+test('LEADERBOARD: ranked by direct referrals, shows only a short name, and never leaks ids, emails or money', async () => {
+  const star = await signup('RWCROOT', 'LEFT', 'lbstar');
+  const row = await rowOf('lbstar@test.com');
+  await prisma.user.update({ where: { id: row.id }, data: { name: 'Priya Kumari Sharma' } });
+  for (let i = 0; i < 4; i++) await signup(i % 2 ? row.leftCode! : row.rightCode!, 'LEFT', `lbstar_f${i}`);
+
+  const r = await star.c.call('GET', '/api/dashboard/leaderboard');
+  assert.equal(r.status, 200);
+  const items = r.json.data.items as any[];
+  assert.ok(items.length >= 1 && items.length <= 20);
+  const counts = items.map((i) => i.directs);
+  assert.deepEqual(counts, [...counts].sort((a, b) => b - a), 'sorted by directs, high to low');
+  const me = items.find((i) => i.me);
+  assert.ok(me, 'the caller is flagged');
+  assert.equal(me.name, 'Priya S.');
+  assert.equal(me.directs, 4);
+  for (const it of items) assert.deepEqual(Object.keys(it).sort(), ['directs', 'me', 'name', 'package', 'position', 'rank']);
+  assert.ok(!JSON.stringify(r.json).includes('@'), 'no email addresses');
+});
+
+test('TRAINING: members read lessons, only admins write them, and only https links are accepted', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'tr_reader');
+  const lesson = { title: 'Welcome to RWC', description: 'Start here', url: 'https://example.com/welcome' };
+
+  assert.equal((await m.c.call('PUT', '/api/site/content/training', { items: [lesson] })).status, 403);
+  assert.equal((await admin.call('PUT', '/api/site/content/training', { items: [{ ...lesson, url: 'http://example.com/x' }] })).status, 400);
+  assert.equal((await admin.call('PUT', '/api/site/content/training', { items: [{ ...lesson, url: 'javascript:alert(1)' }] })).status, 400);
+  assert.equal((await admin.call('PUT', '/api/site/content/training', { items: [{ ...lesson, url: '' }] })).status, 400);
+  assert.equal((await admin.call('PUT', '/api/site/content/training', { items: [{ ...lesson, title: '' }] })).status, 400);
+
+  assert.equal((await admin.call('PUT', '/api/site/content/training', { items: [lesson] })).status, 200);
+  const got = await m.c.call('GET', '/api/site/training');
+  assert.equal(got.status, 200);
+  assert.deepEqual(got.json.data.items, [lesson]);
+
+  // not part of the public home page content
+  const pub = await new Client().call('GET', '/api/site/content');
+  assert.equal(JSON.stringify(pub.json).includes('Welcome to RWC'), false);
+});
+
+test('WALLET: transactions can be filtered by income type, and a bogus type is ignored', async () => {
+  const c = new Client();
+  assert.equal((await c.call('POST', '/api/auth/login', { email: 'db_top@test.com', password: 'Password123' })).status, 200);
+  const all = (await c.call('GET', '/api/wallet/transactions')).json.data;
+  const only = (await c.call('GET', '/api/wallet/transactions?type=TEAM_PERFORMANCE_BONUS')).json.data;
+  assert.ok(only.total === 1 && only.total < all.total);
+  assert.ok(only.items.every((e: any) => e.type === 'TEAM_PERFORMANCE_BONUS'));
+  const bogus = (await c.call('GET', '/api/wallet/transactions?type=x%27%20OR%201=1')).json.data;
+  assert.equal(bogus.total, all.total);
+});
+
 // ---------------------------------------------------------------- INTEGRITY
 
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {

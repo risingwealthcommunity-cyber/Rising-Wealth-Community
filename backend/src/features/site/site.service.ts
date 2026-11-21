@@ -90,6 +90,10 @@ export const siteService = {
 
       const keep = items.map((i) => `${prefix}-${i.id}`);
       await prisma.siteAsset.deleteMany({ where: { key: { startsWith: `${prefix}-`, notIn: keep } } });
+    } else if (name === 'training') {
+      value = (body.items ?? []) as unknown as Prisma.InputJsonValue;
+      await prisma.siteSetting.upsert({ where: { key: name }, create: { key: name, value }, update: { value } });
+      return { items: value };
     } else if (name === 'milestones') {
       const items = body.items ?? [];
       value = items as unknown as Prisma.InputJsonValue;
@@ -101,6 +105,11 @@ export const siteService = {
       await prisma.siteSetting.upsert({ where: { key: name }, create: { key: name, value }, update: { value } });
     }
     return this.getContent();
+  },
+
+  /** Training lessons are for signed-in members only, so they are not part of the public home page content. */
+  async getTraining() {
+    return (await readSetting<unknown[]>('training')) ?? [];
   },
 
   async get(key: string) {

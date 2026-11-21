@@ -30,6 +30,10 @@ router.put(
   }
 );
 
+router.get('/training', requireAuth, async (_req: Request, res: Response) => {
+  res.json({ success: true, data: { items: await siteService.getTraining() } });
+});
+
 router.get('/assets/:key', async (req: Request, res: Response) => {
   const row = await siteService.get(parseKey(req.params.key));
   const etag = `W/"${row.updatedAt.getTime()}"`;
