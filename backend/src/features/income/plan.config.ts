@@ -40,6 +40,12 @@ export const DEMAT_PASSIVE_PCT = [5, 3, 2, 2, 1] as const;
 export const WEEKLY_SALES_PER_SHARE = 3;
 export const WEEKLY_MAX_SHARES_PER_PACKAGE = 2;
 export const WEEKLY_SHARE_WEIGHT: Record<PaidPackage, number> = { PRO: 1, ELITE: 2 };
+/**
+ * The plan's "Min" amounts: 3 PRO = Rs 375, 6 PRO = Rs 750, 3 ELITE = Rs 750, 6 ELITE = Rs 1,500, which is Rs 375 per
+ * weight-1 share (an ELITE share weighs 2). If the pool is too small to pay that, the company fund tops it up.
+ * Set to 0 to make the weekly bonus purely pool-based again.
+ */
+export const WEEKLY_MIN_PER_SHARE_PAISE = 375_00;
 
 export interface RankDef {
   rank: Exclude<Rank, 'NONE'>;

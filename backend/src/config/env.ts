@@ -41,6 +41,8 @@ export const config = {
   /** Local convenience only: the fixed admin code 123456. Needs NODE_ENV=development AND this flag. */
   allowDevMasterOtp: process.env.ALLOW_DEV_MASTER_OTP === 'true',
   port: Number(process.env.PORT ?? 5000),
+  /** Close the weekly payout window by itself every Monday (IST). On by default in production, opt-in elsewhere. */
+  autoWeeklyPayout: process.env.AUTO_WEEKLY_PAYOUT ? process.env.AUTO_WEEKLY_PAYOUT === 'true' : nodeEnv === 'production',
   databaseUrl: required('DATABASE_URL'),
   frontendUrl,
   jwt: {

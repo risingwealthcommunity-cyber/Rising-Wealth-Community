@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
+import type { Rank } from '@prisma/client';
 import { prisma } from '../../config/database';
+import { AppError } from '../../shared/errors/AppError';
 import { requireAuth } from '../auth';
 import { PASSIVE_LEVELS_UNLOCKED, PASSIVE_PCT, RANKS, TEAM_TARGETS } from '../income/plan.config';
 import { leadershipTargets } from '../income/income.engine';
@@ -229,6 +231,62 @@ router.get('/tree', requireAuth, async (req: Request, res: Response) => {
       counts: { left, right, total: left + right }
     }
   });
+});
+
+const RANK_KEYS = RANKS.map((r) => r.rank) as string[];
+
+/** Every rank: what it needs, its one-time reward, the perk the admin set, and where this member stands. */
+router.get('/ranks', requireAuth, async (req: Request, res: Response) => {
+  const userId = req.user!.id;
+  const [me, perkRow, claims] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { rank: true } }),
+    prisma.siteSetting.findUnique({ where: { key: 'rankPerks' } }),
+    prisma.perkClaim.findMany({ where: { userId }, select: { rank: true, status: true, note: true } })
+  ]);
+  const perks = ((perkRow?.value as { items?: { rank: string; title: string; description: string }[] } | null)?.items ?? []);
+  const mine = me.rank === 'NONE' ? -1 : RANK_KEYS.indexOf(me.rank);
+
+  res.json({
+    success: true,
+    data: {
+      rank: me.rank,
+      items: RANKS.map((r, i) => {
+        const perk = perks.find((p) => p.rank === r.rank);
+        const claim = claims.find((c) => c.rank === r.rank);
+        return {
+          rank: r.rank,
+          points: r.points,
+          reward: r.reward,
+          status: i <= mine ? 'ACHIEVED' : i === mine + 1 ? 'NEXT' : 'LOCKED',
+          perk: perk ? { title: perk.title, description: perk.description } : null,
+          claim: claim ? { status: claim.status, note: claim.note } : null
+        };
+      })
+    }
+  });
+});
+
+/** Ask for the perk of a rank you have reached. One claim per rank; an admin approves it. */
+router.post('/perks/:rank/claim', requireAuth, async (req: Request, res: Response) => {
+  const rank = String(req.params.rank);
+  const userId = req.user!.id;
+  if (!RANK_KEYS.includes(rank)) throw new AppError('Unknown rank', 404);
+
+  const me = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { rank: true } });
+  const reached = me.rank !== 'NONE' && RANK_KEYS.indexOf(me.rank) >= RANK_KEYS.indexOf(rank);
+  if (!reached) throw new AppError('You have not reached this rank yet.', 403);
+
+  const perkRow = await prisma.siteSetting.findUnique({ where: { key: 'rankPerks' } });
+  const perks = (perkRow?.value as { items?: { rank: string }[] } | null)?.items ?? [];
+  if (!perks.some((p) => p.rank === rank)) throw new AppError('There is no perk set for this rank yet.', 404);
+
+  try {
+    await prisma.perkClaim.create({ data: { userId, rank: rank as Rank } });
+  } catch (err) {
+    if ((err as { code?: string }).code === 'P2002') throw new AppError('You already asked for this perk.', 409);
+    throw err;
+  }
+  res.status(201).json({ success: true, message: 'Claim sent. The team will contact you.' });
 });
 
 export default router;

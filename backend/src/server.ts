@@ -2,6 +2,7 @@ import http from 'node:http';
 import app from './app';
 import { config } from './config/env';
 import { prisma } from './config/database';
+import { startPayoutScheduler } from './features/income/payout.scheduler';
 
 let server: http.Server | undefined;
 
@@ -12,6 +13,10 @@ const start = async () => {
     server = app.listen(config.port, () => {
       console.log(`Server running on port ${config.port} (${config.nodeEnv})`);
     });
+    if (config.autoWeeklyPayout) {
+      startPayoutScheduler();
+      console.log('Automatic weekly payout is on (Mondays, IST)');
+    }
   } catch (error) {
     console.error('Failed to start server:', error);
     await prisma.$disconnect().catch(() => undefined);

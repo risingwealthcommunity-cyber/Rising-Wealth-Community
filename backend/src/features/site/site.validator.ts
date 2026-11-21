@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RANKS } from '../income/plan.config';
 
 const text = (max: number, min = 0) => z.string().trim().min(min).max(max);
 
@@ -49,6 +50,18 @@ export const paymentSchema = z.object({
   note: text(300)
 });
 
+export const rankPerksSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        rank: z.string().refine((v) => RANKS.some((r) => r.rank === v), 'Unknown rank'),
+        title: text(80, 1),
+        description: text(300)
+      })
+    )
+    .max(RANKS.length, 'One perk per rank')
+});
+
 export const contactSchema = z.object({
   phone,
   whatsapp: phone,
@@ -66,7 +79,8 @@ export const SETTING_SCHEMAS = {
   reviews: reviewsSchema,
   contact: contactSchema,
   training: trainingSchema,
-  payment: paymentSchema
+  payment: paymentSchema,
+  rankPerks: rankPerksSchema
 } as const;
 
 export type SettingName = keyof typeof SETTING_SCHEMAS;

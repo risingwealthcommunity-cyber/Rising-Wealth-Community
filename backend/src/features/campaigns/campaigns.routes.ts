@@ -4,7 +4,7 @@ import { prisma } from '../../config/database';
 import { AppError } from '../../shared/errors/AppError';
 import { validateBody } from '../../shared/middleware/validate.middleware';
 import { requireAuth, requireRole } from '../auth';
-import { paiseToDecimal } from '../income/income.service';
+import { distributeDematReferral, paiseToDecimal } from '../income/income.service';
 import { readProof } from '../../shared/proof';
 
 /** Members: see the campaigns, send proof reports and watch them get approved. */
@@ -40,7 +40,7 @@ campaignRoutes.get('/stats', requireAuth, async (req: Request, res: Response) =>
   const [total, approved, earned] = await Promise.all([
     prisma.campaignReport.count({ where: { userId } }),
     prisma.campaignReport.count({ where: { userId, status: 'APPROVED' } }),
-    prisma.ledgerEntry.aggregate({ where: { userId, type: 'CAMPAIGN_REWARD' }, _sum: { amount: true } })
+    prisma.ledgerEntry.aggregate({ where: { userId, type: { in: ['CAMPAIGN_REWARD', 'DEMAT_DIRECT'] } }, _sum: { amount: true } })
   ]);
   res.json({ success: true, data: { total, approved, earnings: Number(earned._sum.amount ?? 0) } });
 });
@@ -150,12 +150,14 @@ const campaignSchema = z.object({
   url: https.refine((v) => v !== '', 'Add the link members will share'),
   videoUrl: https.default(''),
   needsProof: z.boolean().default(true),
+  isDemat: z.boolean().default(false),
   isActive: z.boolean().default(true)
 });
 
-const adminCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; isActive: boolean }) => ({
+const adminCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; isActive: boolean; isDemat: boolean }) => ({
   ...publicCampaign(c),
-  isActive: c.isActive
+  isActive: c.isActive,
+  isDemat: c.isDemat
 });
 
 campaignAdminRoutes.get('/campaigns', async (_req: Request, res: Response) => {
@@ -217,8 +219,22 @@ campaignAdminRoutes.post('/reports/:id/approve', async (req: Request, res: Respo
     if (claimed.count !== 1) throw new AppError('Report already processed', 409);
 
     if (r.campaign.reward.gt(0)) {
-      await tx.ledgerEntry.create({ data: { userId: r.userId, type: 'CAMPAIGN_REWARD', amount: r.campaign.reward, note: `Campaign: ${r.campaign.title}` } });
-      await tx.user.update({ where: { id: r.userId }, data: { walletBalance: { increment: r.campaign.reward } } });
+      if (r.campaign.isDemat) {
+        // a Demat account opening: the member gets the Demat direct income and 5 sponsor levels earn their passive share
+        const referrer = await tx.user.findUniqueOrThrow({ where: { id: r.userId }, select: { sponsorId: true } });
+        await tx.dematReferral.create({
+          data: { referrerId: r.userId, clientName: r.holderName, directAmount: r.campaign.reward, note: `Campaign: ${r.campaign.title}`, createdBy: req.user!.id }
+        });
+        await distributeDematReferral(tx, {
+          referrerId: r.userId,
+          sponsorId: referrer.sponsorId,
+          directPaise: Math.round(Number(r.campaign.reward) * 100),
+          note: `Demat: ${r.holderName}`
+        });
+      } else {
+        await tx.ledgerEntry.create({ data: { userId: r.userId, type: 'CAMPAIGN_REWARD', amount: r.campaign.reward, note: `Campaign: ${r.campaign.title}` } });
+        await tx.user.update({ where: { id: r.userId }, data: { walletBalance: { increment: r.campaign.reward } } });
+      }
     }
   });
   res.json({ success: true, message: 'Approved and the reward was added to the wallet.' });

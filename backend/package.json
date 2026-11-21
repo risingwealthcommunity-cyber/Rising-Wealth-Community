@@ -15,7 +15,7 @@
     "seed:site": "ts-node src/seed-site.ts",
     "seed:demo": "ts-node src/seed-demo.ts",
     "backfill:codes": "ts-node src/backfill-codes.ts",
-    "test": "node --require ts-node/register --test src/features/income/income.engine.test.ts",
+    "test": "node --require ts-node/register --test src/features/income/income.engine.test.ts src/features/income/payout.scheduler.test.ts",
     "test:integration": "node --require ts-node/register --test --test-force-exit --test-concurrency=1 src/test/plan.integration.test.ts"
   },
   "dependencies": {

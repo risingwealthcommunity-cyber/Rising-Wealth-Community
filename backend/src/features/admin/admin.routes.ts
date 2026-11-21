@@ -153,6 +153,26 @@ router.post('/fund-requests/:id/reject', async (req: Request, res: Response) => 
   res.json({ success: true, message: 'Request rejected' });
 });
 
+router.get('/perk-claims', async (req: Request, res: Response) => {
+  const items = await prisma.perkClaim.findMany({
+    where: { status: statusOf(req.query.status) },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+    select: { id: true, rank: true, status: true, note: true, createdAt: true, user: who }
+  });
+  res.json({ success: true, data: { items } });
+});
+router.post('/perk-claims/:id/approve', async (req: Request, res: Response) => {
+  const done = await prisma.perkClaim.updateMany({ where: { id: String(req.params.id), status: 'PENDING' }, data: { status: 'APPROVED', processedAt: new Date(), processedBy: req.user!.id } });
+  if (done.count !== 1) throw new AppError('Claim not found or already processed', 409);
+  res.json({ success: true, message: 'Marked as approved' });
+});
+router.post('/perk-claims/:id/reject', async (req: Request, res: Response) => {
+  const done = await prisma.perkClaim.updateMany({ where: { id: String(req.params.id), status: 'PENDING' }, data: { status: 'REJECTED', processedAt: new Date(), processedBy: req.user!.id, note: noteOf(req.body) || null } });
+  if (done.count !== 1) throw new AppError('Claim not found or already processed', 409);
+  res.json({ success: true, message: 'Claim rejected' });
+});
+
 router.get('/withdrawals', async (req: Request, res: Response) => {
   const items = await prisma.withdrawalRequest.findMany({ where: { status: statusOf(req.query.status) }, orderBy: { createdAt: 'desc' }, take: 200, include: { user: who } });
   const withBank = await Promise.all(items.map(async (r) => ({ ...r, amount: r.amount.toFixed(2), bank: await walletService.bankForAdmin(r.userId) })));

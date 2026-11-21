@@ -7,12 +7,13 @@ import {
   performanceWeight,
   pctOf,
   splitPool,
+  splitWeeklyPool,
   weeklyShares,
   type CompanyEntry,
   type Payout,
   type UplineMember
 } from './income.engine';
-import { PACKAGE_HALF_POINTS, POOL_PCT, type PaidPackage } from './plan.config';
+import { PACKAGE_HALF_POINTS, POOL_PCT, WEEKLY_MIN_PER_SHARE_PAISE, type PaidPackage } from './plan.config';
 
 type Tx = Prisma.TransactionClient;
 
@@ -176,6 +177,8 @@ export async function distributeDematReferral(
  * Nothing is ever paid beyond a pool; anything unclaimed stays with the company.
  */
 export async function closePayoutPeriod(tx: Tx, adminId: string) {
+  // the same lock the weekly scheduler takes: a window can only be closed once
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(7301002)`;
   const last = await tx.payoutPeriod.findFirst({ orderBy: { endsAt: 'desc' } });
   const startsAt = last?.endsAt ?? new Date(0);
   const endsAt = new Date();
@@ -255,7 +258,19 @@ export async function closePayoutPeriod(tx: Tx, adminId: string) {
     return pool - unclaimed;
   };
 
-  const weeklyPaid = await pay('WEEKLY_BONUS', weeklyPool, weeklyWeights, 'WEEKLY_POOL');
+  // Weekly bonus: the pool, but never less than the plan's minimum per share (the company fund covers any gap)
+  const weekly = splitWeeklyPool(weeklyPool, weeklyWeights, WEEKLY_MIN_PER_SHARE_PAISE);
+  await postLedger(tx, {
+    payouts: weekly.payouts.map((p) => ({ userId: p.id, type: 'WEEKLY_BONUS' as const, paise: p.paise })),
+    company: [{ reason: 'WEEKLY_POOL_UNCLAIMED', paise: weekly.unclaimed }],
+    periodId: period.id
+  });
+  if (weekly.topUp > 0) {
+    await tx.ledgerEntry.create({
+      data: { userId: null, type: 'COMPANY_FUND', amount: paiseToDecimal(-weekly.topUp), periodId: period.id, note: 'WEEKLY_MIN_TOPUP' }
+    });
+  }
+  const weeklyPaid = weekly.payouts.reduce((sum, p) => sum + p.paise, 0);
   const performancePaid = await pay('PERFORMANCE_BONUS', performancePool, perfWeights, 'PERFORMANCE_POOL');
   const leadershipPaid = await pay('LEADERSHIP_BONUS', leadershipPool, matched, 'LEADERSHIP_POOL');
 

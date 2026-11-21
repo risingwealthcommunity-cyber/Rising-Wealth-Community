@@ -2184,6 +2184,134 @@ test('PAYMENT: the admin sets the QR and UPI details, and every payment must com
   assert.equal((await other.c.call('POST', '/api/packages/purchase', { package: 'PRO', reference: 'utr-pay-pkg', fileName: 'p.png', fileData: PNG.toString('base64') })).status, 409);
 });
 
+// ---------------------------------------------------------------- DEMAT CAMPAIGNS, AUTO PAYOUT, RANK PERKS, LIVE TRAININGS
+
+test('DEMAT CAMPAIGN: approving a report runs the Demat plan: direct income for the member, passive for 5 sponsor levels', async () => {
+  const top = await paidMember('RWCROOT', 'LEFT', 'mny_dm_top');
+  const mid = await signup(top.left, 'LEFT', 'mny_dm_mid'); // Trainee, sponsored by top
+  const midRow = await rowOf(mid.email);
+  const leaf = await signup(midRow.leftCode!, 'LEFT', 'mny_dm_leaf'); // Trainee, sponsored by mid
+
+  const camp = (await admin.call('POST', '/api/admin/campaigns', { title: 'Demat opening', description: '', reward: 1000, url: 'https://example.com/d', videoUrl: '', needsProof: true, isDemat: true, isActive: true })).json.data;
+  assert.equal(camp.isDemat, true);
+  const sent = await leaf.c.call('POST', '/api/campaigns/reports', { campaignId: camp.id, holderName: 'Asha Verma', mobile: '9111111111', fileName: 'p.png', fileData: REPORT_PNG });
+  assert.equal(sent.status, 201, JSON.stringify(sent.json));
+
+  const w = async (c: Client) => rupees((await walletOf(c)).balance);
+  const [leaf0, mid0, top0] = [await w(leaf.c), await w(mid.c), await w(top.c)];
+  assert.equal((await admin.call('POST', `/api/admin/reports/${sent.json.data.id}/approve`)).status, 200);
+
+  assert.equal((await w(leaf.c)) - leaf0, 1000, 'the member gets the Demat direct income');
+  assert.equal((await w(mid.c)) - mid0, 50, 'sponsor level 1 earns 5% (even as a Trainee)');
+  assert.equal((await w(top.c)) - top0, 30, 'sponsor level 2 earns 3%');
+  const types = ((await leaf.c.call('GET', '/api/wallet/transactions')).json.data.items as any[]).map((e) => e.type);
+  assert.ok(types.includes('DEMAT_DIRECT') && !types.includes('CAMPAIGN_REWARD'));
+  const midTypes = ((await mid.c.call('GET', '/api/wallet/transactions')).json.data.items as any[]).map((e) => e.type);
+  assert.ok(midTypes.includes('DEMAT_PASSIVE'));
+  assert.equal(await prisma.dematReferral.count({ where: { clientName: 'Asha Verma' } }), 1, 'recorded like an admin-entered Demat referral');
+  assert.equal((await leaf.c.call('GET', '/api/campaigns/stats')).json.data.earnings, 1000);
+});
+
+test('AUTO PAYOUT: the weekly window closes by itself once a new IST week has started, and only once', async () => {
+  const { closePayoutIfDue } = await import('../features/income/payout.scheduler');
+  const top = await paidMember('RWCROOT', 'RIGHT', 'mny_ap_top');
+  for (const n of ['mny_ap_a', 'mny_ap_b', 'mny_ap_c']) {
+    const m = await signup(top.left, 'LEFT', n);
+    await buy(m.c, 'PRO'); // 3 PRO direct sales for top => one weekly share
+  }
+  const before = await prisma.payoutPeriod.count();
+  const nextWeek = new Date(Date.now() + 8 * 86_400_000);
+
+  assert.equal(await closePayoutIfDue(new Date(Date.now() - 86_400_000 * 400)), false, 'not due while the last period is from this week or later');
+  const racing = await Promise.all([closePayoutIfDue(nextWeek), closePayoutIfDue(nextWeek), closePayoutIfDue(nextWeek)]);
+  assert.equal(racing.filter(Boolean).length, 1, 'three servers waking up together close it exactly once');
+  assert.equal(await prisma.payoutPeriod.count(), before + 1);
+  assert.equal(await closePayoutIfDue(nextWeek), false, 'nothing new sold since');
+
+  const period = await prisma.payoutPeriod.findFirstOrThrow({ orderBy: { endsAt: 'desc' } });
+  assert.equal(period.closedBy, 'system');
+  const weekly = ((await top.c.call('GET', '/api/wallet/transactions')).json.data.items as any[]).filter((e) => e.type === 'WEEKLY_BONUS');
+  assert.equal(weekly.length, 1);
+  assert.ok(Number(weekly[0].amount) >= 375, 'at least the plan minimum for one PRO share');
+});
+
+test('RANK PERKS: the admin sets a perk per rank, members who reached it can claim once, an admin approves', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_pk_one');
+  const row = await rowOf(m.email);
+
+  assert.equal((await m.c.call('PUT', '/api/site/content/rankPerks', { items: [] })).status, 403);
+  assert.equal((await admin.call('PUT', '/api/site/content/rankPerks', { items: [{ rank: 'KING', title: 'Bike', description: '' }] })).status, 400, 'unknown rank');
+  const perks = [
+    { rank: 'SILVER', title: 'Gift hamper', description: 'Delivered to your address' },
+    { rank: 'GOLD', title: 'Goa trip', description: 'Up to Rs 25,000 value' }
+  ];
+  assert.equal((await admin.call('PUT', '/api/site/content/rankPerks', { items: perks })).status, 200);
+
+  const list = (await m.c.call('GET', '/api/team/ranks')).json.data;
+  assert.equal(list.items.length, 16);
+  assert.deepEqual(list.items.slice(0, 3).map((r: any) => [r.rank, r.status, r.reward]), [['SILVER', 'NEXT', 750], ['GOLD', 'LOCKED', 1500], ['PLATINUM', 'LOCKED', 3000]]);
+  assert.equal(list.items[0].perk.title, 'Gift hamper');
+  assert.equal(list.items[2].perk, null);
+
+  assert.equal((await m.c.call('POST', '/api/team/perks/SILVER/claim')).status, 403, 'rank not reached');
+  await prisma.user.update({ where: { id: row.id }, data: { rank: 'SILVER' } });
+  assert.equal((await m.c.call('POST', '/api/team/perks/GOLD/claim')).status, 403, 'a higher rank is still locked');
+  assert.equal((await m.c.call('POST', '/api/team/perks/PLATINUM/claim')).status, 403);
+  assert.equal((await m.c.call('POST', '/api/team/perks/NOPE/claim')).status, 404);
+  assert.equal((await m.c.call('POST', '/api/team/perks/SILVER/claim')).status, 201);
+  assert.equal((await m.c.call('POST', '/api/team/perks/SILVER/claim')).status, 409, 'once per rank');
+  const after = (await m.c.call('GET', '/api/team/ranks')).json.data.items;
+  assert.deepEqual([after[0].status, after[0].claim.status, after[1].status], ['ACHIEVED', 'PENDING', 'NEXT']);
+
+  // a rank with no perk set cannot be claimed
+  await prisma.user.update({ where: { id: row.id }, data: { rank: 'PLATINUM' } });
+  assert.equal((await m.c.call('POST', '/api/team/perks/PLATINUM/claim')).status, 404);
+
+  const claim = ((await admin.call('GET', '/api/admin/perk-claims')).json.data.items as any[]).find((c) => c.user.email === m.email);
+  assert.ok(claim);
+  assert.equal((await m.c.call('POST', `/api/admin/perk-claims/${claim.id}/approve`)).status, 403);
+  assert.equal((await admin.call('POST', `/api/admin/perk-claims/${claim.id}/approve`)).status, 200);
+  assert.equal((await admin.call('POST', `/api/admin/perk-claims/${claim.id}/approve`)).status, 409);
+  assert.equal(((await m.c.call('GET', '/api/team/ranks')).json.data.items[0].claim.status), 'APPROVED');
+  await admin.call('PUT', '/api/site/content/rankPerks', { items: [] });
+});
+
+test('LIVE TRAININGS: members see the schedule, but the join link only comes with the right package', async () => {
+  const trainee = await signup('RWCROOT', 'LEFT', 'mny_lv_one');
+  const pro = await paidMember('RWCROOT', 'LEFT', 'mny_lv_pro');
+  const hours = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
+  const base = { description: 'Weekly session', link: 'https://meet.example.com/abc', minTier: 'TRAINEE', isActive: true };
+
+  assert.equal((await trainee.c.call('POST', '/api/admin/live', { ...base, title: 'Nope', startsAt: hours(2) })).status, 403);
+  assert.equal((await admin.call('POST', '/api/admin/live', { ...base, title: 'Bad link', startsAt: hours(2), link: 'http://x.com' })).status, 400);
+  assert.equal((await admin.call('POST', '/api/admin/live', { ...base, title: 'No date', startsAt: 'soon' })).status, 400);
+
+  const open = await admin.call('POST', '/api/admin/live', { ...base, title: 'Open class', startsAt: hours(5) });
+  const proOnly = await admin.call('POST', '/api/admin/live', { ...base, title: 'Pro masterclass', startsAt: hours(6), minTier: 'PRO', link: 'https://meet.example.com/pro-secret' });
+  await admin.call('POST', '/api/admin/live', { ...base, title: 'Long gone', startsAt: hours(-30) });
+  await admin.call('POST', '/api/admin/live', { ...base, title: 'Hidden', startsAt: hours(7), isActive: false });
+  assert.equal(open.status, 201);
+
+  const seen = (await trainee.c.call('GET', '/api/live')).json;
+  const titles = (seen.data.items as any[]).map((s) => s.title);
+  assert.ok(titles.includes('Open class') && titles.includes('Pro masterclass'));
+  assert.ok(!titles.includes('Long gone') && !titles.includes('Hidden'), 'old and switched-off sessions are not listed');
+  assert.equal(JSON.stringify(seen).includes('pro-secret'), false, 'the PRO link never reaches a trainee');
+  const row = (seen.data.items as any[]).find((s) => s.title === 'Open class');
+  assert.equal(row.unlocked, true);
+  assert.equal(row.link, 'https://meet.example.com/abc');
+  assert.equal((seen.data.items as any[]).find((s) => s.title === 'Pro masterclass').unlocked, false);
+
+  const proSees = ((await pro.c.call('GET', '/api/live')).json.data.items as any[]).find((s) => s.title === 'Pro masterclass');
+  assert.equal(proSees.link, 'https://meet.example.com/pro-secret');
+  assert.equal((await new Client().call('GET', '/api/live')).status, 401);
+  assert.equal(((await admin.call('GET', '/api/live')).json.data.items as any[]).every((s) => s.unlocked), true, 'admins see every link');
+
+  assert.equal((await admin.call('PUT', `/api/admin/live/${proOnly.json.data.id}`, { ...base, title: 'Pro masterclass v2', startsAt: hours(6), minTier: 'ELITE', link: 'https://meet.example.com/pro-secret' })).status, 200);
+  assert.equal(((await pro.c.call('GET', '/api/live')).json.data.items as any[]).find((s) => s.title === 'Pro masterclass v2').unlocked, false, 'raising the tier locks it again');
+  assert.equal((await admin.call('DELETE', `/api/admin/live/${proOnly.json.data.id}`)).status, 200);
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

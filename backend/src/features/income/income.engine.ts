@@ -129,6 +129,25 @@ export function weeklyShares(directSales: Record<PaidPackage, number>): number {
   return shares;
 }
 
+/**
+ * Weekly bonus split: everyone gets at least `minPerSharePaise` per share (the plan's minimum), otherwise an equal
+ * slice of the pool. `topUp` is what the company fund has to add when the pool alone could not pay the minimum.
+ */
+export function splitWeeklyPool(
+  poolPaise: number,
+  weights: { id: string; weight: number }[],
+  minPerSharePaise: number
+): { payouts: { id: string; paise: number }[]; unclaimed: number; topUp: number } {
+  const eligible = weights.filter((w) => w.weight > 0);
+  const total = eligible.reduce((sum, w) => sum + w.weight, 0);
+  if (total === 0) return { payouts: [], unclaimed: Math.max(poolPaise, 0), topUp: 0 };
+
+  const perShare = Math.max(Math.floor(Math.max(poolPaise, 0) / total), minPerSharePaise);
+  const payouts = eligible.map((w) => ({ id: w.id, paise: w.weight * perShare })).filter((p) => p.paise > 0);
+  const paid = payouts.reduce((sum, p) => sum + p.paise, 0);
+  return paid >= poolPaise ? { payouts, unclaimed: 0, topUp: paid - Math.max(poolPaise, 0) } : { payouts, unclaimed: poolPaise - paid, topUp: 0 };
+}
+
 /** Performance weight = half-points earned from direct sales (PRO 1, ELITE 2). */
 export function performanceWeight(directSales: Record<PaidPackage, number>): number {
   return directSales.PRO * 1 + directSales.ELITE * 2;

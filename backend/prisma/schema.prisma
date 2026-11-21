@@ -138,6 +138,7 @@ model User {
   withdrawals       WithdrawalRequest[]
   bankDetails       BankDetails?
   campaignReports   CampaignReport[]
+  perkClaims        PerkClaim[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -339,6 +340,8 @@ model Campaign {
   videoUrl    String
   /// true = a member submits a proof report that an admin approves before the reward is paid.
   needsProof  Boolean  @default(true)
+  /// true = a Demat account opening: approving a report runs the Demat referral plan (direct income + 5 passive levels).
+  isDemat     Boolean  @default(false)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 
@@ -366,4 +369,34 @@ model CampaignReport {
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([campaignId])
+}
+
+/// A member asking for the perk (bike, trip, ...) of a rank they have reached. One claim per rank.
+model PerkClaim {
+  id          String        @id @default(uuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  rank        Rank
+  status      RequestStatus @default(PENDING)
+  note        String?
+  createdAt   DateTime      @default(now())
+  processedAt DateTime?
+  processedBy String?
+
+  @@unique([userId, rank])
+  @@index([status, createdAt])
+}
+
+/// A live training: when it happens, the join link, and the lowest package that may join.
+model LiveSession {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  startsAt    DateTime
+  link        String
+  minTier     Package  @default(TRAINEE)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([startsAt])
 }
