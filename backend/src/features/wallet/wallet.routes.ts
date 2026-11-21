@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { LedgerType } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../../config/database';
+import { AppError } from '../../shared/errors/AppError';
 import { validateBody } from '../../shared/middleware/validate.middleware';
 import { strictAuthLimiter } from '../../shared/middleware/rateLimit.middleware';
 import { requireAuth } from '../auth';
@@ -117,11 +118,34 @@ router.post('/withdraw', requireAuth, strictAuthLimiter, validateBody(z.object({
 });
 
 router.get('/withdrawals', requireAuth, async (req: Request, res: Response) => {
-  const items = await prisma.withdrawalRequest.findMany({ where: { userId: req.user!.id }, orderBy: { createdAt: 'desc' }, take: 50 });
+  const items = await prisma.withdrawalRequest.findMany({
+    where: { userId: req.user!.id },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+    select: { id: true, amount: true, status: true, note: true, payoutRef: true, fileMime: true, createdAt: true, processedAt: true }
+  });
   res.json({
     success: true,
-    data: { items: items.map((r) => ({ id: r.id, amount: r.amount.toFixed(2), status: r.status, note: r.note, createdAt: r.createdAt, processedAt: r.processedAt })) }
+    data: {
+      items: items.map((r) => ({
+        id: r.id,
+        amount: r.amount.toFixed(2),
+        status: r.status,
+        note: r.note,
+        transactionId: r.payoutRef,
+        hasProof: Boolean(r.fileMime),
+        createdAt: r.createdAt,
+        processedAt: r.processedAt
+      }))
+    }
   });
+});
+
+/** The screenshot of the payment made for one of my withdrawals. Only I (and the admins) can see it. */
+router.get('/withdrawals/:id/proof', requireAuth, async (req: Request, res: Response) => {
+  const row = await prisma.withdrawalRequest.findFirst({ where: { id: String(req.params.id), userId: req.user!.id }, select: { fileData: true, fileMime: true } });
+  if (!row?.fileData || !row.fileMime) throw new AppError('No payment screenshot yet.', 404);
+  res.json({ success: true, data: { mime: row.fileMime, data: Buffer.from(row.fileData).toString('base64') } });
 });
 
 // ---------------------------------------------------------------- bank / UPI details

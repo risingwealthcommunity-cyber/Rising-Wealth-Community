@@ -182,12 +182,29 @@ export const walletService = {
     }, TX);
   },
 
-  /** An admin approves after paying the member: only now does the money leave the wallet. */
-  async approveWithdrawal(id: string, adminId: string) {
+  /**
+   * An admin approves after paying the member: only now does the money leave the wallet. The admin records the bank
+   * transaction ID and a screenshot of the payment, so there is proof of every payout (the member can see it too).
+   */
+  async approveWithdrawal(id: string, adminId: string, payout: { reference: string; file: { data: Buffer; mime: string; name: string } }) {
     const own = await prisma.withdrawalRequest.findUnique({ where: { id }, select: { userId: true } });
     if (own?.userId === adminId) throw new AppError('You cannot approve your own withdrawal. Ask another admin.', 403);
+    const reference = payout.reference.trim();
+    const reused = await prisma.withdrawalRequest.findFirst({ where: { payoutRef: { equals: reference, mode: 'insensitive' }, status: 'APPROVED' }, select: { id: true } });
+    if (reused) throw new AppError('That transaction ID was already used for another withdrawal.', 409);
     await prisma.$transaction(async (tx) => {
-      const claimed = await tx.withdrawalRequest.updateMany({ where: { id, status: 'PENDING' }, data: { status: 'APPROVED', processedAt: new Date(), processedBy: adminId } });
+      const claimed = await tx.withdrawalRequest.updateMany({
+        where: { id, status: 'PENDING' },
+        data: {
+          status: 'APPROVED',
+          processedAt: new Date(),
+          processedBy: adminId,
+          payoutRef: reference,
+          fileName: payout.file.name,
+          fileMime: payout.file.mime,
+          fileData: payout.file.data
+        }
+      });
       if (claimed.count !== 1) throw new AppError('Request not found or already processed', 409);
       const r = await tx.withdrawalRequest.findUniqueOrThrow({ where: { id } });
       const taken = await tx.user.updateMany({ where: { id: r.userId, walletBalance: { gte: r.amount } }, data: { walletBalance: { decrement: r.amount } } });

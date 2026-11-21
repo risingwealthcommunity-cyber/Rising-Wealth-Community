@@ -310,6 +310,11 @@ model WithdrawalRequest {
   amount      Decimal       @db.Decimal(14, 2)
   status      RequestStatus @default(PENDING)
   note        String?
+  /// Filled in by the admin who paid it: the bank transaction ID and a screenshot of the payment.
+  payoutRef   String?
+  fileName    String?
+  fileMime    String?
+  fileData    Bytes?
   createdAt   DateTime      @default(now())
   processedAt DateTime?
   processedBy String?

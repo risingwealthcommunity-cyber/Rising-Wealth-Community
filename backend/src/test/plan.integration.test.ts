@@ -1936,14 +1936,38 @@ test('WITHDRAWAL: needs bank details, reserves the amount, and the wallet is deb
 
   const listed = ((await admin.call('GET', '/api/admin/withdrawals')).json.data.items as any[]).find((x) => x.userId === (stored.userId));
   assert.equal(listed.bank.account, '123456789012', 'the admin sees where to pay');
-  assert.equal((await top.c.call('POST', `/api/admin/withdrawals/${listed.id}/approve`)).status, 403);
-  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${listed.id}/approve`)).status, 200);
-  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${listed.id}/approve`)).status, 409, 'once only');
+  assert.equal(listed.user.email, top.email, 'the admin sees who is asking');
+  assert.equal(listed.hasProof, false);
+  const paid = { reference: 'UTR-PAYOUT-1', fileName: 'paid.png', fileData: REPORT_PNG };
+  assert.equal((await top.c.call('POST', `/api/admin/withdrawals/${listed.id}/approve`, paid)).status, 403);
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${listed.id}/approve`)).status, 400, 'paying needs the transaction ID and a screenshot');
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${listed.id}/approve`, { reference: 'UTR-PAYOUT-1', fileName: 'x', fileData: Buffer.from('<html>no</html>').toString('base64') })).status, 400, 'the screenshot must be a real image');
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${listed.id}/approve`, { reference: 'abc', fileName: 'x.png', fileData: REPORT_PNG })).status, 400, 'transaction ID too short');
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${listed.id}/approve`, paid)).status, 200);
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${listed.id}/approve`, { ...paid, reference: 'UTR-PAYOUT-2' })).status, 409, 'once only');
+
+  // the proof is recorded and visible to the admin and to the member, nobody else
+  const paidRow = ((await admin.call('GET', '/api/admin/withdrawals?status=APPROVED')).json.data.items as any[]).find((x) => x.id === listed.id);
+  assert.deepEqual([paidRow.payoutRef, paidRow.hasProof], ['UTR-PAYOUT-1', true]);
+  assert.equal(JSON.stringify(paidRow).includes('fileData'), false, 'the admin list never carries the picture');
+  assert.equal((await admin.call('GET', `/api/admin/withdrawals/${listed.id}/proof`)).json.data.mime, 'image/png');
+  assert.equal((await top.c.call('GET', `/api/admin/withdrawals/${listed.id}/proof`)).status, 403);
+  const mineAfter = ((await top.c.call('GET', '/api/wallet/withdrawals')).json.data.items as any[]).find((x) => x.id === listed.id);
+  assert.deepEqual([mineAfter.transactionId, mineAfter.hasProof], ['UTR-PAYOUT-1', true]);
+  assert.equal((await top.c.call('GET', `/api/wallet/withdrawals/${listed.id}/proof`)).json.data.mime, 'image/png');
+  const stranger = await signup('RWCROOT', 'RIGHT', 'mny_wd_stranger');
+  assert.equal((await stranger.c.call('GET', `/api/wallet/withdrawals/${listed.id}/proof`)).status, 404, 'not someone else\'s payout');
   const done = await walletOf(top.c);
   assert.equal(Number(done.balance), Number(w.balance) - 200);
   assert.equal(done.totalPaid, 200);
   assert.equal(done.pendingWithdrawals, 0);
   assert.equal(done.totalEarned, w.totalEarned, 'withdrawing is not negative income');
+
+  // one bank transaction ID cannot be used to mark two withdrawals paid
+  assert.equal((await ask(150)).status, 201);
+  const next = ((await admin.call('GET', '/api/admin/withdrawals')).json.data.items as any[]).find((x) => x.userId === stored.userId);
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${next.id}/approve`, { ...paid, reference: 'utr-payout-1' })).status, 409);
+  assert.equal((await admin.call('POST', `/api/admin/withdrawals/${next.id}/reject`)).status, 200);
 
   // a rejected request frees the reservation
   assert.equal((await ask(300)).status, 201);
@@ -1952,7 +1976,7 @@ test('WITHDRAWAL: needs bank details, reserves the amount, and the wallet is deb
   const freed = await walletOf(top.c);
   assert.equal(freed.pendingWithdrawals, 0);
   assert.equal(Number(freed.balance), Number(w.balance) - 200);
-  assert.deepEqual(((await top.c.call('GET', '/api/wallet/withdrawals')).json.data.items as any[]).map((x) => x.status).sort(), ['APPROVED', 'REJECTED']);
+  assert.deepEqual(((await top.c.call('GET', '/api/wallet/withdrawals')).json.data.items as any[]).map((x) => x.status).sort(), ['APPROVED', 'REJECTED', 'REJECTED']);
 });
 
 test('CAMPAIGNS: members send proof reports, admins approve, and the reward is paid to the wallet once', async () => {

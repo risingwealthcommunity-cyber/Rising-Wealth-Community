@@ -7,6 +7,7 @@ import { validateBody } from '../../shared/middleware/validate.middleware';
 import { requireAuth, requireRole } from '../auth';
 import { packagesService } from '../packages';
 import { walletService } from '../wallet/wallet.service';
+import { readProof } from '../../shared/proof';
 import { closePayoutPeriod, distributeDematReferral, paiseToDecimal } from '../income/income.service';
 
 const dematSchema = z.object({
@@ -174,13 +175,44 @@ router.post('/perk-claims/:id/reject', async (req: Request, res: Response) => {
 });
 
 router.get('/withdrawals', async (req: Request, res: Response) => {
-  const items = await prisma.withdrawalRequest.findMany({ where: { status: statusOf(req.query.status) }, orderBy: { createdAt: 'desc' }, take: 200, include: { user: who } });
-  const withBank = await Promise.all(items.map(async (r) => ({ ...r, amount: r.amount.toFixed(2), bank: await walletService.bankForAdmin(r.userId) })));
+  const items = await prisma.withdrawalRequest.findMany({
+    where: { status: statusOf(req.query.status) },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+    select: {
+      id: true, userId: true, amount: true, status: true, note: true, payoutRef: true, fileMime: true, createdAt: true, processedAt: true,
+      user: { select: { id: true, name: true, email: true, phone: true, city: true, referralCode: true, package: true, walletBalance: true } }
+    }
+  });
+  const withBank = await Promise.all(
+    items.map(async ({ fileMime, user, ...r }) => ({
+      ...r,
+      amount: r.amount.toFixed(2),
+      hasProof: Boolean(fileMime),
+      user: { ...user, walletBalance: user.walletBalance.toFixed(2) },
+      bank: await walletService.bankForAdmin(r.userId)
+    }))
+  );
   res.json({ success: true, data: { items: withBank } });
 });
-router.post('/withdrawals/:id/approve', async (req: Request, res: Response) => {
-  await walletService.approveWithdrawal(String(req.params.id), req.user!.id);
-  res.json({ success: true, message: 'Approved. The amount left the member wallet.' });
+
+/** The screenshot an admin attached when paying a withdrawal. */
+router.get('/withdrawals/:id/proof', async (req: Request, res: Response) => {
+  const row = await prisma.withdrawalRequest.findUnique({ where: { id: String(req.params.id) }, select: { fileData: true, fileMime: true } });
+  if (!row?.fileData || !row.fileMime) throw new AppError('No payment screenshot on this one.', 404);
+  res.json({ success: true, data: { mime: row.fileMime, data: Buffer.from(row.fileData).toString('base64') } });
+});
+
+const payoutSchema = z.object({
+  reference: z.string().trim().min(4, 'Enter the transaction ID of the payment').max(100),
+  fileName: z.string().trim().max(120),
+  fileData: z.string().min(20, 'Add the screenshot of the payment')
+});
+router.post('/withdrawals/:id/approve', validateBody(payoutSchema), async (req: Request, res: Response) => {
+  const body = req.body as z.infer<typeof payoutSchema>;
+  const file = { ...readProof(body.fileData), name: body.fileName };
+  await walletService.approveWithdrawal(String(req.params.id), req.user!.id, { reference: body.reference, file });
+  res.json({ success: true, message: 'Marked as paid. The amount left the member wallet.' });
 });
 router.post('/withdrawals/:id/reject', async (req: Request, res: Response) => {
   await walletService.rejectWithdrawal(String(req.params.id), req.user!.id, noteOf(req.body));

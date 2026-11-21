@@ -5,6 +5,7 @@ import { api } from '../../shared/api/apiClient';
 import { date, inr, label } from '../../shared/format';
 import { useRun } from '../../shared/useRun';
 import { openProof } from '../campaigns/ReportsPage';
+import AdminWithdrawals from './AdminWithdrawals';
 import { LiveEditor, RankPerksEditor } from './AdminPlanTabs';
 import { openProofAt } from '../../shared/openProof';
 
@@ -314,27 +315,7 @@ export default function AdminOpsPage() {
           )}
         />
       )}
-      {tab === 'withdrawals' && (
-        <Queue<WdReq>
-          path="/admin/withdrawals"
-          row={(r) => (
-            <>
-              {who(r.user)}
-              <small>
-                <b>{inr(r.amount)}</b>
-              </small>
-              {r.bank ? (
-                <small>
-                  {r.bank.bankName} · A/C {r.bank.account} · IFSC {r.bank.ifsc}
-                  {r.bank.upiId ? ` · UPI ${r.bank.upiId}` : ''}
-                </small>
-              ) : (
-                <small className="muted">No bank details</small>
-              )}
-            </>
-          )}
-        />
-      )}
+      {tab === 'withdrawals' && <AdminWithdrawals />}
       {tab === 'reports' && (
         <Queue<Rep>
           path="/admin/reports"

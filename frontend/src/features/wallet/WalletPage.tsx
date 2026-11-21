@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
 import { date, inr, label, typeLabel } from '../../shared/format';
+import { openProofAt } from '../../shared/openProof';
 import { useRef } from 'react';
 import PaymentBox from '../../shared/components/PaymentBox';
 import { compressImage } from '../../shared/compressImage';
@@ -38,6 +39,8 @@ interface Req {
   amount: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   reference?: string;
+  transactionId?: string | null;
+  hasProof?: boolean;
   note: string | null;
   createdAt: string;
 }
@@ -211,7 +214,18 @@ export default function WalletPage() {
                 <td>
                   <Status s={w.status} />
                 </td>
-                <td className="muted">{w.status === 'REJECTED' && w.note ? w.note : ''}</td>
+                <td className="muted">
+                  {w.status === 'REJECTED' && w.note ? w.note : ''}
+                  {w.status === 'APPROVED' && w.transactionId && <>Transaction ID: <b>{w.transactionId}</b></>}
+                  {w.status === 'APPROVED' && w.hasProof && (
+                    <>
+                      {' '}
+                      <button className="btn ghost" type="button" onClick={() => void openProofAt(`/wallet/withdrawals/${w.id}/proof`)}>
+                        Payment screenshot
+                      </button>
+                    </>
+                  )}
+                </td>
                 <td className="muted">{date(w.createdAt)}</td>
               </tr>
             ))}
