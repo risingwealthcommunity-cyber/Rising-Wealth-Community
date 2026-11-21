@@ -34,24 +34,31 @@ export const walletService = {
       where: { id: userId },
       select: { txnPasswordHash: true, txnLockedUntil: true }
     });
-    if (user.txnLockedUntil && user.txnLockedUntil > new Date()) {
-      throw new AppError('Too many wrong attempts. Try your transaction password again in a few minutes.', 429);
+    const now = new Date();
+    if (user.txnLockedUntil) {
+      if (user.txnLockedUntil > now) throw new AppError('Too many wrong attempts. Try your transaction password again in a few minutes.', 429);
+      // the lock has run out: start counting from zero again
+      await prisma.user.updateMany({ where: { id: userId, txnLockedUntil: { lte: now } }, data: { txnFailedAttempts: 0, txnLockedUntil: null } });
     }
     if (!user.txnPasswordHash) throw new AppError('Set a transaction password first (My profile > Security).', 400);
 
-    // every try is counted first (atomically); a correct password gives the try back
+    const lock = () => prisma.user.update({ where: { id: userId }, data: { txnLockedUntil: new Date(Date.now() + TXN_LOCK_MS) } });
+    const lockedError = () => new AppError('Too many wrong attempts. Your transaction password is locked for 15 minutes.', 429);
+
+    // Every try is counted first, atomically, and the counter stays above the limit while locked, so guesses sent in
+    // parallel cannot get extra tries. A correct password resets it.
     const tried = await prisma.user.update({ where: { id: userId }, data: { txnFailedAttempts: { increment: 1 } }, select: { txnFailedAttempts: true } });
     if (tried.txnFailedAttempts > MAX_TXN_ATTEMPTS) {
-      await prisma.user.update({ where: { id: userId }, data: { txnFailedAttempts: 0, txnLockedUntil: new Date(Date.now() + TXN_LOCK_MS) } });
-      throw new AppError('Too many wrong attempts. Your transaction password is locked for 15 minutes.', 429);
+      await lock();
+      throw lockedError();
     }
     if (typeof password === 'string' && (await bcrypt.compare(password, user.txnPasswordHash))) {
       await prisma.user.update({ where: { id: userId }, data: { txnFailedAttempts: 0, txnLockedUntil: null } });
       return;
     }
     if (tried.txnFailedAttempts >= MAX_TXN_ATTEMPTS) {
-      await prisma.user.update({ where: { id: userId }, data: { txnFailedAttempts: 0, txnLockedUntil: new Date(Date.now() + TXN_LOCK_MS) } });
-      throw new AppError('Too many wrong attempts. Your transaction password is locked for 15 minutes.', 429);
+      await lock();
+      throw lockedError();
     }
     throw new AppError('Wrong transaction password.', 401);
   },
