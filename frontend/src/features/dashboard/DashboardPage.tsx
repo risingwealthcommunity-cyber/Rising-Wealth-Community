@@ -120,7 +120,7 @@ function Donut({ rows, total }: { rows: Summary['breakdown']; total: number }) {
   return (
     <div className="donut">
       <svg viewBox="0 0 200 200" role="img" aria-label="Income breakdown">
-        <circle cx="100" cy="100" r={R} fill="none" stroke="#eee8d6" strokeWidth="22" />
+        <circle cx="100" cy="100" r={R} fill="none" stroke="#e1e5ea" strokeWidth="22" />
         {rows.map((r) => {
           const len = (r.amount / total) * C;
           const gap = rows.length > 1 ? 2.5 : 0;
