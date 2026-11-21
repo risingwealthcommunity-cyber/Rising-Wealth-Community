@@ -67,7 +67,7 @@ router.get('/overview', async (_req: Request, res: Response) => {
 /** Member list with search (name, email, phone or Affiliate ID). Never includes hashes or tokens. */
 router.get('/members', async (req: Request, res: Response) => {
   const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
-  const page = Math.max(1, Math.floor(Number(req.query.page)) || 1);
+  const page = Math.min(100_000, Math.max(1, Math.floor(Number(req.query.page)) || 1));
   const pageSize = 25;
   const where: Prisma.UserWhereInput = {
     role: 'USER',

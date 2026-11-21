@@ -1,7 +1,11 @@
+import type { Package } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { AppError } from '../../shared/errors/AppError';
 import { distributePackageSale, paiseToDecimal } from '../income/income.service';
 import { PACKAGE_PRICE_PAISE, PACKAGE_TIER, type PaidPackage } from '../income/plan.config';
+
+/** Packages a member may be on for an upgrade to the key to still be an upgrade. */
+const LOWER_THAN: Record<PaidPackage, Package[]> = { PRO: ['TRAINEE'], ELITE: ['TRAINEE', 'PRO'] };
 
 const TX_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
@@ -57,7 +61,8 @@ export const packagesService = {
         throw new AppError('User already has this package or higher', 409);
       }
 
-      await tx.user.update({ where: { id: buyer.id }, data: { package: pkg } });
+      const upgraded = await tx.user.updateMany({ where: { id: buyer.id, package: { in: LOWER_THAN[pkg] } }, data: { package: pkg } });
+      if (upgraded.count !== 1) throw new AppError('That member already has this package or higher.', 409);
 
       await distributePackageSale(tx, {
         purchaseId,
@@ -125,7 +130,8 @@ export const packagesService = {
           confirmedBy: payer.id
         }
       });
-      await tx.user.update({ where: { id: buyer.id }, data: { package: pkg } });
+      const upgraded = await tx.user.updateMany({ where: { id: buyer.id, package: { in: LOWER_THAN[pkg] } }, data: { package: pkg } });
+      if (upgraded.count !== 1) throw new AppError('That member already has this package or higher.', 409);
       await distributePackageSale(tx, { purchaseId: purchase.id, buyerId: buyer.id, sponsorId: fresh.sponsorId, package: pkg });
       return { purchaseId: purchase.id, memberName: buyer.name, package: pkg };
     }, TX_OPTIONS);

@@ -21,7 +21,7 @@ export const parseKey = (raw: unknown): string => {
 };
 
 export const parseSettingName = (raw: unknown): SettingName => {
-  if (typeof raw === 'string' && raw in SETTING_SCHEMAS) return raw as SettingName;
+  if (typeof raw === 'string' && Object.hasOwn(SETTING_SCHEMAS, raw)) return raw as SettingName;
   throw new AppError('Unknown content block', 404);
 };
 

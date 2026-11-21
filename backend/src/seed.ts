@@ -8,6 +8,9 @@ import { generateSponsorCodes } from './features/auth/auth.tokens';
 
 async function main() {
   const email = (process.env.ROOT_EMAIL ?? 'admin@rwc.local').toLowerCase();
+  if (process.env.NODE_ENV === 'production' && !process.env.ROOT_PASSWORD) {
+    throw new Error('Set ROOT_PASSWORD before seeding in production: the default password is public.');
+  }
   const password = process.env.ROOT_PASSWORD ?? 'Admin12345';
   const referralCode = process.env.ROOT_REFERRAL_CODE ?? 'RWCROOT';
 

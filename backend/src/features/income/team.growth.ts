@@ -17,8 +17,12 @@ const TEAM_GROWTH_LOCK = 7_301_001;
  * serialised with a transaction-level advisory lock, so two members joining at the same moment can never
  * pay a target twice or lose a count (row locks would deadlock: Postgres does not lock in ORDER BY order).
  */
-export async function awardTeamGrowth(tx: Tx, memberId: string): Promise<void> {
+export async function lockTeamGrowth(tx: Tx): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TEAM_GROWTH_LOCK})`;
+}
+
+export async function awardTeamGrowth(tx: Tx, memberId: string): Promise<void> {
+  await lockTeamGrowth(tx);
   const member = await tx.user.findUniqueOrThrow({ where: { id: memberId }, select: { sponsorId: true } });
 
   const ancestors = await tx.$queryRaw<{ id: string; leg: 'LEFT' | 'RIGHT' }[]>`

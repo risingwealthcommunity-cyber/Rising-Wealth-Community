@@ -1,5 +1,5 @@
 import { Prisma, Leg } from '@prisma/client';
-import { awardTeamGrowth } from '../income/team.growth';
+import { awardTeamGrowth, lockTeamGrowth } from '../income/team.growth';
 
 type Tx = Prisma.TransactionClient;
 
@@ -33,6 +33,12 @@ export const isPlacementCollision = (err: unknown): boolean => {
  * transaction. A member is placed once and never moved, so this runs exactly once per member.
  */
 export async function placeMember(tx: Tx, userId: string, sponsorId: string, leg: Leg, extra: Prisma.UserUpdateInput = {}) {
+  // Take the placement lock first and look again: two verification requests for the same member (the emailed link and
+  // the code, or a double click) must not place them twice, which would count them twice for the upline's bonuses.
+  await lockTeamGrowth(tx);
+  const current = await tx.user.findUniqueOrThrow({ where: { id: userId }, select: { parentId: true } });
+  if (current.parentId) return tx.user.update({ where: { id: userId }, data: extra });
+
   const placement = await findPlacement(tx, sponsorId, leg);
   const user = await tx.user.update({
     where: { id: userId },

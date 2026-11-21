@@ -140,7 +140,7 @@ router.put('/bank', requireAuth, strictAuthLimiter, validateBody(bankSchema), as
 });
 
 router.get('/transactions', requireAuth, async (req: Request, res: Response) => {
-  const page = Math.max(1, Number(req.query.page) || 1);
+  const page = Math.min(100_000, Math.max(1, Math.floor(Number(req.query.page)) || 1));
   const pageSize = 25;
   // optional filter by income type (only real ledger types are accepted)
   const type = typeof req.query.type === 'string' && req.query.type in LedgerType ? (req.query.type as LedgerType) : undefined;

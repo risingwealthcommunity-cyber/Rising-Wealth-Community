@@ -27,6 +27,14 @@ const required = (key: string, minLength = 1): string => {
 
 const frontendUrl = clean(process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/+$/, '');
 
+if (nodeEnv === 'production') {
+  for (const key of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET']) {
+    if (/change-?me|example|secret123/i.test(clean(process.env[key]))) {
+      throw new Error(`${key} still holds the placeholder from .env.example. Set a long random value before running in production.`);
+    }
+  }
+}
+
 export const config = {
   nodeEnv,
   isProduction: nodeEnv === 'production',
@@ -39,6 +47,8 @@ export const config = {
     access: required('JWT_ACCESS_SECRET', 32),
     refresh: required('JWT_REFRESH_SECRET', 32)
   },
+  /** Key for stored bank details. Set FIELD_ENCRYPTION_KEY so rotating the login secrets never makes them unreadable. */
+  fieldKey: clean(process.env.FIELD_ENCRYPTION_KEY) || required('JWT_REFRESH_SECRET', 32),
 
   /** Email: Brevo HTTPS API if BREVO_API_KEY is set, otherwise Gmail SMTP. Dev falls back to console. */
   email: {

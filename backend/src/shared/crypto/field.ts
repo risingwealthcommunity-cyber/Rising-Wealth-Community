@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { config } from '../../config/env';
 
 /** AES-256-GCM for fields that must be readable again later (bank account numbers). The key is derived from a server secret. */
-const key = () => Buffer.from(crypto.hkdfSync('sha256', config.jwt.refresh, 'rwc-field-salt', 'bank-details-v1', 32));
+const key = () => Buffer.from(crypto.hkdfSync('sha256', config.fieldKey, 'rwc-field-salt', 'bank-details-v1', 32));
 
 export function encryptField(plain: string): string {
   const iv = crypto.randomBytes(12);

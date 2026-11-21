@@ -228,6 +228,7 @@ campaignAdminRoutes.post('/reports/:id/approve', async (req: Request, res: Respo
   await prisma.$transaction(async (tx) => {
     const r = await tx.campaignReport.findUnique({ where: { id }, include: { campaign: true } });
     if (!r) throw new AppError('Report not found', 404);
+    if (r.userId === req.user!.id) throw new AppError('You cannot approve your own report. Ask another admin.', 403);
     const rewarded = await tx.campaignReport.findFirst({ where: { campaignId: r.campaignId, mobile: r.mobile, status: 'APPROVED', id: { not: id } } });
     if (rewarded) throw new AppError('This mobile number was already rewarded for this campaign.', 409);
 

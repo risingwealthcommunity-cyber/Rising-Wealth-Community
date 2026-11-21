@@ -2057,6 +2057,74 @@ test('ADMIN: overview and member list are admin-only, and switching a member off
   assert.equal((await admin.call('POST', `/api/admin/members/${adminRow.id}/active`, { isActive: false })).status, 404);
 });
 
+test('SECURITY: a member verified by several racing requests is placed and counted exactly once', async () => {
+  const top = await paidMember('RWCROOT', 'LEFT', 'mny_sec_top');
+  const email = 'mny_sec_race@test.com';
+  const c = new Client();
+  assert.equal((await c.call('POST', '/api/auth/signup', { name: 'mny_sec_race', email, password: 'Password123', sponsorCode: top.left, leg: 'LEFT' })).status, 201);
+  const mail = lastMail(email, 'verify')!;
+  const token = tokenFromLink(mail.link!);
+  const calls = [
+    ...Array.from({ length: 4 }, () => new Client().call('GET', `/api/auth/verify-email/${token}`)),
+    ...Array.from({ length: 4 }, () => new Client().call('POST', '/api/auth/verify-email-code', { email, code: mail.otp }))
+  ];
+  await Promise.all(calls);
+
+  const row = await rowOf(email);
+  assert.ok(row.parentId, 'placed');
+  const upline = await prisma.user.findUniqueOrThrow({ where: { id: top.id } });
+  assert.equal(upline.teamLeftNew + upline.teamLeftTotal >= 1, true);
+  assert.equal(upline.teamLeftTotal, 1, 'counted once, not once per request');
+  assert.equal(upline.teamLeftNew, 1);
+});
+
+test('SECURITY: two simultaneous upgrades of the same member charge once and pay the sponsor once', async () => {
+  const prices = (await new Client().call('GET', '/api/packages/prices')).json.data as { PRO: number; ELITE: number };
+  const top = await paidMember('RWCROOT', 'RIGHT', 'mny_sec_up');
+  const mate = await signup(top.left, 'LEFT', 'mny_sec_mate');
+  await setTxn(top.c);
+  await addFund(top.c, prices.PRO * 3, 'UTR-SEC-UP');
+  const code = (await rowOf(mate.email)).referralCode;
+  const res = await Promise.all([1, 2, 3].map(() => top.c.call('POST', '/api/wallet/activate', { affiliateId: code, package: 'PRO', txnPassword: TXN })));
+  assert.equal(res.filter((r) => r.status === 201).length, 1, 'exactly one upgrade goes through');
+  assert.equal((await actOf(top.c)).activation, prices.PRO * 2, 'only one charge');
+  assert.equal((await prisma.packagePurchase.count({ where: { userId: (await rowOf(mate.email)).id, status: 'CONFIRMED' } })), 1);
+});
+
+test('SECURITY: no one approves their own request, and a payment reference is credited once', async () => {
+  // an admin is also a member: they can ask, but another admin must approve
+  assert.equal((await admin.call('POST', '/api/wallet/fund', { amount: 100, reference: 'UTR-OWN-1' })).status, 201);
+  const own = ((await admin.call('GET', '/api/admin/fund-requests')).json.data.items as any[]).find((x) => x.reference === 'UTR-OWN-1');
+  assert.equal((await admin.call('POST', `/api/admin/fund-requests/${own.id}/approve`)).status, 403);
+
+  // the same reference from anyone else (any letter case) is refused while it is pending or approved
+  const m = await signup('RWCROOT', 'LEFT', 'mny_sec_ref');
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { amount: 100, reference: 'utr-own-1' })).status, 409);
+  await addFund(m.c, 100, 'UTR-REF-ONCE');
+  assert.equal((await m.c.call('POST', '/api/wallet/fund', { amount: 100, reference: 'utr-ref-once' })).status, 409, 'already credited');
+
+  // admin cannot approve their own campaign report either
+  const camp = (await admin.call('POST', '/api/admin/campaigns', { title: 'Own report test', description: '', reward: 10, url: 'https://example.com', videoUrl: '', needsProof: true, isActive: true })).json.data;
+  const sent = await admin.call('POST', '/api/campaigns/reports', { campaignId: camp.id, holderName: 'Self Admin', mobile: '9000000001', fileName: 'p.png', fileData: REPORT_PNG });
+  assert.equal(sent.status, 201, JSON.stringify(sent.json));
+  assert.equal((await admin.call('POST', `/api/admin/reports/${sent.json.data.id}/approve`)).status, 403);
+});
+
+test('SECURITY: parallel transaction-password guesses cannot beat the 5-try limit; odd paging and names do not crash', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_sec_txn');
+  assert.equal((await setTxn(m.c)).status, 200);
+  const guesses = await Promise.all(Array.from({ length: 12 }, (_, i) => m.c.call('POST', '/api/wallet/transfer', { amount: 10, txnPassword: `guess${i}` })));
+  assert.ok(guesses.filter((g) => g.status === 401).length <= 5, 'at most 5 get an answer about the password');
+  assert.ok(guesses.some((g) => g.status === 429), 'the rest are locked out');
+  assert.equal((await m.c.call('POST', '/api/wallet/transfer', { amount: 10, txnPassword: TXN })).status, 429, 'locked even for the right password');
+
+  assert.equal((await admin.call('GET', '/api/admin/members?page=Infinity')).status, 200);
+  assert.equal((await admin.call('GET', '/api/admin/members?page=99999999999999')).status, 200);
+  assert.equal((await m.c.call('GET', '/api/wallet/transactions?page=Infinity')).status, 200);
+  assert.equal((await admin.call('PUT', '/api/site/content/constructor', { items: [] })).status, 404);
+  assert.equal((await admin.call('PUT', '/api/site/content/toString', { items: [] })).status, 404);
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

@@ -39,12 +39,17 @@ export const walletService = {
     }
     if (!user.txnPasswordHash) throw new AppError('Set a transaction password first (My profile > Security).', 400);
 
+    // every try is counted first (atomically); a correct password gives the try back
+    const tried = await prisma.user.update({ where: { id: userId }, data: { txnFailedAttempts: { increment: 1 } }, select: { txnFailedAttempts: true } });
+    if (tried.txnFailedAttempts > MAX_TXN_ATTEMPTS) {
+      await prisma.user.update({ where: { id: userId }, data: { txnFailedAttempts: 0, txnLockedUntil: new Date(Date.now() + TXN_LOCK_MS) } });
+      throw new AppError('Too many wrong attempts. Your transaction password is locked for 15 minutes.', 429);
+    }
     if (typeof password === 'string' && (await bcrypt.compare(password, user.txnPasswordHash))) {
-      await prisma.user.updateMany({ where: { id: userId, txnFailedAttempts: { gt: 0 } }, data: { txnFailedAttempts: 0, txnLockedUntil: null } });
+      await prisma.user.update({ where: { id: userId }, data: { txnFailedAttempts: 0, txnLockedUntil: null } });
       return;
     }
-    const after = await prisma.user.update({ where: { id: userId }, data: { txnFailedAttempts: { increment: 1 } }, select: { txnFailedAttempts: true } });
-    if (after.txnFailedAttempts >= MAX_TXN_ATTEMPTS) {
+    if (tried.txnFailedAttempts >= MAX_TXN_ATTEMPTS) {
       await prisma.user.update({ where: { id: userId }, data: { txnFailedAttempts: 0, txnLockedUntil: new Date(Date.now() + TXN_LOCK_MS) } });
       throw new AppError('Too many wrong attempts. Your transaction password is locked for 15 minutes.', 429);
     }
@@ -124,11 +129,20 @@ export const walletService = {
   async createFundRequest(userId: string, rupees: number, reference: string) {
     const open = await prisma.fundRequest.count({ where: { userId, status: 'PENDING' } });
     if (open >= 3) throw new AppError('You already have 3 requests waiting. Please wait for them to be checked.', 409);
-    return prisma.fundRequest.create({ data: { userId, amount: dec(rupees), reference } });
+    const used = await prisma.fundRequest.findFirst({
+      where: { reference: { equals: reference.trim(), mode: 'insensitive' }, status: { in: ['PENDING', 'APPROVED'] } }
+    });
+    if (used) throw new AppError('That payment reference was already submitted.', 409);
+    return prisma.fundRequest.create({ data: { userId, amount: dec(rupees), reference: reference.trim() } });
   },
 
   async approveFund(id: string, adminId: string) {
+    const own = await prisma.fundRequest.findUnique({ where: { id }, select: { userId: true, reference: true } });
+    if (own?.userId === adminId) throw new AppError('You cannot approve your own request. Ask another admin.', 403);
     await prisma.$transaction(async (tx) => {
+      if (own && (await tx.fundRequest.count({ where: { reference: { equals: own.reference, mode: 'insensitive' }, status: 'APPROVED' } })) > 0) {
+        throw new AppError('This payment reference was already credited.', 409);
+      }
       const claimed = await tx.fundRequest.updateMany({ where: { id, status: 'PENDING' }, data: { status: 'APPROVED', processedAt: new Date(), processedBy: adminId } });
       if (claimed.count !== 1) throw new AppError('Request not found or already processed', 409);
       const r = await tx.fundRequest.findUniqueOrThrow({ where: { id } });
@@ -160,6 +174,8 @@ export const walletService = {
 
   /** An admin approves after paying the member: only now does the money leave the wallet. */
   async approveWithdrawal(id: string, adminId: string) {
+    const own = await prisma.withdrawalRequest.findUnique({ where: { id }, select: { userId: true } });
+    if (own?.userId === adminId) throw new AppError('You cannot approve your own withdrawal. Ask another admin.', 403);
     await prisma.$transaction(async (tx) => {
       const claimed = await tx.withdrawalRequest.updateMany({ where: { id, status: 'PENDING' }, data: { status: 'APPROVED', processedAt: new Date(), processedBy: adminId } });
       if (claimed.count !== 1) throw new AppError('Request not found or already processed', 409);
