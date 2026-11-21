@@ -18,20 +18,6 @@ interface Summary {
   breakdown: { type: string; amount: number }[];
 }
 
-const TYPE_COLOR: Record<string, string> = {
-  DEMAT_DIRECT: '#2a313c',
-  DEMAT_PASSIVE: '#47505e',
-  DIRECT_INCOME: '#1f2937',
-  PASSIVE_INCOME: '#646e7d',
-  WEEKLY_BONUS: '#a3abb8',
-  PERFORMANCE_BONUS: '#bcc3ce',
-  LEADERSHIP_BONUS: '#d3d8e0',
-  LEADERSHIP_TARGET_BONUS: '#8a93a2',
-  TEAM_PERFORMANCE_BONUS: '#0d1117',
-  RANK_REWARD: '#5b6574'
-};
-const colorOf = (type: string) => TYPE_COLOR[type] ?? '#94a3b8';
-
 /** Round the top of the chart up to a tidy number so the 5 axis labels read well. */
 function niceTop(max: number): number {
   if (max <= 0) return 100;
@@ -133,38 +119,87 @@ function LineChart({ points }: { points: Point[] }) {
   );
 }
 
-function Donut({ rows, total }: { rows: Summary['breakdown']; total: number }) {
-  const R = 80;
+/** The income streams members see, always all of them (a stream with nothing earned yet shows Rs 0). */
+const STREAMS: { key: string; label: string; types: string[]; color: string }[] = [
+  { key: 'demat', label: 'Demat Referral Income', types: ['DEMAT_DIRECT'], color: '#9aa2af' },
+  { key: 'direct', label: 'Direct Package Income', types: ['DIRECT_INCOME'], color: '#2a313c' },
+  { key: 'passive', label: 'Passive Income', types: ['PASSIVE_INCOME', 'DEMAT_PASSIVE'], color: '#6b7482' },
+  { key: 'weekly', label: 'Weekly Bonus', types: ['WEEKLY_BONUS'], color: '#c3c9d2' },
+  { key: 'leadership', label: 'Leadership Bonus', types: ['LEADERSHIP_TARGET_BONUS', 'LEADERSHIP_BONUS'], color: '#4b5563' },
+  { key: 'team', label: 'Team Performance Bonus', types: ['TEAM_PERFORMANCE_BONUS'], color: '#0d1117' }
+];
+
+interface Stream {
+  key: string;
+  label: string;
+  color: string;
+  amount: number;
+}
+
+function streamsOf(breakdown: Summary['breakdown']): Stream[] {
+  const known = new Set(STREAMS.flatMap((x) => x.types));
+  const rows: Stream[] = STREAMS.map((x) => ({
+    key: x.key,
+    label: x.label,
+    color: x.color,
+    amount: breakdown.filter((b) => x.types.includes(b.type)).reduce((sum, b) => sum + b.amount, 0)
+  }));
+  const other = breakdown.filter((b) => !known.has(b.type)).reduce((sum, b) => sum + b.amount, 0);
+  if (other > 0) rows.push({ key: 'other', label: 'Other bonuses', color: '#e3e6ea', amount: other });
+  return rows;
+}
+
+function Donut({ rows, total, active, onActive }: { rows: Stream[]; total: number; active: string | null; onActive: (k: string | null) => void }) {
+  const R = 64;
   const C = 2 * Math.PI * R;
   let offset = 0;
+  const shown = rows.filter((r) => r.amount > 0);
+  const hot = rows.find((r) => r.key === active);
+  const labels = shown.map((r) => {
+    const frac = r.amount / total;
+    const mid = (offset + (frac * C) / 2) / C; // 0..1 clockwise from the top
+    offset += frac * C;
+    const ang = mid * 2 * Math.PI - Math.PI / 2;
+    return { r, pct: Math.round(frac * 100), x: 50 + 45 * Math.cos(ang), y: 50 + 45 * Math.sin(ang) };
+  });
+  offset = 0;
   return (
     <div className="donut">
       <svg viewBox="0 0 200 200" role="img" aria-label="Income breakdown">
         <circle cx="100" cy="100" r={R} fill="none" stroke="#e1e5ea" strokeWidth="22" />
-        {rows.map((r) => {
+        {shown.map((r) => {
           const len = (r.amount / total) * C;
-          const gap = rows.length > 1 ? 2.5 : 0;
+          const gap = shown.length > 1 ? 2.5 : 0;
           const el = (
             <circle
-              key={r.type}
-              className="seg"
+              key={r.key}
+              className={`seg${active && active !== r.key ? ' dim' : ''}${active === r.key ? ' hot' : ''}`}
               cx="100"
               cy="100"
               r={R}
-              stroke={colorOf(r.type)}
+              stroke={r.color}
               strokeDasharray={`${Math.max(0, len - gap)} ${C - Math.max(0, len - gap)}`}
               strokeDashoffset={-offset}
+              onMouseEnter={() => onActive(r.key)}
+              onMouseLeave={() => onActive(null)}
             >
-              <title>{`${typeLabel(r.type)}: ${inr(r.amount)} (${Math.round((r.amount / total) * 100)}%)`}</title>
+              <title>{`${r.label}: ${inr(r.amount)} (${Math.round((r.amount / total) * 100)}%)`}</title>
             </circle>
           );
           offset += len;
           return el;
         })}
       </svg>
+      {labels.map(({ r, pct, x, y }) => (
+        pct >= 3 && (
+          <span key={r.key} className="donut-pct" style={{ left: `${x}%`, top: `${y}%` }}>
+            {pct}%
+          </span>
+        )
+      ))}
       <div className="donut-mid">
-        <small>TOTAL EARNINGS</small>
-        <strong>{inr(total)}</strong>
+        <small>{hot ? hot.label.toUpperCase() : 'TOTAL EARNINGS'}</small>
+        <strong>{inr(hot ? hot.amount : total)}</strong>
       </div>
     </div>
   );
@@ -177,6 +212,7 @@ export default function DashboardPage() {
   const [failed, setFailed] = useState(false);
   const [range, setRange] = useState<Range>('today');
   const [copied, setCopied] = useState('');
+  const [activeStream, setActiveStream] = useState<string | null>(null);
 
   useEffect(() => {
     api<Summary>('/dashboard/summary')
@@ -309,22 +345,23 @@ export default function DashboardPage() {
         <h2>Income Breakdown</h2>
         {!data ? (
           <p className="muted">Loading...</p>
-        ) : data.breakdown.length === 0 ? (
-          <div className="empty-state">
-            <strong>No income yet</strong>
-            Share your referral links. Every income type shows up here as soon as it is credited.
-          </div>
         ) : (
           <div className="income">
-            <Donut rows={data.breakdown} total={total} />
+            <Donut rows={streamsOf(data.breakdown)} total={total} active={activeStream} onActive={setActiveStream} />
             <div className="income-list">
-              {data.breakdown.map((b) => (
-                <div className="income-item" key={b.type} style={{ ['--c' as string]: colorOf(b.type) }}>
+              {streamsOf(data.breakdown).map((b) => (
+                <div
+                  className={`income-item${activeStream === b.key ? ' hot' : ''}`}
+                  key={b.key}
+                  style={{ ['--c' as string]: b.color }}
+                  onMouseEnter={() => setActiveStream(b.key)}
+                  onMouseLeave={() => setActiveStream(null)}
+                >
                   <div>
-                    <small>{typeLabel(b.type)}</small>
+                    <small>{b.label}</small>
                     <strong>{inr(b.amount)}</strong>
                   </div>
-                  <em>{Math.round((b.amount / total) * 100)}%</em>
+                  <em>{total > 0 ? Math.round((b.amount / total) * 100) : 0}%</em>
                   <span className="dot" />
                 </div>
               ))}
