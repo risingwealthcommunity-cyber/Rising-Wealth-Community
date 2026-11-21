@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
 import { Icon } from '../../shared/components/ShellIcons';
@@ -25,16 +25,16 @@ const initials = (name: string) =>
     .join('');
 
 const TYPE_COLOR: Record<string, string> = {
-  DEMAT_DIRECT: '#22d3c5',
-  DEMAT_PASSIVE: '#2dd4bf',
-  DIRECT_INCOME: '#60a5fa',
-  PASSIVE_INCOME: '#a78bfa',
-  WEEKLY_BONUS: '#34d399',
-  PERFORMANCE_BONUS: '#fb923c',
-  LEADERSHIP_BONUS: '#f5c542',
-  LEADERSHIP_TARGET_BONUS: '#facc15',
-  TEAM_PERFORMANCE_BONUS: '#fb7185',
-  RANK_REWARD: '#f472b6'
+  DEMAT_DIRECT: '#e3aa2c',
+  DEMAT_PASSIVE: '#f1cf72',
+  DIRECT_INCOME: '#1f2a24',
+  PASSIVE_INCOME: '#7d8a80',
+  WEEKLY_BONUS: '#2f8f5b',
+  PERFORMANCE_BONUS: '#c4561b',
+  LEADERSHIP_BONUS: '#8a5a00',
+  LEADERSHIP_TARGET_BONUS: '#f5a623',
+  TEAM_PERFORMANCE_BONUS: '#0f766e',
+  RANK_REWARD: '#a3412c'
 };
 const colorOf = (type: string) => TYPE_COLOR[type] ?? '#94a3b8';
 
@@ -47,6 +47,34 @@ function niceTop(max: number): number {
   return step * 4;
 }
 const short = (n: number) => (n >= 100000 ? `${+(n / 100000).toFixed(1)}L` : n >= 1000 ? `${+(n / 1000).toFixed(1)}k` : String(Math.round(n)));
+
+/** Counts a number up from 0 when it first appears (skipped for people who prefer reduced motion). */
+function useCountUp(target: number, ms = 800): number {
+  const [value, setValue] = useState(0);
+  const raf = useRef(0);
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || target === 0) {
+      setValue(target);
+      return;
+    }
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / ms);
+      setValue(target * (1 - Math.pow(1 - t, 3)));
+      if (t < 1) raf.current = requestAnimationFrame(tick);
+    };
+    raf.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf.current);
+  }, [target, ms]);
+  return value;
+}
+
+function Money({ value }: { value: number }) {
+  return <>{inr(useCountUp(value))}</>;
+}
+function Count({ value }: { value: number }) {
+  return <>{Math.round(useCountUp(value))}</>;
+}
 
 type Range = 'today' | 'week' | 'month';
 const RANGES: { key: Range; name: string }[] = [
@@ -92,7 +120,7 @@ function Donut({ rows, total }: { rows: Summary['breakdown']; total: number }) {
   return (
     <div className="donut">
       <svg viewBox="0 0 200 200" role="img" aria-label="Income breakdown">
-        <circle cx="100" cy="100" r={R} fill="none" stroke="#17233b" strokeWidth="22" />
+        <circle cx="100" cy="100" r={R} fill="none" stroke="#eee8d6" strokeWidth="22" />
         {rows.map((r) => {
           const len = (r.amount / total) * C;
           const gap = rows.length > 1 ? 2.5 : 0;
@@ -156,13 +184,13 @@ export default function DashboardPage() {
   ] as const;
 
   const s = data?.stats;
-  const cards: { k: string; v: string; icon: JSX.Element; gold?: boolean }[] = [
-    { k: "Today's Income", v: inr(s?.today ?? 0), icon: Icon.wallet },
-    { k: 'Last 7 Days', v: inr(s?.last7 ?? 0), icon: Icon.calendar },
-    { k: 'Last 30 Days', v: inr(s?.last30 ?? 0), icon: Icon.calendar },
-    { k: 'Passive Income', v: inr(s?.passive ?? 0), icon: Icon.bars },
-    { k: 'Total Income', v: inr(s?.total ?? 0), icon: Icon.trophy, gold: true },
-    { k: 'Total Team', v: String(s?.team ?? 0), icon: Icon.users }
+  const cards: { k: string; v: JSX.Element; icon: JSX.Element; gold?: boolean }[] = [
+    { k: "Today's Income", v: <Money value={s?.today ?? 0} />, icon: Icon.wallet },
+    { k: 'Last 7 Days', v: <Money value={s?.last7 ?? 0} />, icon: Icon.calendar },
+    { k: 'Last 30 Days', v: <Money value={s?.last30 ?? 0} />, icon: Icon.calendar },
+    { k: 'Passive Income', v: <Money value={s?.passive ?? 0} />, icon: Icon.bars },
+    { k: 'Total Income', v: <Money value={s?.total ?? 0} />, icon: Icon.trophy, gold: true },
+    { k: 'Total Team', v: <Count value={s?.team ?? 0} />, icon: Icon.users }
   ];
 
   const pkg = user.package;
@@ -174,13 +202,16 @@ export default function DashboardPage() {
         <div className="dash-avatar" aria-hidden="true">
           {initials(user.name)}
         </div>
+        <span className="dash-hello">Welcome back</span>
         <h1 className="dash-name">{user.name}</h1>
         <div className="dash-tags">
           <span className="dash-pill">VERIFIED ACCOUNT</span>
-          <span className={`dash-pill ${pkg === 'ELITE' ? 'gold' : pkg === 'PRO' ? '' : 'silver'}`}>{pkg}</span>
+          <span className={`dash-pill${pkg === 'TRAINEE' ? '' : ' gold'}`}>{pkg}</span>
           {user.rank !== 'NONE' && <span className="dash-pill gold">{label(user.rank).toUpperCase()}</span>}
         </div>
-        <div className="dash-aff">Affiliate ID: {user.referralCode}</div>
+        <div className="dash-aff">
+          Affiliate ID: <b>{user.referralCode}</b>
+        </div>
         <div className="dash-copy">
           <button className="btn" disabled={!left} onClick={() => left && copy('left-link', link(left))}>
             {copied === 'left-link' ? 'Copied!' : 'Copy Left Referral Link'}
@@ -228,7 +259,7 @@ export default function DashboardPage() {
             ))}
           </div>
         </div>
-        {data ? <BarChart points={data.chart[range]} /> : <p className="muted">Loading...</p>}
+        {data ? <BarChart key={range} points={data.chart[range]} /> : <p className="muted">Loading...</p>}
       </div>
 
       <div className="card">

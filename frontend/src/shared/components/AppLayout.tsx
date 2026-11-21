@@ -69,17 +69,24 @@ export default function AppLayout() {
         </button>
         <img className="shell-logo" src="/logo.png" alt="" width="44" height="44" />
         <div className="shell-brand">
-          <strong>RISING WEALTH COMMUNITY</strong>
-          <span>EARN WITHOUT INVESTING</span>
+          <strong>Rising Wealth</strong>
+          <span>COMMUNITY</span>
         </div>
-        <div className="shell-avatar" title={user?.name}>
-          {initials(user?.name ?? '')}
+        <div className="shell-user">
+          <div className="shell-user-text">
+            <b>{user?.name}</b>
+            <small>{user?.package}</small>
+          </div>
+          <div className="shell-avatar" title={user?.name}>
+            {initials(user?.name ?? '')}
+          </div>
         </div>
       </header>
 
       <div className="shell-body">
         <aside className="shell-side" aria-label="Main menu">
           <nav>
+            <div className="shell-label">MENU</div>
             <NavLink to="/dashboard">
               {Icon.dashboard}
               <span>Dashboard</span>
