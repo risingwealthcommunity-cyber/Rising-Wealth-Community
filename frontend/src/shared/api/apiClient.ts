@@ -17,15 +17,27 @@ const BASE = '/api';
 
 let refreshing: Promise<boolean> | null = null;
 
-const refreshSession = (): Promise<boolean> => {
-  refreshing ??= fetch(`${BASE}/auth/refresh`, { method: 'POST', credentials: 'include' })
+const doRefresh = (): Promise<boolean> =>
+  fetch(`${BASE}/auth/refresh`, { method: 'POST', credentials: 'include' })
     .then((r) => r.ok)
-    .catch(() => false)
-    .finally(() => {
+    .catch(() => false);
+
+/**
+ * Renews the session. Calls from one tab share a single request, and a browser-wide lock keeps other tabs from
+ * rotating the refresh token at the same moment (the loser would present a used token and get logged out).
+ */
+const refreshSession = (): Promise<boolean> => {
+  if (!refreshing) {
+    const run = navigator.locks ? (navigator.locks.request('rwc-refresh', doRefresh) as unknown as Promise<boolean>) : doRefresh();
+    refreshing = run.finally(() => {
       refreshing = null;
     });
+  }
   return refreshing;
 };
+
+/** Auth calls never trigger a refresh (login, refresh itself...) except /auth/me, which restores a session after a reload. */
+const canRefresh = (path: string) => !path.startsWith('/auth/') || path === '/auth/me';
 
 export async function api<T = unknown>(
   path: string,
@@ -40,7 +52,7 @@ export async function api<T = unknown>(
   });
 
   // Access token expired: refresh once, then retry the original request.
-  if (res.status === 401 && retry && !path.startsWith('/auth/')) {
+  if (res.status === 401 && retry && canRefresh(path)) {
     if (await refreshSession()) return api<T>(path, options, false);
   }
 
