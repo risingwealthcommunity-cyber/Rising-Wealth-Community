@@ -77,24 +77,50 @@ const RANGES: { key: Range; name: string }[] = [
   { key: 'month', name: 'MONTHLY' }
 ];
 
-function BarChart({ points }: { points: Point[] }) {
+/** Smooth line through the points: each step eases flat at both ends, so the curve never overshoots the data. */
+function linePath(pts: { x: number; y: number }[]): string {
+  return pts
+    .map((p, i) => {
+      if (i === 0) return `M${p.x} ${p.y}`;
+      const q = pts[i - 1];
+      const mx = (q.x + p.x) / 2;
+      return `C${mx} ${q.y} ${mx} ${p.y} ${p.x} ${p.y}`;
+    })
+    .join(' ');
+}
+
+function LineChart({ points }: { points: Point[] }) {
   const top = niceTop(Math.max(...points.map((p) => p.amount)));
   const ticks = [0, 1, 2, 3, 4].map((i) => top - (top / 4) * i);
   const empty = points.every((p) => p.amount === 0);
+  const n = points.length;
+  const xy = points.map((p, i) => ({ x: ((i + 0.5) / n) * 100, y: 100 - Math.max(0, Math.min(100, (p.amount / top) * 100)) }));
+  const line = linePath(xy);
+  const area = `${line} L${xy[n - 1].x} 100 L${xy[0].x} 100 Z`;
   return (
     <>
-      <div className="chart" role="img" aria-label="Earnings chart">
+      <div className="chart" role="img" aria-label="Earnings line chart">
         <div className="chart-y">
           {ticks.map((t) => (
             <span key={t}>{short(t)}</span>
           ))}
         </div>
         <div className="chart-plot">
+          <svg className="chart-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stopColor="#0d1117" stopOpacity="0.18" />
+                <stop offset="1" stopColor="#0d1117" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <path className="chart-area" d={area} fill="url(#chart-fill)" />
+            <path className="chart-line" d={line} pathLength={1} fill="none" />
+          </svg>
           {points.map((p) => {
-            const h = `${Math.max(0, (p.amount / top) * 100)}%`;
+            const h = `${Math.max(0, Math.min(100, (p.amount / top) * 100))}%`;
             return (
               <div className="chart-col" key={p.label} tabIndex={0} style={{ ['--h' as string]: h }}>
-                <div className={`chart-bar${p.amount === 0 ? ' zero' : ''}`} style={{ height: h }} />
+                <span className={`chart-dot${p.amount === 0 ? ' zero' : ''}`} />
                 <span className="chart-tip">{inr(p.amount)}</span>
                 <span className="chart-x">{p.label}</span>
               </div>
@@ -276,7 +302,7 @@ export default function DashboardPage() {
             ))}
           </div>
         </div>
-        {data ? <BarChart key={range} points={data.chart[range]} /> : <p className="muted">Loading...</p>}
+        {data ? <LineChart key={range} points={data.chart[range]} /> : <p className="muted">Loading...</p>}
       </div>
 
       <div className="card">
