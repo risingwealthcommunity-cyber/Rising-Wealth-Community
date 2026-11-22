@@ -116,7 +116,7 @@ export default function ReportsPage() {
           <label>
             Campaign
             <select value={campaignId} onChange={(e) => setCampaignId(e.target.value)} disabled={!!editing} required>
-              <option value="">Choose campaign</option>
+              <option value="">{campaigns.length === 0 ? 'No campaign is open for reports right now' : 'Choose campaign'}</option>
               {campaigns.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.title} ({inr(c.reward)})

@@ -173,6 +173,11 @@ export default function AdminCampaigns() {
 
         <Switch checked={form.isActive} onChange={(v) => set('isActive', v)} label="Campaign is active" />
         <Switch checked={form.needsProof} onChange={(v) => set('needsProof', v)} label="Campaign requires documents" />
+        <p className="muted">
+          {form.needsProof
+            ? 'Members can submit a report with a screenshot for this campaign (it shows in Submit Reports).'
+            : 'Turned off: this campaign will NOT show in the Submit Reports list, members only get the link. Turn it on if you want reports and proof.'}
+        </p>
         <Switch checked={form.isDemat} onChange={(v) => set('isDemat', v)} label="Demat account opening (a paid report also pays the Demat income plan: member's direct income + 5 sponsor levels)" />
 
         <div className="campaign-logo-slot">
@@ -220,7 +225,7 @@ export default function AdminCampaigns() {
                   Code: <code>{c.url || '(no link)'}</code>
                 </small>
                 <small>
-                  Requires documents: <b>{c.needsProof ? 'Yes' : 'No'}</b>
+                  Requires documents: <b>{c.needsProof ? 'Yes' : 'No (not listed in Submit Reports)'}</b>
                 </small>
                 <small>
                   Link type: <b>{c.linkType === 'PERSONAL' ? 'Personalised' : 'Standard'}</b>
