@@ -228,6 +228,99 @@ function UpgradeRequests({ onChanged }: { onChanged: () => void }) {
   );
 }
 
+interface WalletInfo {
+  name: string;
+  balance: number;
+  held: number;
+  pendingWithdrawals: number;
+  available: number;
+  holds: { id: string; amount: number; reason: string; createdAt: string }[];
+}
+
+/** Put part of a member wallet on hold, release it, or deduct money from it. The reason is kept (and the member sees it for a deduction). */
+function WalletPanel({ m, onClose, onDone }: { m: Member; onClose: () => void; onDone: () => void }) {
+  const [info, setInfo] = useState<WalletInfo | null>(null);
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const act = useRun();
+  const load = useCallback(() => {
+    api<WalletInfo>(`/admin/members/${m.id}/holds`)
+      .then((r) => setInfo(r.data ?? null))
+      .catch(() => setInfo(null));
+  }, [m.id]);
+  useEffect(load, [load]);
+
+  const send = (what: 'hold' | 'deduct') => {
+    const n = toAmount(amount);
+    if (Number.isNaN(n) || n <= 0) return act.setMsg({ type: 'error', text: 'Enter an amount above zero.' });
+    if (what === 'deduct' && !window.confirm(`Deduct ${inr(n)} from ${m.name}? This takes the money out of their wallet.`)) return;
+    void act.run(async () => {
+      const r = await api(`/admin/members/${m.id}/${what}`, { method: 'POST', body: { amount: n, reason: reason.trim() } });
+      setAmount('');
+      setReason('');
+      load();
+      onDone();
+      return r;
+    });
+  };
+  const release = (id: string) =>
+    void act.run(async () => {
+      const r = await api(`/admin/holds/${id}/release`, { method: 'POST' });
+      load();
+      onDone();
+      return r;
+    });
+
+  return (
+    <div className="wd-panel">
+      <p className="muted">
+        Wallet of <b>{m.name}</b>:{' '}
+        {info ? (
+          <>
+            balance <b>{inr(info.balance)}</b> · on hold <b>{inr(info.held)}</b> · waiting withdrawals <b>{inr(info.pendingWithdrawals)}</b> · available <b>{inr(info.available)}</b>
+          </>
+        ) : (
+          'loading...'
+        )}
+      </p>
+      <div className="wd-pay">
+        <input value={amount} inputMode="decimal" onChange={(e) => setAmount(e.target.value)} placeholder="Amount (₹)" aria-label="Amount" />
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (the member sees it for a deduction)" aria-label="Reason" maxLength={200} />
+      </div>
+      <div className="wd-panel-actions">
+        <button className="btn ghost" type="button" disabled={act.busy || !amount || reason.trim().length < 4} onClick={() => send('hold')}>
+          Hold this amount
+        </button>
+        <button className="btn bad" type="button" disabled={act.busy || !amount || reason.trim().length < 4} onClick={() => send('deduct')}>
+          Deduct this amount
+        </button>
+        <button className="btn ghost" type="button" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
+      {info && info.holds.length > 0 && (
+        <table>
+          <tbody>
+            {info.holds.map((h) => (
+              <tr key={h.id}>
+                <td className="amount">{inr(h.amount)}</td>
+                <td className="muted">{h.reason}</td>
+                <td className="muted">{when(h.createdAt)}</td>
+                <td>
+                  <button className="btn ghost" type="button" disabled={act.busy} onClick={() => release(h.id)}>
+                    Release
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 /** User income management: what every member earned, was paid and has pending, with Pay, Block and Delete. */
 export default function AdminMembersPage() {
   const [q, setQ] = useState('');
@@ -236,6 +329,7 @@ export default function AdminMembersPage() {
   const [data, setData] = useState<Page | null>(null);
   const [paying, setPaying] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState<string | null>(null);
+  const [walleting, setWalleting] = useState<string | null>(null);
   const act = useRun();
 
   const load = useCallback(() => {
@@ -350,6 +444,9 @@ export default function AdminMembersPage() {
                         <button className="btn solid" type="button" disabled={m.pending <= 0 || act.busy} onClick={() => setPaying(paying === m.id ? null : m.id)}>
                           Pay
                         </button>
+                        <button className="btn ghost" type="button" disabled={act.busy} onClick={() => setWalleting(walleting === m.id ? null : m.id)}>
+                          Wallet
+                        </button>
                         <button className="btn ghost" type="button" disabled={act.busy} onClick={() => setUpgrading(upgrading === m.id ? null : m.id)}>
                           Upgrade
                         </button>
@@ -365,6 +462,13 @@ export default function AdminMembersPage() {
                       <tr className="wd-panel-row">
                         <td colSpan={7}>
                           <PayPanel m={m} onClose={() => setPaying(null)} onDone={load} />
+                        </td>
+                      </tr>
+                    )}
+                    {walleting === m.id && (
+                      <tr className="wd-panel-row">
+                        <td colSpan={7}>
+                          <WalletPanel m={m} onClose={() => setWalleting(null)} onDone={load} />
                         </td>
                       </tr>
                     )}

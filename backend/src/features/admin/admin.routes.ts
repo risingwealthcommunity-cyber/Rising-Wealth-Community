@@ -188,6 +188,32 @@ router.delete('/members/:id', async (req: Request, res: Response) => {
   res.json({ success: true, message: 'Member deleted' });
 });
 
+const moneySchema = z.object({ amount: z.number({ message: 'Enter the amount' }), reason: z.string().trim().min(4, 'Write the reason (at least 4 characters)').max(200) });
+
+/** What a member wallet holds, what is on hold, and what can still be moved. */
+router.get('/members/:id/holds', async (req: Request, res: Response) => {
+  res.json({ success: true, data: await walletService.holdsOf(String(req.params.id)) });
+});
+
+/** Take money out of a member wallet. The member sees the reason in their transactions. */
+router.post('/members/:id/deduct', validateBody(moneySchema), async (req: Request, res: Response) => {
+  const b = req.body as z.infer<typeof moneySchema>;
+  const done = await walletService.adminDeduct(req.user!.id, String(req.params.id), parseRupees(b.amount), b.reason);
+  res.json({ success: true, message: `Deducted from the wallet of ${done.memberName}.` });
+});
+
+/** Put part of a member wallet on hold (they cannot withdraw or move it) until you release it. */
+router.post('/members/:id/hold', validateBody(moneySchema), async (req: Request, res: Response) => {
+  const b = req.body as z.infer<typeof moneySchema>;
+  const done = await walletService.adminHold(req.user!.id, String(req.params.id), parseRupees(b.amount), b.reason);
+  res.json({ success: true, message: `Put on hold in the wallet of ${done.memberName}.` });
+});
+
+router.post('/holds/:id/release', async (req: Request, res: Response) => {
+  await walletService.adminRelease(req.user!.id, String(req.params.id));
+  res.json({ success: true, message: 'Released. The member can use that money again.' });
+});
+
 const upgradeSchema = z.object({
   package: z.enum(['PRO', 'ELITE']),
   mode: z.enum(['WALLET', 'MANUAL']),

@@ -19,6 +19,7 @@ interface Summary {
   hasTxnPassword: boolean;
   minWithdrawal: number;
   minFund?: number;
+  held?: number;
 }
 interface Entry {
   id: string;
@@ -133,6 +134,7 @@ export default function WalletPage() {
             <span>Available to withdraw</span>
             <strong>{money(summary?.available)}</strong>
             {summary && summary.pendingWithdrawals > 0 && <small className="muted">{inr(summary.pendingWithdrawals)} waiting for approval</small>}
+            {summary && (summary.held ?? 0) > 0 && <small className="muted">{inr(summary.held ?? 0)} on hold by the admin</small>}
           </div>
         </div>
         <div className="card dash-stat">

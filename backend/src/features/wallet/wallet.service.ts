@@ -126,23 +126,90 @@ export const walletService = {
     ]);
     const balance = num(user.walletBalance);
     const reserved = num(pending._sum.amount);
+    const held = await this.heldOf(prisma, userId);
     return {
       totalEarned: num(earned._sum.amount),
       totalPaid: Math.abs(num(paid._sum.amount)),
       balance,
       pendingWithdrawals: reserved,
-      available: Math.max(0, Math.round((balance - reserved) * 100) / 100),
+      held,
+      available: Math.max(0, Math.round((balance - reserved - held) * 100) / 100),
       activationBalance: num(user.activationBalance),
       hasTxnPassword: Boolean(user.txnPasswordHash)
     };
   },
 
+  /** The part of the wallet an admin has put on hold. */
+  async heldOf(tx: Prisma.TransactionClient, userId: string): Promise<number> {
+    const h = await tx.walletHold.aggregate({ where: { userId, releasedAt: null }, _sum: { amount: true } });
+    return num(h._sum.amount);
+  },
+
   async available(tx: Prisma.TransactionClient, userId: string): Promise<number> {
-    const [u, pending] = await Promise.all([
+    const [u, pending, held] = await Promise.all([
       tx.user.findUniqueOrThrow({ where: { id: userId }, select: { walletBalance: true } }),
-      tx.withdrawalRequest.aggregate({ where: { userId, status: 'PENDING' }, _sum: { amount: true } })
+      tx.withdrawalRequest.aggregate({ where: { userId, status: 'PENDING' }, _sum: { amount: true } }),
+      this.heldOf(tx, userId)
     ]);
-    return Math.round((num(u.walletBalance) - num(pending._sum.amount)) * 100) / 100;
+    return Math.round((num(u.walletBalance) - num(pending._sum.amount) - held) * 100) / 100;
+  },
+
+  // ------------------------------------------------------------------ admin: deduct and hold
+
+  /** Locks the member row, so a deduction, a hold and a withdrawal cannot check the balance at the same moment. */
+  async lockMember(tx: Prisma.TransactionClient, adminId: string, memberId: string, reason: string) {
+    if (memberId === adminId) throw new AppError('You cannot change your own wallet. Ask another admin.', 403);
+    if (reason.trim().length < 4) throw new AppError('Write the reason (at least 4 characters). The member sees it.', 400);
+    await tx.$executeRaw`SELECT id FROM "User" WHERE id = ${memberId} FOR UPDATE`;
+    const member = await tx.user.findFirst({ where: { id: memberId, role: 'USER' }, select: { id: true, name: true } });
+    if (!member) throw new AppError('Member not found', 404);
+    return member;
+  },
+
+  /** Takes money out of a member wallet (never more than they have available). Recorded as a negative entry with the reason. */
+  async adminDeduct(adminId: string, memberId: string, rupees: number, reason: string) {
+    return prisma.$transaction(async (tx) => {
+      const member = await this.lockMember(tx, adminId, memberId, reason);
+      if ((await this.available(tx, memberId)) < rupees) throw new AppError('That is more than the member has available (money on hold and waiting withdrawals are not counted).', 400);
+      const taken = await tx.user.updateMany({ where: { id: memberId, walletBalance: { gte: dec(rupees) } }, data: { walletBalance: { decrement: dec(rupees) } } });
+      if (taken.count !== 1) throw new AppError('The wallet no longer holds this amount.', 409);
+      await tx.ledgerEntry.create({ data: { userId: memberId, type: 'ADMIN_DEDUCTION', amount: dec(-rupees), note: `Deducted by admin: ${reason.trim()}` } });
+      return { memberName: member.name };
+    }, TX);
+  },
+
+  /** Puts part of a member wallet on hold: it stays there but cannot be withdrawn or moved until released. */
+  async adminHold(adminId: string, memberId: string, rupees: number, reason: string) {
+    return prisma.$transaction(async (tx) => {
+      const member = await this.lockMember(tx, adminId, memberId, reason);
+      if ((await this.available(tx, memberId)) < rupees) throw new AppError('That is more than the member has available to hold.', 400);
+      await tx.walletHold.create({ data: { userId: memberId, amount: dec(rupees), reason: reason.trim(), createdBy: adminId } });
+      return { memberName: member.name };
+    }, TX);
+  },
+
+  async adminRelease(adminId: string, holdId: string) {
+    const done = await prisma.walletHold.updateMany({ where: { id: holdId, releasedAt: null }, data: { releasedAt: new Date(), releasedBy: adminId } });
+    if (done.count !== 1) throw new AppError('That hold is not found or was already released.', 409);
+  },
+
+  async holdsOf(memberId: string) {
+    const [member, holds] = await Promise.all([
+      prisma.user.findFirst({ where: { id: memberId, role: 'USER' }, select: { name: true, walletBalance: true } }),
+      prisma.walletHold.findMany({ where: { userId: memberId, releasedAt: null }, orderBy: { createdAt: 'desc' }, select: { id: true, amount: true, reason: true, createdAt: true } })
+    ]);
+    if (!member) throw new AppError('Member not found', 404);
+    const held = holds.reduce((s, h) => s + num(h.amount), 0);
+    const pending = await prisma.withdrawalRequest.aggregate({ where: { userId: memberId, status: 'PENDING' }, _sum: { amount: true } });
+    const balance = num(member.walletBalance);
+    return {
+      name: member.name,
+      balance,
+      held,
+      pendingWithdrawals: num(pending._sum.amount),
+      available: Math.max(0, Math.round((balance - held - num(pending._sum.amount)) * 100) / 100),
+      holds: holds.map((h) => ({ id: h.id, amount: num(h.amount), reason: h.reason, createdAt: h.createdAt }))
+    };
   },
 
   // ------------------------------------------------------------------ wallet -> activation wallet

@@ -141,6 +141,7 @@ model User {
   activationEntries ActivationEntry[]
   fundRequests      FundRequest[]
   withdrawals       WithdrawalRequest[]
+  holds             WalletHold[] @relation("WalletHolds")
   bankDetails       BankDetails?
   campaignReports   CampaignReport[]
   perkClaims        PerkClaim[]
@@ -174,7 +175,24 @@ enum LedgerType {
   /// Negative rows: money leaving the wallet.
   WITHDRAWAL
   WALLET_TRANSFER
+  /// An admin took money out of a member's wallet (the reason is in the note).
+  ADMIN_DEDUCTION
   COMPANY_FUND
+}
+
+/// Money an admin has put on hold in a member's wallet: it stays in the wallet but cannot be withdrawn or moved until released.
+model WalletHold {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation("WalletHolds", fields: [userId], references: [id])
+  amount     Decimal   @db.Decimal(14, 2)
+  reason     String
+  createdBy  String
+  createdAt  DateTime  @default(now())
+  releasedAt DateTime?
+  releasedBy String?
+
+  @@index([userId, releasedAt])
 }
 
 model PackagePurchase {

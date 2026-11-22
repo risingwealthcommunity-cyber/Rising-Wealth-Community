@@ -2884,6 +2884,48 @@ test('BONUS AMOUNTS: the admin edits the Team Performance and Leadership rewards
   assert.deepEqual(((await m.c.call('GET', '/api/team/bonuses')).json.data.team.targets as any[]).map((t) => t.reward), [750, 1500, 3000, 6000, 12000], 'back to the plan amounts');
 });
 
+test('ADMIN DEDUCT AND HOLD: a hold keeps money in the wallet but out of reach; a deduction takes it out, with a reason', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_dh_m');
+  const row = await rowOf(m.email);
+  await prisma.ledgerEntry.create({ data: { userId: row.id, type: 'DIRECT_INCOME', amount: 1000 } });
+  await prisma.user.update({ where: { id: row.id }, data: { walletBalance: 1000 } });
+  const call = (path: string, body?: object, c: Client = admin) => c.call('POST', `/api/admin/members/${row.id}/${path}`, body);
+
+  assert.equal((await call('hold', { amount: 100, reason: 'checking' }, m.c)).status, 403, 'members cannot');
+  assert.equal((await call('hold', { amount: 100, reason: 'ab' })).status, 400, 'a reason is needed');
+  assert.equal((await call('hold', { amount: 0, reason: 'zero amount' })).status, 400);
+  assert.equal((await call('hold', { amount: -50, reason: 'negative' })).status, 400);
+  assert.equal((await call('hold', { amount: 5000, reason: 'more than there is' })).status, 400);
+  const me = (await prisma.user.findFirstOrThrow({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } })).id;
+  assert.equal((await admin.call('POST', `/api/admin/members/${me}/hold`, { amount: 10, reason: 'my own wallet' })).status, 403, 'not your own wallet');
+
+  assert.equal((await call('hold', { amount: 400, reason: 'verifying a payment' })).status, 200);
+  let w = await walletOf(m.c);
+  assert.deepEqual([w.balance, w.held, w.available], ['1000.00', 400, 600]);
+  const info = (await admin.call('GET', `/api/admin/members/${row.id}/holds`)).json.data;
+  assert.deepEqual([info.balance, info.held, info.available, info.holds.length], [1000, 400, 600, 1]);
+
+  // money on hold cannot be moved or deducted
+  await setTxn(m.c);
+  assert.equal((await m.c.call('POST', '/api/wallet/transfer', { amount: 700, txnPassword: TXN })).status, 400, 'the held part cannot be moved');
+  assert.equal((await call('deduct', { amount: 700, reason: 'too much' })).status, 400, 'nor deducted');
+  assert.equal((await call('deduct', { amount: 200, reason: 'Wrong credit corrected' })).status, 200);
+  w = await walletOf(m.c);
+  assert.deepEqual([w.balance, w.held, w.available], ['800.00', 400, 400]);
+  const ledger = (await m.c.call('GET', '/api/wallet/transactions')).json.data.items as any[];
+  const cut = ledger.find((e) => e.type === 'ADMIN_DEDUCTION');
+  assert.equal(Number(cut.amount), -200);
+  assert.ok(cut.note.includes('Wrong credit corrected'), 'the member sees why');
+  assert.equal(w.totalEarned, 1000, 'a deduction is not negative income');
+
+  // release: the money is free again, and only once
+  assert.equal((await admin.call('POST', `/api/admin/holds/${info.holds[0].id}/release`)).status, 200);
+  assert.equal((await admin.call('POST', `/api/admin/holds/${info.holds[0].id}/release`)).status, 409);
+  assert.equal((await m.c.call('POST', `/api/admin/holds/${info.holds[0].id}/release`)).status, 403);
+  w = await walletOf(m.c);
+  assert.deepEqual([w.held, w.available], [0, 800]);
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

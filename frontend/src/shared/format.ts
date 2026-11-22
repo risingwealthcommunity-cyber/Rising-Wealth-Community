@@ -14,6 +14,7 @@ const TYPE_LABELS: Record<string, string> = {
   LEADERSHIP_TARGET_BONUS: 'Leadership bonus',
   LEADERSHIP_BONUS: 'Leadership pool',
   CAMPAIGN_REWARD: 'Monthly royalty',
+  ADMIN_DEDUCTION: 'Deducted by admin',
   WALLET_TRANSFER: 'Moved to activation wallet',
   WITHDRAWAL: 'Withdrawal'
 };
