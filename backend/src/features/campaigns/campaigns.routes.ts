@@ -163,10 +163,10 @@ campaignRoutes.get('/reports/:id/file', requireAuth, async (req: Request, res: R
 
 campaignAdminRoutes.use(requireAuth, requireRole('ADMIN', 'SUPER_ADMIN'));
 
-const https = z.string().trim().max(300).refine((v) => v === '' || /^https:\/\/\S+$/i.test(v), 'Links must start with https://');
+const https = z.string().trim().max(300).refine((v) => v === '' || /^https:\/\/\S+$/i.test(v), 'The link must start with https:// (for example https://example.com/offer)');
 const campaignSchema = z.object({
-  title: z.string().trim().min(2).max(80),
-  description: z.string().trim().max(300).default(''),
+  title: z.string().trim().min(2, 'Write the campaign name (at least 2 letters)').max(80, 'The campaign name can be at most 80 characters'),
+  description: z.string().trim().max(300, 'The description can be at most 300 characters').default(''),
   reward: z.number().min(0).max(1_000_000),
   groupName: z.string().trim().max(60).default(''),
   url: https.default(''),

@@ -35,14 +35,22 @@ const EMPTY = {
 
 type Form = typeof EMPTY;
 
+/** A link typed without https:// (www.site.com) gets it added; an http:// link is upgraded to https. */
+const fixLink = (v: string) => {
+  const t = v.trim();
+  if (!t) return '';
+  if (/^https:\/\//i.test(t)) return t;
+  return 'https://' + t.replace(/^http:\/\//i, '');
+};
+
 const body = (f: Omit<Form, 'reward'>, reward: number) => ({
   title: f.title,
   groupName: f.groupName,
   description: f.description,
   reward,
-  url: f.url,
+  url: fixLink(f.url),
   linkType: f.linkType,
-  videoUrl: f.videoUrl,
+  videoUrl: fixLink(f.videoUrl),
   needsProof: f.needsProof,
   isDemat: f.isDemat,
   isActive: f.isActive
