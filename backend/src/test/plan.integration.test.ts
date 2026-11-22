@@ -1663,6 +1663,22 @@ test('LEADERBOARD: top 10 by income earned, short names only, and the caller alw
 
   for (const it of [...items, zero.me]) assert.deepEqual(Object.keys(it).sort(), ['avatar', 'me', 'name', 'package', 'position', 'rank', 'total']);
   assert.ok(!JSON.stringify(r.json).includes('@'), 'no email addresses');
+
+  // periods: every entry above was just made, so Today, This Week and Last 30 Days list them like All Time
+  for (const p of ['today', 'week', 'month', 'all']) {
+    const board: any = (await members[0].c.call('GET', `/api/dashboard/leaderboard?period=${p}`)).json.data;
+    assert.equal(board.period, p);
+    assert.equal(board.items[0].total, 1_000_000, p);
+  }
+  assert.equal((await members[0].c.call('GET', '/api/dashboard/leaderboard?period=bogus')).json.data.period, 'all', 'unknown period falls back to all time');
+  // move one member's income 10 days back: out of Today and This Week, still in Last 30 Days and All Time
+  const old = await rowOf(`${names[0]}@test.com`);
+  await prisma.ledgerEntry.updateMany({ where: { userId: old.id, type: 'DIRECT_INCOME', amount: { gt: 0 } }, data: { createdAt: new Date(Date.now() - 10 * 86_400_000) } });
+  const today = (await members[0].c.call('GET', '/api/dashboard/leaderboard?period=today')).json.data;
+  assert.equal(today.me.position, 0, 'no income today');
+  assert.ok(!today.items.some((i: any) => i.me));
+  assert.equal((await members[0].c.call('GET', '/api/dashboard/leaderboard?period=month')).json.data.me.position, 1);
+  assert.equal((await members[0].c.call('GET', '/api/dashboard/leaderboard?period=all')).json.data.me.position, 1);
 });
 
 test('TREE: shows the binary tree a few levels at a time, with counts per side, and only your own branches', async () => {

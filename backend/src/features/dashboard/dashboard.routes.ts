@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { requireAuth } from '../auth';
+import { istWeekStart } from '../income/payout.scheduler';
 
 const router = Router();
 
@@ -150,8 +151,22 @@ router.put('/profile', requireAuth, async (req: Request, res: Response) => {
  * the chosen avatar and rank are shown. The caller always gets their own position too, so they can see it when
  * they are not in the top 10. Members who have not earned anything yet are not ranked.
  */
+/** Where a leaderboard period starts: today and this week follow Indian time (the week starts on Monday), 30 days is a rolling window. */
+const periodStart = (period: string, now = new Date()): Date | null => {
+  if (period === 'today') {
+    const shifted = now.getTime() + IST_MS;
+    return new Date(shifted - (((shifted % 86_400_000) + 86_400_000) % 86_400_000) - IST_MS);
+  }
+  if (period === 'week') return istWeekStart(now);
+  if (period === 'month') return new Date(now.getTime() - 30 * 86_400_000);
+  return null;
+};
+
 router.get('/leaderboard', requireAuth, async (req: Request, res: Response) => {
   const userId = req.user!.id;
+  const period = ['today', 'week', 'month', 'all'].includes(String(req.query.period)) ? String(req.query.period) : 'all';
+  const since = periodStart(period);
+  const sinceSql = since ? Prisma.sql`AND l."createdAt" >= ${since}` : Prisma.empty;
   const short = (name: string) => {
     const [first, ...rest] = name.trim().split(/\s+/);
     const last = rest[rest.length - 1];
@@ -164,7 +179,7 @@ router.get('/leaderboard', requireAuth, async (req: Request, res: Response) => {
       SELECT u.id, u.name, u.avatar, u.rank::text AS rank, u.package::text AS package, u."createdAt",
              SUM(l.amount) AS total
       FROM "User" u
-      JOIN "LedgerEntry" l ON l."userId" = u.id AND l.amount > 0 AND l.type <> 'COMPANY_FUND'
+      JOIN "LedgerEntry" l ON l."userId" = u.id AND l.amount > 0 AND l.type <> 'COMPANY_FUND' ${sinceSql}
       WHERE u."isActive" AND u."isVerified" AND u.role = 'USER'
       GROUP BY u.id
     ), ordered AS (
@@ -190,7 +205,7 @@ router.get('/leaderboard', requireAuth, async (req: Request, res: Response) => {
     me = { position: 0, name: short(self.name), avatar: self.avatar, rank: self.rank, package: self.package, total: 0, me: true };
   }
 
-  res.json({ success: true, data: { items: top.map(view), me } });
+  res.json({ success: true, data: { items: top.map(view), me, period } });
 });
 
 export default router;

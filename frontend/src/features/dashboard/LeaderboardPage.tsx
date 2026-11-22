@@ -13,6 +13,14 @@ interface Row {
   me: boolean;
 }
 
+const PERIODS = [
+  { key: 'today', label: 'Today' },
+  { key: 'week', label: 'This Week' },
+  { key: 'month', label: 'Last 30 Days' },
+  { key: 'all', label: 'All Time' }
+] as const;
+type Period = (typeof PERIODS)[number]['key'];
+
 const MEDAL: Record<number, string> = { 1: '🥇', 2: '🥈', 3: '🥉' };
 const tag = (r: Row) => (r.rank === 'NONE' ? label(r.package) : label(r.rank));
 
@@ -52,12 +60,18 @@ function Line({ row }: { row: Row }) {
 export default function LeaderboardPage() {
   const [data, setData] = useState<{ items: Row[]; me: Row } | null>(null);
   const [failed, setFailed] = useState(false);
+  const [period, setPeriod] = useState<Period>('all');
 
   useEffect(() => {
-    api<{ items: Row[]; me: Row }>('/dashboard/leaderboard')
-      .then((r) => setData(r.data ?? null))
-      .catch(() => setFailed(true));
-  }, []);
+    let current = true;
+    setFailed(false);
+    api<{ items: Row[]; me: Row }>(`/dashboard/leaderboard?period=${period}`)
+      .then((r) => current && setData(r.data ?? null))
+      .catch(() => current && setFailed(true));
+    return () => {
+      current = false;
+    };
+  }, [period]);
 
   const items = data?.items ?? [];
   const podium = [items[1], items[0], items[2]].filter(Boolean); // 2nd, 1st, 3rd
@@ -68,7 +82,15 @@ export default function LeaderboardPage() {
     <>
       <div>
         <h1>Leaderboard</h1>
-        <p className="muted">The top 10 members by total income earned. Only first names are shown.</p>
+        <p className="muted">The top 10 members by income earned in the period you choose. Only first names are shown.</p>
+      </div>
+
+      <div className="period-toggle" role="tablist" aria-label="Leaderboard period">
+        {PERIODS.map((p) => (
+          <button key={p.key} type="button" role="tab" aria-selected={period === p.key} className={period === p.key ? 'on' : ''} onClick={() => setPeriod(p.key)}>
+            {p.label}
+          </button>
+        ))}
       </div>
 
       {failed && <div className="alert error">Could not load the leaderboard. Please try again.</div>}
@@ -76,8 +98,8 @@ export default function LeaderboardPage() {
 
       {data && items.length === 0 && (
         <div className="card empty-state">
-          <strong>No one is on the board yet</strong>
-          Earn your first income and you will be the first name here.
+          <strong>No one is on the board {period === 'all' ? 'yet' : 'for this period'}</strong>
+          {period === 'all' ? 'Earn your first income and you will be the first name here.' : 'Nobody has earned in this period yet. Try another period, or be the first.'}
         </div>
       )}
 
@@ -102,7 +124,7 @@ export default function LeaderboardPage() {
                   Your position
                 </div>
                 <Line row={meOutside} />
-                {meOutside.position === 0 && <p className="muted board-note">Earn your first income to get ranked.</p>}
+                {meOutside.position === 0 && <p className="muted board-note">{period === 'all' ? 'Earn your first income to get ranked.' : 'You have not earned in this period yet.'}</p>}
               </>
             )}
           </div>

@@ -719,3 +719,10 @@ label.narrow { max-width: 360px; }
 /* ---------- an expired campaign looks switched off */
 .campaign.expired { opacity: 0.6; filter: grayscale(0.6); }
 .campaign-reward .badge { margin-left: 8px; vertical-align: middle; }
+
+/* ---------- period toggle (leaderboard) */
+.period-toggle { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; border-radius: 14px; background: #e9ecf1; }
+.period-toggle button { border: 0; background: transparent; padding: 10px 6px; border-radius: 10px; font: 600 0.9rem 'Inter', sans-serif; color: #475569; cursor: pointer; transition: background 0.15s, color 0.15s, box-shadow 0.15s; }
+.period-toggle button:hover { color: #0d1117; }
+.period-toggle button.on { background: #fff; color: #0d1117; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.14); }
+@media (max-width: 520px) { .period-toggle button { font-size: 0.78rem; padding: 9px 2px; } }
