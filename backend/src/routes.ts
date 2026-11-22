@@ -9,6 +9,7 @@ import dashboardRoutes from './features/dashboard/dashboard.routes';
 import { campaignRoutes, campaignAdminRoutes } from './features/campaigns/campaigns.routes';
 import { liveRoutes, liveAdminRoutes } from './features/live/live.routes';
 import { contactRoutes, contactAdminRoutes } from './features/contact/contact.routes';
+import uploadsRoutes from './features/uploads.routes';
 
 const router = Router();
 
@@ -28,6 +29,7 @@ router.use('/admin', adminRoutes);
 router.use('/campaigns', campaignRoutes);
 router.use('/live', liveRoutes);
 router.use('/contact', contactRoutes);
+router.use('/uploads', uploadsRoutes);
 router.use('/site', siteRoutes);
 router.use('/dashboard', dashboardRoutes);
 

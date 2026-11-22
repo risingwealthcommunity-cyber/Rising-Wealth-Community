@@ -1,4 +1,5 @@
 import { AppError } from './errors/AppError';
+import { claimUpload } from './storage';
 
 /** A photo compressed in the browser fits well under this (the global JSON body limit is 1 MB). */
 const MAX_BASE64 = 900_000;
@@ -18,4 +19,11 @@ export function readProof(base64: string): { data: Buffer; mime: string } {
   const mime = sniffImage(data);
   if (!mime) throw new AppError('Upload a PNG, JPG or WebP screenshot.', 400);
   return { data, mime };
+}
+
+/** A proof picture from a request body: uploaded straight to storage (fileKey) or sent as base64 (fileData). */
+export async function proofFrom(userId: string, body: { fileData?: string; fileKey?: string }): Promise<{ data: Buffer; mime: string }> {
+  if (body.fileKey) return claimUpload(userId, body.fileKey, sniffImage);
+  if (body.fileData) return readProof(body.fileData);
+  throw new AppError('Add the screenshot of the payment.', 400);
 }

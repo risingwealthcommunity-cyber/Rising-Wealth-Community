@@ -8,7 +8,7 @@ import { validateBody } from '../../shared/middleware/validate.middleware';
 import { requireAuth, requireRole } from '../auth';
 import { packagesService } from '../packages';
 import { parseRupees, walletService } from '../wallet/wallet.service';
-import { readProof } from '../../shared/proof';
+import { proofFrom } from '../../shared/proof';
 import { closePayoutPeriod, distributeDematReferral, paiseToDecimal, previewPayoutWindow, weeklyMinPaise } from '../income/income.service';
 
 const dematSchema = z.object({
@@ -141,14 +141,15 @@ const memberPaySchema = z.object({
   amount: z.number({ message: 'Enter the amount' }),
   reference: z.string().trim().min(4, 'Enter the transaction ID of the payment').max(100),
   fileName: z.string().trim().max(120),
-  fileData: z.string().min(20, 'Add the screenshot of the payment')
+  fileData: z.string().min(20).optional(),
+  fileKey: z.string().max(200).optional()
 });
 
 /** Pay a member from their wallet (part or all of it) with the transaction ID and screenshot. */
 router.post('/members/:id/pay', validateBody(memberPaySchema), async (req: Request, res: Response) => {
   const body = req.body as z.infer<typeof memberPaySchema>;
   const rupees = parseRupees(body.amount);
-  const file = { ...readProof(body.fileData), name: body.fileName };
+  const file = { ...await proofFrom(req.user!.id, body), name: body.fileName };
   await walletService.payMember(String(req.params.id), req.user!.id, rupees, { reference: body.reference, file });
   res.json({ success: true, message: 'Payment recorded and taken from the member wallet.' });
 });
@@ -329,11 +330,12 @@ router.post('/withdrawals/:id/progress', validateBody(z.object({ on: z.boolean()
 const payoutSchema = z.object({
   reference: z.string().trim().min(4, 'Enter the transaction ID of the payment').max(100),
   fileName: z.string().trim().max(120),
-  fileData: z.string().min(20, 'Add the screenshot of the payment')
+  fileData: z.string().min(20).optional(),
+  fileKey: z.string().max(200).optional()
 });
 router.post('/withdrawals/:id/approve', validateBody(payoutSchema), async (req: Request, res: Response) => {
   const body = req.body as z.infer<typeof payoutSchema>;
-  const file = { ...readProof(body.fileData), name: body.fileName };
+  const file = { ...await proofFrom(req.user!.id, body), name: body.fileName };
   await walletService.approveWithdrawal(String(req.params.id), req.user!.id, { reference: body.reference, file });
   res.json({ success: true, message: 'Marked as paid. The amount left the member wallet.' });
 });

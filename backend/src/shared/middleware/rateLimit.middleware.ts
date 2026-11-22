@@ -17,6 +17,9 @@ export const apiLimiter = make(15 * 60 * 1000, 3000, 'Too many requests, please 
 /** Login-style endpoints: 60 attempts / 5 min. */
 export const authLimiter = make(5 * 60 * 1000, 60, 'Too many authentication attempts, please try again after 5 minutes.');
 
+/** Asking for an upload address: 60 / 10 min per connection. */
+export const uploadLimiter = make(10 * 60 * 1000, 60, 'Too many uploads. Please wait a few minutes.');
+
 /** The public contact form: 5 messages an hour from one connection. Separate from the limiter that guards money routes. */
 export const contactLimiter = make(60 * 60 * 1000, 5, 'Too many messages from this connection. Please try again in an hour, or reach us on WhatsApp.');
 

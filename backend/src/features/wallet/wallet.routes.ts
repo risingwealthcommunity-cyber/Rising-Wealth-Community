@@ -8,7 +8,7 @@ import { validateBody } from '../../shared/middleware/validate.middleware';
 import { strictAuthLimiter } from '../../shared/middleware/rateLimit.middleware';
 import { requireAuth } from '../auth';
 import { packagesService } from '../packages';
-import { readProof } from '../../shared/proof';
+import { proofFrom } from '../../shared/proof';
 import { parseRupees, walletService, MIN_WITHDRAWAL } from './wallet.service';
 
 const router = Router();
@@ -95,11 +95,12 @@ router.post(
       amount: amountField,
       reference: z.string().trim().min(4, 'Enter the transaction ID').max(100),
       fileName: z.string().trim().max(120),
-      fileData: z.string().min(20, 'Add the payment screenshot')
+      fileData: z.string().min(20).optional(),
+  fileKey: z.string().max(200).optional()
     })
   ),
   async (req: Request, res: Response) => {
-    const proof = readProof(req.body.fileData);
+    const proof = await proofFrom(req.user!.id, req.body);
     const r = await walletService.createFundRequest(req.user!.id, parseRupees(req.body.amount), req.body.reference, { ...proof, name: req.body.fileName });
     res.status(201).json({ success: true, message: 'Request sent. The money is added once we have checked the payment.', data: { id: r.id } });
   }

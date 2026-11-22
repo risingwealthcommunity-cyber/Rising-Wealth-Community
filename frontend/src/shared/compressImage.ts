@@ -1,3 +1,5 @@
+import { api } from './api/apiClient';
+
 /** The server accepts about 650 KB of picture per report, so screenshots are shrunk in the browser first. */
 const MAX_BYTES = 640_000;
 
@@ -9,7 +11,22 @@ const toBase64 = (blob: Blob): Promise<string> =>
     r.readAsDataURL(blob);
   });
 
-export async function compressImage(file: File): Promise<{ fileName: string; fileData: string }> {
+/**
+ * Sends the picture straight to storage with a one-time address from the server, and returns its key. Returns null when the server
+ * is not set up for direct upload (or the upload could not be made), and the picture is then sent inside the request instead.
+ */
+async function uploadDirect(blob: Blob): Promise<string | null> {
+  try {
+    const r = await api<{ direct: boolean; url?: string; key?: string }>('/uploads/sign', { method: 'POST', body: { mime: blob.type, size: blob.size } });
+    if (!r.data?.direct || !r.data.url || !r.data.key) return null;
+    const put = await fetch(r.data.url, { method: 'PUT', headers: { 'Content-Type': blob.type }, body: blob });
+    return put.ok ? r.data.key : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function compressImage(file: File): Promise<{ fileName: string; fileData?: string; fileKey?: string }> {
   if (!file.type.startsWith('image/')) throw new Error('Upload a screenshot (PNG, JPG or WebP).');
   const url = URL.createObjectURL(file);
   try {
@@ -31,7 +48,11 @@ export async function compressImage(file: File): Promise<{ fileName: string; fil
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', Math.max(0.5, 0.82 - attempt * 0.06)));
-      if (blob && blob.size <= MAX_BYTES) return { fileName: file.name.replace(/\.[^.]+$/, '') + '.jpg', fileData: await toBase64(blob) };
+      if (blob && blob.size <= MAX_BYTES) {
+        const fileName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+        const fileKey = await uploadDirect(blob);
+        return fileKey ? { fileName, fileKey } : { fileName, fileData: await toBase64(blob) };
+      }
       scale *= 0.75;
     }
     throw new Error('That picture is too large. Try a smaller screenshot.');

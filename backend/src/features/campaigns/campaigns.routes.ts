@@ -6,7 +6,7 @@ import { AppError } from '../../shared/errors/AppError';
 import { validateBody } from '../../shared/middleware/validate.middleware';
 import { requireAuth, requireRole } from '../auth';
 import { distributeDematReferral, paiseToDecimal } from '../income/income.service';
-import { readProof } from '../../shared/proof';
+import { proofFrom } from '../../shared/proof';
 import { loadFile, storeFile } from '../../shared/storage';
 
 /** Members: see the campaigns, send proof reports and watch them get approved. */
@@ -18,7 +18,7 @@ export const campaignAdminRoutes = Router();
 
 const holder = z.string().trim().min(2, 'Enter the account holder name').max(80);
 const mobile = z.string().trim().regex(/^[6-9][0-9]{9}$/, 'Enter a valid 10 digit mobile number');
-const proof = z.object({ fileName: z.string().trim().max(120), fileData: z.string().min(20) });
+const proof = z.object({ fileName: z.string().trim().max(120), fileData: z.string().min(20).optional(), fileKey: z.string().max(200).optional() });
 
 /** Serialises everything about one (campaign, mobile) pair for the length of a transaction, so checks and writes cannot interleave. */
 const lockPair = (tx: Prisma.TransactionClient, campaignId: string, mobile: string) =>
@@ -89,7 +89,7 @@ campaignRoutes.post('/reports', requireAuth, validateBody(createSchema), async (
 
   const pending = await prisma.campaignReport.count({ where: { userId: req.user!.id, status: 'PENDING' } });
   if (pending >= 20) throw new AppError('You have 20 reports waiting. Please wait for them to be checked.', 409);
-  const file = readProof(body.fileData);
+  const file = await proofFrom(req.user!.id, body);
   const stored = await storeFile(file.data, file.mime, 'reports');
   const r = await prisma.$transaction(async (tx) => {
     await lockPair(tx, campaign.id, body.mobile);
@@ -112,7 +112,7 @@ campaignRoutes.post('/reports', requireAuth, validateBody(createSchema), async (
   res.status(201).json({ success: true, message: 'Report submitted. It is checked by our team.', data: { id: r.id } });
 });
 
-const editSchema = z.object({ holderName: holder, mobile, fileName: z.string().trim().max(120).optional(), fileData: z.string().min(20).optional() });
+const editSchema = z.object({ holderName: holder, mobile, fileName: z.string().trim().max(120).optional(), fileData: z.string().min(20).optional(), fileKey: z.string().max(200).optional() });
 
 campaignRoutes.put('/reports/:id', requireAuth, validateBody(editSchema), async (req: Request, res: Response) => {
   const body = req.body as z.infer<typeof editSchema>;
@@ -120,7 +120,7 @@ campaignRoutes.put('/reports/:id', requireAuth, validateBody(editSchema), async 
   const existing = await prisma.campaignReport.findFirst({ where: { id, userId: req.user!.id } });
   if (!existing) throw new AppError('Report not found', 404);
 
-  const file = body.fileData ? readProof(body.fileData) : null;
+  const file = body.fileData || body.fileKey ? await proofFrom(req.user!.id, body) : null;
   const storedEdit = file ? await storeFile(file.data, file.mime, 'reports') : null;
   const dup = await prisma.campaignReport.findFirst({
     where: { id: { not: id }, campaignId: existing.campaignId, mobile: body.mobile, status: { in: ['PENDING', 'APPROVED', 'INCOMPLETE'] } }

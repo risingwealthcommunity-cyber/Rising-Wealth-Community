@@ -2,14 +2,15 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../auth';
 import { validateBody } from '../../shared/middleware/validate.middleware';
-import { readProof } from '../../shared/proof';
+import { proofFrom } from '../../shared/proof';
 import { packagesService } from './packages.service';
 
 const purchaseSchema = z.object({
   package: z.enum(['PRO', 'ELITE']),
   reference: z.string().trim().min(4, 'Enter the transaction ID').max(100),
   fileName: z.string().trim().max(120),
-  fileData: z.string().min(20, 'Add the payment screenshot')
+  fileData: z.string().min(20).optional(),
+  fileKey: z.string().max(200).optional()
 });
 
 const router = Router();
@@ -19,7 +20,7 @@ router.get('/prices', (_req: Request, res: Response) => {
 });
 
 router.post('/purchase', requireAuth, validateBody(purchaseSchema), async (req: Request, res: Response) => {
-  const proof = readProof(req.body.fileData);
+  const proof = await proofFrom(req.user!.id, req.body);
   const purchase = await packagesService.createPurchase(req.user!.id, req.body.package, req.body.reference, { ...proof, name: req.body.fileName });
   res.status(201).json({
     success: true,
