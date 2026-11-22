@@ -1,0 +1,12 @@
+# {$DOMAIN} is your site address, e.g. app.example.com. Caddy gets and renews the HTTPS certificate by itself.
+{$DOMAIN} {
+	encode gzip
+	handle /api/* {
+		reverse_proxy api:5000
+	}
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
