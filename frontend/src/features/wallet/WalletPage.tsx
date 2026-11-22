@@ -18,6 +18,7 @@ interface Summary {
   activationBalance: number;
   hasTxnPassword: boolean;
   minWithdrawal: number;
+  minFund?: number;
 }
 interface Entry {
   id: string;
@@ -86,6 +87,7 @@ export default function WalletPage() {
     e.preventDefault();
     const n = toAmount(fAmount);
     if (Number.isNaN(n)) return fund.setMsg({ type: 'error', text: 'Enter a valid amount.' });
+    if (summary?.minFund && n < summary.minFund) return fund.setMsg({ type: 'error', text: `The smallest amount you can add is ${inr(summary.minFund)}.` });
     if (!fFile) return fund.setMsg({ type: 'error', text: 'Add the screenshot of your payment.' });
     void fund.run(async () => {
       const picture = await compressImage(fFile);
@@ -151,10 +153,10 @@ export default function WalletPage() {
           <PaymentBox />
           <p className="muted">
             Scan the QR and pay. Then enter the amount, the transaction ID and a screenshot of the payment. Once an admin has checked it, the money appears in your{' '}
-            <Link to="/activation">activation wallet</Link>.
+            <Link to="/activation">activation wallet</Link>. Smallest amount: <b>{summary?.minFund ? inr(summary.minFund) : '...'}</b>.
           </p>
           <div className="form-row">
-            <input value={fAmount} inputMode="decimal" onChange={(e) => setFAmount(e.target.value)} placeholder="Amount paid" aria-label="Amount paid" />
+            <input value={fAmount} inputMode="decimal" onChange={(e) => setFAmount(e.target.value)} placeholder={summary?.minFund ? `Amount paid (minimum ${inr(summary.minFund)})` : 'Amount paid'} aria-label="Amount paid" />
             <input value={fRef} onChange={(e) => setFRef(e.target.value)} placeholder="Transaction ID (UTR)" aria-label="Transaction ID" maxLength={100} />
           </div>
           <label className="pay-file">

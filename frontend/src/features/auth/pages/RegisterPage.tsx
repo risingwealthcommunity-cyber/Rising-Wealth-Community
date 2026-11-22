@@ -26,6 +26,14 @@ export default function RegisterPage() {
     sponsorCode: invitedBy,
     leg: params.get('leg') === 'RIGHT' ? 'RIGHT' : 'LEFT'
   });
+  const [company, setCompany] = useState<{ left: string | null; right: string | null } | null>(null);
+  // the company's own codes, for someone who was not invited by anyone
+  useEffect(() => {
+    authApi
+      .companyCodes()
+      .then((r) => setCompany(r.data ?? null))
+      .catch(() => setCompany(null));
+  }, []);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [sentTo, setSentTo] = useState('');
@@ -221,6 +229,24 @@ export default function RegisterPage() {
             )
           }
         />
+
+        {!form.sponsorCode.trim() && company && (company.left || company.right) && (
+          <div className="au-field">
+            <span className="au-field-label">No sponsor code? Join the company&rsquo;s team:</span>
+            <div className="au-seg">
+              {company.left && (
+                <button type="button" className="au-btn ghost" onClick={() => setForm((f) => ({ ...f, sponsorCode: company.left ?? '' }))}>
+                  Use company LEFT code
+                </button>
+              )}
+              {company.right && (
+                <button type="button" className="au-btn ghost" onClick={() => setForm((f) => ({ ...f, sponsorCode: company.right ?? '' }))}>
+                  Use company RIGHT code
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {showSideToggle && (
           <div>

@@ -18,7 +18,9 @@ const lockReference = (tx: Prisma.TransactionClient, ref: string) =>
 const TXN_LOCK_MS = 15 * 60_000;
 
 /** Smallest withdrawal, in rupees. */
-export const MIN_WITHDRAWAL = 100;
+export const MIN_WITHDRAWAL = 300;
+/** The smallest amount a member can add to the activation wallet in one request. */
+export const MIN_FUND = 100;
 
 const dec = (rupees: number) => paiseToDecimal(Math.round(rupees * 100));
 const num = (d: Prisma.Decimal | null | undefined) => Number(d ?? 0);
@@ -141,6 +143,7 @@ export const walletService = {
   // ------------------------------------------------------------------ add fund (activation wallet)
 
   async createFundRequest(userId: string, rupees: number, reference: string, file: { data: Buffer; mime: string; name: string }) {
+    if (rupees < MIN_FUND) throw new AppError(`The smallest amount you can add is Rs ${MIN_FUND}.`, 400);
     const open = await prisma.fundRequest.count({ where: { userId, status: 'PENDING' } });
     if (open >= 3) throw new AppError('You already have 3 requests waiting. Please wait for them to be checked.', 409);
     const used = await prisma.fundRequest.findFirst({

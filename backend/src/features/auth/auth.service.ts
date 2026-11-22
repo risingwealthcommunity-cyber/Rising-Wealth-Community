@@ -522,6 +522,14 @@ export const authService = {
     };
   },
 
+  /** The two codes of the root admin: for people who have no sponsor, they join the company's team through these. */
+  async companyCodes() {
+    const root = await prisma.user.findFirst({ where: { role: 'SUPER_ADMIN', isActive: true }, orderBy: { createdAt: 'asc' } });
+    if (!root) return { left: null, right: null };
+    const full = await ensureSponsorCodes(root);
+    return { left: full.leftCode, right: full.rightCode };
+  },
+
   async getMe(userId: string) {
     const found = await prisma.user.findUnique({ where: { id: userId } });
     if (!found) throw new AppError('User not found', 404);

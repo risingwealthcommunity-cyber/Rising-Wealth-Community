@@ -19,6 +19,8 @@ export interface SponsorPreview {
 }
 
 export const authApi = {
+  /** The company's own LEFT and RIGHT codes, for people who were not invited by anyone. */
+  companyCodes: () => api<{ left: string | null; right: string | null }>('/auth/company-codes'),
   sponsorPreview: (code: string) => api<SponsorPreview>(`/auth/sponsor/${encodeURIComponent(code)}`),
   /** Creates an unverified account. The user must click the emailed link before logging in. */
   register: (body: RegisterInput) => api('/auth/signup', { method: 'POST', body }),

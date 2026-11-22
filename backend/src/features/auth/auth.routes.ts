@@ -24,6 +24,7 @@ router.use((_req: Request, res: Response, next: NextFunction) => {
 });
 
 router.get('/sponsor/:code', authLimiter, c.sponsorPreview);
+router.get('/company-codes', authLimiter, c.companyCodes);
 router.post('/signup', strictAuthLimiter, validateBody(signupSchema), c.signup);
 router.get('/verify-email/:token', strictAuthLimiter, c.verifyEmail);
 router.post('/verify-email-code', strictAuthLimiter, validateBody(verifyEmailCodeSchema), c.verifyEmailCode);

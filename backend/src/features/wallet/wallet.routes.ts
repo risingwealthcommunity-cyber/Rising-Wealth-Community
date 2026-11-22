@@ -9,7 +9,7 @@ import { strictAuthLimiter } from '../../shared/middleware/rateLimit.middleware'
 import { requireAuth } from '../auth';
 import { packagesService } from '../packages';
 import { proofFrom } from '../../shared/proof';
-import { parseRupees, walletService, MIN_WITHDRAWAL } from './wallet.service';
+import { parseRupees, walletService, MIN_WITHDRAWAL, MIN_FUND } from './wallet.service';
 
 const router = Router();
 
@@ -26,7 +26,8 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
       ...summary,
       balance: summary.balance.toFixed(2),
       earningsByType: Object.fromEntries(byType.map((r) => [r.type, (r._sum.amount ?? 0).toString()])),
-      minWithdrawal: MIN_WITHDRAWAL
+      minWithdrawal: MIN_WITHDRAWAL,
+      minFund: MIN_FUND
     }
   });
 });

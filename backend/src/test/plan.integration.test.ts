@@ -1929,10 +1929,10 @@ test('WITHDRAWAL: needs bank details, reserves the amount, and the wallet is deb
   await buy(buyer.c, 'PRO');
   await setTxn(top.c);
   const w = await walletOf(top.c);
-  assert.ok(w.available >= 500);
+  assert.ok(w.available >= 700);
   const ask = (amount: number, txnPassword = TXN) => top.c.call('POST', '/api/wallet/withdraw', { amount, txnPassword });
 
-  assert.equal((await ask(200)).status, 400, 'bank details first');
+  assert.equal((await ask(300)).status, 400, 'bank details first');
   const bank = { bankName: 'State Bank', accountNumber: '123456789012', ifsc: 'SBIN0001234', upiId: 'wd.top@upi' };
   assert.equal((await top.c.call('PUT', '/api/wallet/bank', { ...bank, ifsc: 'BAD', txnPassword: TXN })).status, 400);
   assert.equal((await top.c.call('PUT', '/api/wallet/bank', { ...bank, accountNumber: '12ab', txnPassword: TXN })).status, 400);
@@ -1949,12 +1949,12 @@ test('WITHDRAWAL: needs bank details, reserves the amount, and the wallet is deb
 
   assert.equal((await ask(50)).status, 400, 'below the minimum');
   assert.equal((await ask(w.available + 1)).status, 400, 'more than available');
-  assert.equal((await ask(200, 'wrong')).status, 401);
-  assert.equal((await ask(200)).status, 201);
+  assert.equal((await ask(300, 'wrong')).status, 401);
+  assert.equal((await ask(300)).status, 201);
   const mid = await walletOf(top.c);
   assert.equal(Number(mid.balance), Number(w.balance), 'nothing leaves the wallet until approval');
-  assert.equal(mid.pendingWithdrawals, 200);
-  assert.equal(mid.available, w.available - 200, 'but it is reserved');
+  assert.equal(mid.pendingWithdrawals, 300);
+  assert.equal(mid.available, w.available - 300, 'but it is reserved');
   assert.equal((await ask(mid.available + 1)).status, 400, 'the reserved part cannot be requested again');
 
   const listed = ((await admin.call('GET', '/api/admin/withdrawals')).json.data.items as any[]).find((x) => x.userId === (stored.userId));
@@ -1981,14 +1981,14 @@ test('WITHDRAWAL: needs bank details, reserves the amount, and the wallet is deb
   const stranger = await signup('RWCROOT', 'RIGHT', 'mny_wd_stranger');
   assert.equal((await stranger.c.call('GET', `/api/wallet/withdrawals/${listed.id}/proof`)).status, 404, 'not someone else\'s payout');
   const done = await walletOf(top.c);
-  assert.equal(Number(done.balance), Number(w.balance) - 200);
-  assert.equal(done.totalPaid, 200);
+  assert.equal(Number(done.balance), Number(w.balance) - 300);
+  assert.equal(done.totalPaid, 300);
   assert.equal(done.pendingWithdrawals, 0);
   assert.equal(done.totalEarned, w.totalEarned, 'withdrawing is not negative income');
 
   // the admin can move a waiting withdrawal to "Processing" (with a message) and back, and the member sees it
   assert.equal((await admin.call('POST', `/api/admin/withdrawals/${'0'.repeat(8)}-0000-0000-0000-000000000000/progress`, { on: true })).status, 409, 'unknown id');
-  assert.equal((await ask(120)).status, 201);
+  assert.equal((await ask(300)).status, 201);
   const waiting = ((await admin.call('GET', '/api/admin/withdrawals?status=PENDING')).json.data.items as any[]).find((x) => x.userId === stored.userId);
   assert.equal(waiting.inProgress, false);
   assert.equal((await top.c.call('POST', `/api/admin/withdrawals/${waiting.id}/progress`, { on: true })).status, 403);
@@ -2005,7 +2005,7 @@ test('WITHDRAWAL: needs bank details, reserves the amount, and the wallet is deb
   assert.equal((await admin.call('POST', `/api/admin/withdrawals/${waiting.id}/progress`, { on: true })).status, 409, 'a finished one cannot change state');
 
   // one bank transaction ID cannot be used to mark two withdrawals paid
-  assert.equal((await ask(150)).status, 201);
+  assert.equal((await ask(300)).status, 201);
   const next = ((await admin.call('GET', '/api/admin/withdrawals')).json.data.items as any[]).find((x) => x.userId === stored.userId);
   assert.equal((await admin.call('POST', `/api/admin/withdrawals/${next.id}/approve`, { ...paid, reference: 'utr-payout-1' })).status, 409);
   assert.equal((await admin.call('POST', `/api/admin/withdrawals/${next.id}/reject`)).status, 200);
@@ -2023,7 +2023,7 @@ test('WITHDRAWAL: needs bank details, reserves the amount, and the wallet is deb
   assert.equal((await admin.call('POST', `/api/admin/withdrawals/${second.id}/reject`, { note: 'wrong account' })).status, 200);
   const freed = await walletOf(top.c);
   assert.equal(freed.pendingWithdrawals, 0);
-  assert.equal(Number(freed.balance), Number(w.balance) - 200);
+  assert.equal(Number(freed.balance), Number(w.balance) - 300);
   assert.deepEqual(((await top.c.call('GET', '/api/wallet/withdrawals')).json.data.items as any[]).map((x) => x.status).sort(), ['APPROVED', 'REJECTED', 'REJECTED', 'REJECTED']);
 });
 
@@ -2794,7 +2794,7 @@ test('SECURITY: the contact form, reused references and the 24 hour pause after 
   assert.equal((await m.c.call('POST', '/api/wallet/txn-password', { newPassword: TXN, loginPassword: 'Password123' })).status, 200);
   const bank = { bankName: 'SBI', accountNumber: '123456789012', ifsc: 'SBIN0001234', upiId: 'visitor@upi' };
   assert.equal((await m.c.call('PUT', '/api/wallet/bank', { ...bank, txnPassword: TXN })).status, 403, 'paused');
-  assert.equal((await m.c.call('POST', '/api/wallet/withdraw', { amount: 100, txnPassword: TXN })).status, 403, 'paused');
+  assert.equal((await m.c.call('POST', '/api/wallet/withdraw', { amount: 300, txnPassword: TXN })).status, 403, 'paused');
   await prisma.user.update({ where: { id: row.id }, data: { txnPasswordChangedAt: new Date(Date.now() - 25 * 3_600_000) } });
   assert.equal((await m.c.call('PUT', '/api/wallet/bank', { ...bank, txnPassword: TXN })).status, 200, 'the pause is over');
 

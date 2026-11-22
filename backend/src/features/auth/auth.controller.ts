@@ -182,6 +182,10 @@ export const sponsorPreview = async (req: Request, res: Response) => {
   res.json({ success: true, data: await authService.previewSponsor(single(req.params.code) ?? '') });
 };
 
+export const companyCodes = async (_req: Request, res: Response) => {
+  res.json({ success: true, data: await authService.companyCodes() });
+};
+
 export const me = async (req: Request, res: Response) => {
   res.json({ success: true, data: { user: await authService.getMe(req.user!.id) } });
 };
