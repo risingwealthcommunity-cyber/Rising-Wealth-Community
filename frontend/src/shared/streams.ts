@@ -1,7 +1,7 @@
 /** The income streams members see, always all of them (a stream with nothing earned yet shows Rs 0). */
 export const STREAMS: { key: string; label: string; types: string[]; color: string }[] = [
   { key: 'demat', label: 'Demat Referral Income', types: ['DEMAT_DIRECT'], color: '#14b8a6' },
-  { key: 'direct', label: 'Direct Package Income', types: ['DIRECT_INCOME'], color: '#3b82f6' },
+  { key: 'direct', label: 'Direct Passive Income', types: ['DIRECT_INCOME'], color: '#3b82f6' },
   { key: 'passive', label: 'Passive Income', types: ['PASSIVE_INCOME', 'DEMAT_PASSIVE'], color: '#8b5cf6' },
   { key: 'weekly', label: 'Weekly Bonus', types: ['WEEKLY_BONUS'], color: '#22c55e' },
   { key: 'leadership', label: 'Leadership Bonus', types: ['LEADERSHIP_TARGET_BONUS', 'LEADERSHIP_BONUS'], color: '#f59e0b' },
