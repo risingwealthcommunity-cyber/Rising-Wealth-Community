@@ -157,6 +157,8 @@ export default function LandingPage() {
         </div>
       </section>
 
+      <ReviewsSection reviews={content.reviews} assets={content.assets} />
+
       <section className="lp-section" id="plans">
         <h2>Pick your plan</h2>
         <div className="lp-plans">
@@ -177,7 +179,6 @@ export default function LandingPage() {
 
       <TeamSection team={content.team} assets={content.assets} />
       <ContactSection contact={contact} isAdmin={user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'} />
-      <ReviewsSection reviews={content.reviews} assets={content.assets} />
       <CtaBanner signedIn={Boolean(user)} />
 
       <SiteFooter contact={contact} hasTeam={hasTeam} hasCertificate={Boolean(content.assets.certificate)} />

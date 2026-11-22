@@ -54,6 +54,23 @@ router.post(
   }
 );
 
+/** The member asks for an email link to choose a new transaction password (the answer is the same whatever happens, one email a minute). */
+router.post('/txn-password/reset-request', requireAuth, strictAuthLimiter, async (req: Request, res: Response) => {
+  await walletService.requestTxnReset(req.user!.id);
+  res.json({ success: true, message: 'We have emailed you a link to choose a new transaction password. It works for 15 minutes.' });
+});
+
+router.post(
+  '/txn-password/reset',
+  requireAuth,
+  strictAuthLimiter,
+  validateBody(z.object({ token: z.string().min(20).max(200), newPassword: z.string().min(8, 'At least 8 characters').max(72) })),
+  async (req: Request, res: Response) => {
+    await walletService.confirmTxnReset(req.user!.id, req.body.token, req.body.newPassword);
+    res.json({ success: true, message: 'Transaction password changed.' });
+  }
+);
+
 router.post('/transfer', requireAuth, strictAuthLimiter, validateBody(z.object({ amount: amountField, txnPassword: txnField })), async (req: Request, res: Response) => {
   await walletService.transferToActivation(req.user!.id, parseRupees(req.body.amount), req.body.txnPassword);
   res.json({ success: true, message: 'Moved to your activation wallet.' });

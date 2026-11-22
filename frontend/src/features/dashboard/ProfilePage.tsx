@@ -24,11 +24,12 @@ export default function ProfilePage() {
   const [directs, setDirects] = useState<number | null>(null);
   const [team, setTeam] = useState<number | null>(null);
   const [reports, setReports] = useState<{ total: number; approved: number; earnings: number } | null>(null);
+  const [sponsor, setSponsor] = useState<string | null>(null);
   const [hasTxn, setHasTxn] = useState<boolean | null>(null);
   const [masked, setMasked] = useState<Bank | null>(null);
 
   const load = useCallback(() => {
-    api<{ stats: { total: number; team: number } }>('/dashboard/summary').then((r) => { setTotal(r.data?.stats.total ?? 0); setTeam(r.data?.stats.team ?? 0); }).catch(() => undefined);
+    api<{ stats: { total: number; team: number }; profile: { sponsorName: string | null } }>('/dashboard/summary').then((r) => { setTotal(r.data?.stats.total ?? 0); setTeam(r.data?.stats.team ?? 0); setSponsor(r.data?.profile.sponsorName ?? ''); }).catch(() => undefined);
     api<{ me: { position: number } }>('/dashboard/leaderboard').then((r) => setPlace(r.data?.me.position ?? 0)).catch(() => undefined);
     api<{ directReferrals: unknown[] }>('/team/summary').then((r) => setDirects(r.data?.directReferrals.length ?? 0)).catch(() => undefined);
     api<{ total: number; approved: number; earnings: number }>('/campaigns/stats').then((r) => setReports(r.data ?? null)).catch(() => undefined);
@@ -84,6 +85,8 @@ export default function ProfilePage() {
 
   // ---- transaction password
   const txn = useRun();
+  const loginMail = useRun();
+  const txnMail = useRun();
   const [tp, setTp] = useState({ login: '', current: '', next: '', again: '' });
   const saveTxn = (e: FormEvent) => {
     e.preventDefault();
@@ -107,6 +110,7 @@ export default function ProfilePage() {
     ['City', user.city ?? 'Not added'],
     ['Package', label(user.package)],
     ['Affiliate ID', user.referralCode],
+    ['Sponsor', sponsor === null ? '...' : sponsor || 'Rising Wealth Community'],
     ['Join date', date(user.createdAt)],
     ['Leaderboard rank', place === null ? '...' : place > 0 ? `#${place}` : 'Not ranked yet']
   ];
@@ -250,12 +254,9 @@ export default function ProfilePage() {
             <strong>{total === null ? '...' : inr(total)}</strong>
           </div>
           <div className="level">
-            <small>Direct referrals</small>
-            <strong>{n(directs)}</strong>
-          </div>
-          <div className="level">
-            <small>Total team</small>
-            <strong>{n(team)}</strong>
+            <small>Report approval</small>
+            <strong>{reports ? (reports.total > 0 ? `${Math.round((reports.approved / reports.total) * 100)}%` : '–') : '...'}</strong>
+            <em>approved ÷ total reports × 100</em>
           </div>
         </div>
       </div>
@@ -266,9 +267,17 @@ export default function ProfilePage() {
           <div className="level">
             <b>Login password</b>
             <small className="muted">{user.hasPassword ? 'Used to sign in.' : 'You sign in with Google. Add a password to also sign in with email.'}</small>
-            <Link className="btn" to="/set-password">
-              {user.hasPassword ? 'Reset login password' : 'Set a login password'}
-            </Link>
+            {user.hasPassword ? (
+              <button className="btn" type="button" disabled={loginMail.busy} onClick={() => void loginMail.run(async () => api('/auth/forgot-password', { method: 'POST', body: { email: user.email } }))}>
+                {loginMail.busy ? 'Sending...' : 'Reset login password'}
+              </button>
+            ) : (
+              <Link className="btn" to="/set-password">
+                Set a login password
+              </Link>
+            )}
+            {user.hasPassword && <small className="muted">We email you a link to choose a new one.</small>}
+            {loginMail.msg && <div className={`alert ${loginMail.msg.type}`}>{loginMail.msg.text}</div>}
           </div>
           <form className="level stack" onSubmit={saveTxn}>
             <b>Transaction password</b>
@@ -282,8 +291,17 @@ export default function ProfilePage() {
             <input type="password" value={tp.again} onChange={(e) => setTp({ ...tp, again: e.target.value })} placeholder="Repeat the new password" autoComplete="new-password" aria-label="Repeat the new transaction password" />
             {txn.msg && <div className={`alert ${txn.msg.type}`}>{txn.msg.text}</div>}
             <button className="btn" disabled={txn.busy || tp.next.length < 8}>
-              {hasTxn ? 'Reset transaction password' : 'Set transaction password'}
+              {hasTxn ? 'Change transaction password' : 'Set transaction password'}
             </button>
+            {hasTxn && (
+              <>
+                <small className="muted">Forgot it? We email you a link to choose a new one.</small>
+                <button className="btn ghost" type="button" disabled={txnMail.busy} onClick={() => void txnMail.run(async () => api('/wallet/txn-password/reset-request', { method: 'POST' }))}>
+                  {txnMail.busy ? 'Sending...' : 'Reset transaction password'}
+                </button>
+                {txnMail.msg && <div className={`alert ${txnMail.msg.type}`}>{txnMail.msg.text}</div>}
+              </>
+            )}
           </form>
         </div>
       </div>

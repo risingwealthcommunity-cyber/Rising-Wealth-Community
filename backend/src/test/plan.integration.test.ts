@@ -2830,6 +2830,38 @@ test('CAMPAIGN STATUS: the admin makes a campaign Live or Expired; members see E
   assert.equal((await report()).status, 201, 'live again: a report is accepted');
 });
 
+test('TRANSACTION PASSWORD RESET: an emailed one-time link, for the signed-in member only', async () => {
+  const sponsor = await paidMember('RWCROOT', 'LEFT', 'mny_tr_sp');
+  const m = await signup(sponsor.left, 'LEFT', 'mny_tr_m');
+  const other = await signup(sponsor.right, 'LEFT', 'mny_tr_o');
+  const tokenOf = (mail?: { link?: string }) => (mail?.link ?? '').split('/').pop() ?? '';
+  await setTxn(m.c);
+  const before = outbox.length;
+
+  assert.equal((await new Client().call('POST', '/api/wallet/txn-password/reset-request')).status, 401);
+  assert.equal((await m.c.call('POST', '/api/wallet/txn-password/reset-request')).status, 200);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(outbox.length, before + 1, 'one email');
+  const mail = lastMail(m.email, 'txn-reset');
+  assert.ok(mail?.link?.includes('/reset-txn-password/'));
+  assert.equal((await m.c.call('POST', '/api/wallet/txn-password/reset-request')).status, 200);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(outbox.length, before + 1, 'not a second email within a minute');
+
+  const token = tokenOf(mail);
+  assert.equal((await m.c.call('POST', '/api/wallet/txn-password/reset', { token: 'x'.repeat(40), newPassword: 'Another#Txn1' })).status, 400, 'wrong token');
+  assert.equal((await other.c.call('POST', '/api/wallet/txn-password/reset', { token, newPassword: 'Another#Txn1' })).status, 400, 'another member cannot use it');
+  assert.equal((await m.c.call('POST', '/api/wallet/txn-password/reset', { token, newPassword: 'short' })).status, 400, 'too short');
+  assert.equal((await m.c.call('POST', '/api/wallet/txn-password/reset', { token, newPassword: 'Another#Txn1' })).status, 200);
+  assert.equal((await m.c.call('POST', '/api/wallet/txn-password/reset', { token, newPassword: 'Third#Txn123' })).status, 400, 'once only');
+
+  // the new password works (the amount is more than the wallet holds, so 400, not 401), the old one does not
+  assert.equal((await m.c.call('POST', '/api/wallet/transfer', { amount: 50, txnPassword: 'Another#Txn1' })).status, 400);
+  assert.equal((await m.c.call('POST', '/api/wallet/transfer', { amount: 50, txnPassword: TXN })).status, 401);
+  // and the 24 hour pause after a change applies
+  assert.equal((await m.c.call('POST', '/api/wallet/withdraw', { amount: 300, txnPassword: 'Another#Txn1' })).status, 403);
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

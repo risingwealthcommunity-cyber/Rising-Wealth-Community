@@ -30,6 +30,7 @@ import {
 } from '../features/admin';
 import { CampaignsPage, ReportsPage } from '../features/campaigns';
 import { DashboardPage, LeaderboardPage, ProfilePage, TrainingPage } from '../features/dashboard';
+import ResetTxnPasswordPage from '../features/wallet/ResetTxnPasswordPage';
 import { LandingPage } from '../features/landing';
 import { PackagesPage } from '../features/packages';
 import { LivePage } from '../features/live';
@@ -70,6 +71,7 @@ export default function App() {
           <Route path="/training" element={<TrainingPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/reset-txn-password/:token" element={<ResetTxnPasswordPage />} />
           <Route path="/activation" element={<ActivationPage />} />
           <Route path="/campaigns" element={<CampaignsPage />} />
           <Route path="/ranks" element={<Navigate to="/bonuses/team" replace />} />

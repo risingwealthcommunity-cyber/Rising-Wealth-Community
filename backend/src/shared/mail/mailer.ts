@@ -4,7 +4,7 @@ import { config } from '../../config/env';
 
 export interface OutboxItem {
   to: string;
-  kind: 'verify' | 'reset' | 'otp' | 'changed';
+  kind: 'verify' | 'reset' | 'txn-reset' | 'otp' | 'changed';
   link?: string;
   otp?: string;
   /** What the email says. Only filled in by the test mailbox. */
@@ -137,6 +137,28 @@ export const sendResetPasswordEmail = (to: string, link: string, code: string) =
           linkFallback(link)
       ),
       text: `Reset your ${BRAND} password\n\nOpen this link (valid 15 minutes):\n${link}\n\nOr enter this code (valid 10 minutes): ${code}\n\nIf you did not ask for this, ignore this email. Nothing has changed.`
+    }
+  );
+
+export const sendTxnResetEmail = (to: string, link: string) =>
+  deliver(
+    { to, kind: 'txn-reset', link },
+    {
+      subject: `Reset your ${BRAND} transaction password`,
+      html: layout(
+        'Reset your transaction password',
+        'Choose a new transaction password',
+        para('We got a request to reset the transaction password of your account. It is the password you use for transfers, activations, withdrawals and bank details.') +
+          button(link, 'Choose a new transaction password') +
+          small('The link works for 15 minutes and only once. After you set a new one, withdrawals and bank changes stay paused for 24 hours for your safety. If you did not ask for this, nothing has changed: you can ignore this email, and you may want to change your login password.') +
+          linkFallback(link)
+      ),
+      text: `Reset your ${BRAND} transaction password
+
+Open this link (valid 15 minutes, once):
+${link}
+
+If you did not ask for this, ignore this email. Nothing has changed.`
     }
   );
 

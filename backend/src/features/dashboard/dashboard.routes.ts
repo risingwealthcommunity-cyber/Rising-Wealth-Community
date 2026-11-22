@@ -31,7 +31,7 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
   const [me, recent, byType, teamRows] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { name: true, avatar: true, package: true, rank: true, referralCode: true, leftCode: true, rightCode: true, walletBalance: true }
+      select: { name: true, avatar: true, package: true, rank: true, referralCode: true, leftCode: true, rightCode: true, walletBalance: true, sponsor: { select: { name: true } } }
     }),
     prisma.ledgerEntry.findMany({
       where: { userId, createdAt: { gte: new Date(monthStart) }, amount: { gt: 0 } },
@@ -85,6 +85,7 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
         package: me.package,
         rank: me.rank,
         affiliateId: me.referralCode,
+        sponsorName: me.sponsor?.name ?? null,
         leftCode: me.leftCode,
         rightCode: me.rightCode
       },

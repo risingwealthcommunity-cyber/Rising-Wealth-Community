@@ -5,6 +5,9 @@ import { AppError } from '../../shared/errors/AppError';
 import { decryptField, encryptField } from '../../shared/crypto/field';
 import { paiseToDecimal } from '../income/income.service';
 import { storeFile } from '../../shared/storage';
+import { createOneTimeToken, hashToken } from '../auth/auth.tokens';
+import { sendTxnResetEmail } from '../../shared/mail/mailer';
+import { config } from '../../config/env';
 
 const ROUNDS = process.env.NODE_ENV === 'test' ? 4 : 12;
 const TX = { timeout: 30_000, maxWait: 10_000 };
@@ -92,6 +95,24 @@ export const walletService = {
       where: { id: userId },
       data: { txnPasswordHash: await bcrypt.hash(input.newPassword, ROUNDS), txnFailedAttempts: 0, txnLockedUntil: null, txnPasswordChangedAt: new Date() }
     });
+  },
+
+  /** Emails the member a one-time link to choose a new transaction password. One email a minute. */
+  async requestTxnReset(userId: string) {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true, txnResetExpiry: true } });
+    if (user.txnResetExpiry && user.txnResetExpiry.getTime() - 14 * 60_000 > Date.now()) return; // sent in the last minute
+    const t = createOneTimeToken(15 * 60_000);
+    await prisma.user.update({ where: { id: userId }, data: { txnResetTokenHash: t.tokenHash, txnResetExpiry: t.expiresAt } });
+    sendTxnResetEmail(user.email, `${config.frontendUrl}/reset-txn-password/${t.rawToken}`).catch((e) => console.error('[Wallet] Failed to send the transaction password email:', e));
+  },
+
+  /** Sets the new transaction password from the emailed link. The link belongs to the signed-in member and works once. */
+  async confirmTxnReset(userId: string, token: string, newPassword: string) {
+    const done = await prisma.user.updateMany({
+      where: { id: userId, txnResetTokenHash: hashToken(token), txnResetExpiry: { gt: new Date() } },
+      data: { txnResetTokenHash: null, txnResetExpiry: null, txnPasswordHash: await bcrypt.hash(newPassword, ROUNDS), txnFailedAttempts: 0, txnLockedUntil: null, txnPasswordChangedAt: new Date() }
+    });
+    if (done.count !== 1) throw new AppError('This link is not valid any more. Ask for a new one.', 400);
   },
 
   // ------------------------------------------------------------------ balances

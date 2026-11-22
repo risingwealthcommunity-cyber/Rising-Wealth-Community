@@ -119,6 +119,9 @@ model User {
   txnFailedAttempts Int       @default(0)
   /// Withdrawals and bank changes stay paused for 24 hours after this, so a stolen session cannot cash out at once.
   txnPasswordChangedAt DateTime?
+  /// One-time emailed link that lets the member choose a new transaction password.
+  txnResetTokenHash String?
+  txnResetExpiry    DateTime?
   txnLockedUntil    DateTime?
 
   city String?
