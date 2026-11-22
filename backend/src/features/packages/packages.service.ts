@@ -8,7 +8,7 @@ import { PACKAGE_PRICE_PAISE, PACKAGE_TIER, type PaidPackage } from '../income/p
 const LOWER_THAN: Record<PaidPackage, Package[]> = { PRO: ['TRAINEE'], ELITE: ['TRAINEE', 'PRO'] };
 
 /** Purchase columns that are safe to send around. The payment screenshot is only ever served by its own endpoint. */
-const PURCHASE_FIELDS = { id: true, userId: true, package: true, amount: true, status: true, reference: true, createdAt: true, confirmedAt: true, confirmedBy: true } as const;
+const PURCHASE_FIELDS = { id: true, userId: true, package: true, amount: true, status: true, reference: true, paidFromWallet: true, createdAt: true, confirmedAt: true, confirmedBy: true } as const;
 
 const TX_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
@@ -44,13 +44,41 @@ export const packagesService = {
   listMine: (userId: string) =>
     prisma.packagePurchase.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, select: PURCHASE_FIELDS }),
 
-  listForAdmin: (status: 'PENDING' | 'CONFIRMED' | 'REJECTED') =>
-    prisma.packagePurchase.findMany({
+  /**
+   * The member asks to move up a package and pay from their activation wallet. Nothing is taken now: the price leaves the
+   * wallet when an admin approves, and the request can only be made while the wallet already holds the price.
+   */
+  async requestWithWallet(userId: string, pkg: PaidPackage) {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (PACKAGE_TIER[pkg] <= PACKAGE_TIER[user.package]) throw new AppError(`You already have ${user.package}. Choose a higher package.`, 400);
+    if (await prisma.packagePurchase.findFirst({ where: { userId, status: 'PENDING' } })) throw new AppError('You already have an upgrade waiting for approval.', 409);
+    const price = paiseToDecimal(PACKAGE_PRICE_PAISE[pkg]);
+    if (user.activationBalance.lt(price)) {
+      throw new AppError(`Your activation wallet needs ${price.toFixed(2)} for ${pkg}. Add money to it first (Wallet > Add fund, or move money from your wallet).`, 400);
+    }
+    return prisma.packagePurchase.create({
+      data: { userId, package: pkg, amount: price, reference: 'ACTIVATION_WALLET', paidFromWallet: true },
+      select: PURCHASE_FIELDS
+    });
+  },
+
+  async listForAdmin(status: 'PENDING' | 'CONFIRMED' | 'REJECTED') {
+    const rows = await prisma.packagePurchase.findMany({
       where: { status },
       orderBy: { createdAt: 'desc' },
       take: 200,
-      select: { ...PURCHASE_FIELDS, user: { select: { id: true, name: true, email: true, package: true, referralCode: true } } }
-    }),
+      select: {
+        ...PURCHASE_FIELDS,
+        fileMime: true,
+        user: { select: { id: true, name: true, email: true, package: true, referralCode: true, activationBalance: true } }
+      }
+    });
+    return rows.map(({ fileMime, user, ...r }) => ({
+      ...r,
+      hasProof: Boolean(fileMime),
+      user: { ...user, activationBalance: user.activationBalance.toFixed(2) }
+    }));
+  },
 
   /** Admin verified the payment: activate the package and run the whole income plan atomically. */
   async confirm(purchaseId: string, adminId: string) {
@@ -66,8 +94,19 @@ export const packagesService = {
       const buyer = await tx.user.findUniqueOrThrow({ where: { id: purchase.userId } });
       const pkg = purchase.package as PaidPackage;
 
+      if (buyer.id === adminId) throw new AppError('You cannot approve your own upgrade. Ask another admin.', 403);
       if (PACKAGE_TIER[pkg] <= PACKAGE_TIER[buyer.package]) {
         throw new AppError('User already has this package or higher', 409);
+      }
+
+      // a wallet request: the price leaves the member's activation wallet now (and the whole approval is undone if it cannot)
+      if (purchase.paidFromWallet) {
+        const paid = await tx.user.updateMany({
+          where: { id: buyer.id, activationBalance: { gte: purchase.amount } },
+          data: { activationBalance: { decrement: purchase.amount } }
+        });
+        if (paid.count !== 1) throw new AppError("The member's activation wallet no longer holds the price of this package.", 409);
+        await tx.activationEntry.create({ data: { userId: buyer.id, kind: 'SPEND', amount: purchase.amount.neg(), note: `Upgrade to ${pkg} approved` } });
       }
 
       const upgraded = await tx.user.updateMany({ where: { id: buyer.id, package: { in: LOWER_THAN[pkg] } }, data: { package: pkg } });
@@ -91,6 +130,7 @@ export const packagesService = {
   async activateFromWallet(payerId: string, targetAffiliateId: string, pkg: PaidPackage) {
     const payer = await prisma.user.findUniqueOrThrow({ where: { id: payerId }, select: { id: true, referralCode: true } });
     const code = targetAffiliateId.trim().toUpperCase();
+    if (code === payer.referralCode.toUpperCase()) throw new AppError('To upgrade your own ID, send an upgrade request. An admin approves it.', 400);
 
     let target = await prisma.user.findUnique({ where: { referralCode: code } });
     if (!target || !target.isVerified || !target.isActive) throw new AppError('No active member has that Affiliate ID.', 404);
@@ -143,6 +183,45 @@ export const packagesService = {
       if (upgraded.count !== 1) throw new AppError('That member already has this package or higher.', 409);
       await distributePackageSale(tx, { purchaseId: purchase.id, buyerId: buyer.id, sponsorId: fresh.sponsorId, package: pkg });
       return { purchaseId: purchase.id, memberName: buyer.name, package: pkg };
+    }, TX_OPTIONS);
+  },
+
+  /**
+   * An admin moves a member up a package. WALLET takes the price from the member's activation wallet. MANUAL is for a
+   * payment received outside the app (the reference is kept on the record). Either way the whole income plan runs.
+   */
+  async adminUpgrade(adminId: string, memberId: string, pkg: PaidPackage, mode: 'WALLET' | 'MANUAL', reference?: string) {
+    const price = PACKAGE_PRICE_PAISE[pkg];
+    return prisma.$transaction(async (tx) => {
+      const buyer = await tx.user.findFirst({ where: { id: memberId, role: 'USER' } });
+      if (!buyer) throw new AppError('Member not found', 404);
+      if (PACKAGE_TIER[pkg] <= PACKAGE_TIER[buyer.package]) throw new AppError(`${buyer.name} already has ${buyer.package} or higher.`, 409);
+      if (await tx.packagePurchase.findFirst({ where: { userId: buyer.id, status: 'PENDING' } })) {
+        throw new AppError('This member has an upgrade waiting. Approve or reject it first.', 409);
+      }
+
+      if (mode === 'WALLET') {
+        const paid = await tx.user.updateMany({ where: { id: buyer.id, activationBalance: { gte: paiseToDecimal(price) } }, data: { activationBalance: { decrement: paiseToDecimal(price) } } });
+        if (paid.count !== 1) throw new AppError("The member's activation wallet does not hold the price of this package.", 400);
+        await tx.activationEntry.create({ data: { userId: buyer.id, kind: 'SPEND', amount: paiseToDecimal(-price), note: `Upgraded to ${pkg} by admin` } });
+      }
+
+      const purchase = await tx.packagePurchase.create({
+        data: {
+          userId: buyer.id,
+          package: pkg,
+          amount: paiseToDecimal(price),
+          status: 'CONFIRMED',
+          reference: mode === 'WALLET' ? 'ACTIVATION_WALLET (admin)' : `ADMIN: ${(reference ?? '').trim()}`,
+          paidFromWallet: mode === 'WALLET',
+          confirmedAt: new Date(),
+          confirmedBy: adminId
+        }
+      });
+      const upgraded = await tx.user.updateMany({ where: { id: buyer.id, package: { in: LOWER_THAN[pkg] } }, data: { package: pkg } });
+      if (upgraded.count !== 1) throw new AppError('That member already has this package or higher.', 409);
+      await distributePackageSale(tx, { purchaseId: purchase.id, buyerId: buyer.id, sponsorId: buyer.sponsorId, package: pkg });
+      return { memberName: buyer.name, package: pkg };
     }, TX_OPTIONS);
   },
 

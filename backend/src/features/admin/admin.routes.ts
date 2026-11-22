@@ -186,6 +186,20 @@ router.delete('/members/:id', async (req: Request, res: Response) => {
   res.json({ success: true, message: 'Member deleted' });
 });
 
+const upgradeSchema = z.object({
+  package: z.enum(['PRO', 'ELITE']),
+  mode: z.enum(['WALLET', 'MANUAL']),
+  reference: z.string().trim().max(100).optional()
+});
+
+/** Move a member up a package: from their activation wallet, or for a payment you received outside the app. */
+router.post('/members/:id/upgrade', validateBody(upgradeSchema), async (req: Request, res: Response) => {
+  const { package: pkg, mode, reference } = req.body as z.infer<typeof upgradeSchema>;
+  if (mode === 'MANUAL' && (reference ?? '').length < 4) throw new AppError('Write the payment reference or a note (at least 4 characters) for a payment received outside the app.', 400);
+  const done = await packagesService.adminUpgrade(req.user!.id, String(req.params.id), pkg, mode, reference);
+  res.json({ success: true, message: `${done.memberName} is now on ${done.package}.` });
+});
+
 /** Switch a member off (they are logged out and cannot sign in or act) or back on. Admin accounts are never touched here. */
 router.post('/members/:id/active', validateBody(z.object({ isActive: z.boolean() })), async (req: Request, res: Response) => {
   const { isActive } = req.body as { isActive: boolean };

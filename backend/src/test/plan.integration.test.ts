@@ -1845,7 +1845,7 @@ test('ACTIVATION: paying from the activation wallet upgrades yourself or your te
   assert.equal((await ask({ affiliateId: mateRow.referralCode, package: 'PRO', txnPassword: 'wrong' })).status, 401);
   assert.equal((await ask({ affiliateId: outRow.referralCode, package: 'PRO' })).status, 403, 'not in your team');
   assert.equal((await ask({ affiliateId: 'RWCNOSUCH', package: 'PRO' })).status, 404);
-  assert.equal((await ask({ affiliateId: (await rowOf(top.email)).referralCode, package: 'PRO' })).status, 409, 'already PRO');
+  assert.equal((await ask({ affiliateId: (await rowOf(top.email)).referralCode, package: 'ELITE' })).status, 400, 'your own ID goes through an upgrade request');
 
   const r = await ask({ affiliateId: mateRow.referralCode.toLowerCase(), package: 'PRO' });
   assert.equal(r.status, 201, JSON.stringify(r.json));
@@ -1854,8 +1854,10 @@ test('ACTIVATION: paying from the activation wallet upgrades yourself or your te
   assert.ok((await walletOf(top.c)).totalEarned > before, 'the sponsor earned direct income from the sale');
   assert.equal((await ask({ affiliateId: mateRow.referralCode, package: 'PRO' })).status, 409, 'cannot buy the same package twice');
 
-  // own ID: PRO -> ELITE
-  assert.equal((await ask({ affiliateId: (await rowOf(top.email)).referralCode, package: 'ELITE' })).status, 201);
+  // own ID: PRO -> ELITE, as a request that an admin approves
+  assert.equal((await top.c.call('POST', '/api/packages/wallet-request', { package: 'ELITE' })).status, 201);
+  const waitingRow = ((await admin.call('GET', '/api/admin/purchases?status=PENDING')).json.data.purchases as any[]).find((x) => x.user.id === top.user.id);
+  assert.equal((await admin.call('POST', `/api/admin/purchases/${waitingRow.id}/confirm`)).status, 200);
   assert.equal((await rowOf(top.email)).package, 'ELITE');
   const left = (await actOf(top.c)).activation;
   assert.equal(left, 500);
@@ -2639,6 +2641,113 @@ test('CAMPAIGN FORM: group name, link type, an optional link; admin creates it a
   // and a switched-off campaign is not shown
   assert.equal((await admin.call('PUT', `/api/admin/campaigns/${personal.json.data.id}`, { ...base, title: 'Personal link', url: 'https://example.com/join?x=1', linkType: 'PERSONAL', isActive: false })).status, 200);
   assert.equal(((await m.c.call('GET', '/api/campaigns')).json.data.items as any[]).some((c) => c.id === personal.json.data.id), false);
+});
+
+test('UPGRADE REQUEST: the member asks from their activation wallet; the price leaves it only when an admin approves', async () => {
+  const prices = (await new Client().call('GET', '/api/packages/prices')).json.data as { PRO: number; ELITE: number };
+  const sponsor = await paidMember('RWCROOT', 'LEFT', 'mny_ur_sp');
+  const m = await signup(sponsor.left, 'LEFT', 'mny_ur_m');
+  const row = await rowOf(m.email);
+  const ask = (c: Client, pkg: string) => c.call('POST', '/api/packages/wallet-request', { package: pkg });
+
+  // not enough in the activation wallet yet
+  assert.equal((await ask(m.c, 'PRO')).status, 400);
+  await setTxn(m.c);
+  await addFund(m.c, prices.PRO + 100, 'UTR-UR-1');
+  assert.equal((await ask(new Client(), 'PRO')).status, 401);
+  assert.equal((await ask(m.c, 'GOLD')).status, 400);
+  assert.equal((await ask(m.c, 'ELITE')).status, 400, 'only the money in the wallet counts');
+  assert.equal((await ask(m.c, 'PRO')).status, 201);
+  assert.equal((await ask(m.c, 'PRO')).status, 409, 'one request at a time');
+  assert.equal((await actOf(m.c)).activation, prices.PRO + 100, 'nothing is taken when the request is made');
+  assert.equal((await rowOf(m.email)).package, 'TRAINEE');
+
+  // the admin sees who asked, how they pay, and what is in their wallet
+  const pending = ((await admin.call('GET', '/api/admin/purchases?status=PENDING')).json.data.purchases as any[]).find((x) => x.user.id === row.id);
+  assert.deepEqual([pending.paidFromWallet, pending.hasProof, pending.package, pending.user.package], [true, false, 'PRO', 'TRAINEE']);
+  assert.equal(pending.user.activationBalance, (prices.PRO + 100).toFixed(2));
+  assert.equal(JSON.stringify(pending).includes('fileData'), false);
+  assert.equal((await m.c.call('POST', `/api/admin/purchases/${pending.id}/confirm`)).status, 403, 'members cannot approve');
+
+  // the wallet is emptied between the request and the approval: the approval is refused and nothing changes
+  await prisma.user.update({ where: { id: row.id }, data: { activationBalance: 10 } });
+  assert.equal((await admin.call('POST', `/api/admin/purchases/${pending.id}/confirm`)).status, 409);
+  assert.equal((await rowOf(m.email)).package, 'TRAINEE');
+  assert.equal((await actOf(m.c)).activation, 10);
+  assert.equal(((await admin.call('GET', '/api/admin/purchases?status=PENDING')).json.data.purchases as any[]).some((x) => x.id === pending.id), true, 'still waiting');
+  await prisma.user.update({ where: { id: row.id }, data: { activationBalance: prices.PRO + 100 } });
+
+  // approve: price leaves the activation wallet, package is upgraded, the sponsor earns
+  const earned = (await walletOf(sponsor.c)).totalEarned;
+  assert.equal((await admin.call('POST', `/api/admin/purchases/${pending.id}/confirm`)).status, 200);
+  assert.equal((await admin.call('POST', `/api/admin/purchases/${pending.id}/confirm`)).status, 409, 'once only');
+  assert.equal((await rowOf(m.email)).package, 'PRO');
+  assert.equal((await actOf(m.c)).activation, 100, 'only the price was taken');
+  assert.ok((await walletOf(sponsor.c)).totalEarned > earned, 'the income plan ran');
+  const hist = (await actOf(m.c)).entries as any[];
+  assert.ok(hist.some((e) => e.kind === 'SPEND' && Number(e.amount) === -prices.PRO));
+  assert.equal((await ask(m.c, 'PRO')).status, 400, 'already on PRO');
+
+  // a rejected request takes nothing
+  await addFund(m.c, prices.ELITE, 'UTR-UR-2');
+  assert.equal((await ask(m.c, 'ELITE')).status, 201);
+  const second = ((await admin.call('GET', '/api/admin/purchases?status=PENDING')).json.data.purchases as any[]).find((x) => x.user.id === row.id);
+  const before = (await actOf(m.c)).activation;
+  assert.equal((await admin.call('POST', `/api/admin/purchases/${second.id}/reject`)).status, 200);
+  assert.equal((await actOf(m.c)).activation, before);
+  assert.equal((await rowOf(m.email)).package, 'PRO');
+
+  // an admin who is also a member cannot approve their own upgrade
+  const adminRow = await prisma.user.findFirstOrThrow({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } });
+  await prisma.user.update({ where: { id: adminRow.id }, data: { package: 'TRAINEE' } });
+  const own = await prisma.packagePurchase.create({ data: { userId: adminRow.id, package: 'PRO', amount: prices.PRO, reference: 'X-OWN-UPGRADE', status: 'PENDING' } });
+  assert.equal((await admin.call('POST', `/api/admin/purchases/${own.id}/confirm`)).status, 403);
+  await prisma.packagePurchase.delete({ where: { id: own.id } });
+  await prisma.user.update({ where: { id: adminRow.id }, data: { package: adminRow.package } });
+});
+
+test('ADMIN UPGRADE: the admin moves a member up from their activation wallet or for a payment received outside the app', async () => {
+  const prices = (await new Client().call('GET', '/api/packages/prices')).json.data as { PRO: number; ELITE: number };
+  const sponsor = await paidMember('RWCROOT', 'RIGHT', 'mny_au_sp');
+  const a = await signup(sponsor.left, 'LEFT', 'mny_au_a');
+  const b = await signup(sponsor.right, 'LEFT', 'mny_au_b');
+  const aRow = await rowOf(a.email);
+  const bRow = await rowOf(b.email);
+  const up = (id: string, body: object) => admin.call('POST', `/api/admin/members/${id}/upgrade`, body);
+
+  assert.equal((await a.c.call('POST', `/api/admin/members/${aRow.id}/upgrade`, { package: 'PRO', mode: 'MANUAL', reference: 'cash' })).status, 403, 'members cannot');
+  assert.equal((await up(aRow.id, { package: 'GOLD', mode: 'MANUAL', reference: 'cash 1' })).status, 400);
+  assert.equal((await up(aRow.id, { package: 'PRO', mode: 'FREE' })).status, 400);
+  assert.equal((await up(aRow.id, { package: 'PRO', mode: 'MANUAL' })).status, 400, 'a payment received outside needs a reference');
+  assert.equal((await up(aRow.id, { package: 'PRO', mode: 'WALLET' })).status, 400, 'nothing in the activation wallet');
+  assert.equal((await up('00000000-0000-0000-0000-000000000000', { package: 'PRO', mode: 'MANUAL', reference: 'cash 1' })).status, 404);
+
+  const earned = (await walletOf(sponsor.c)).totalEarned;
+  assert.equal((await up(aRow.id, { package: 'PRO', mode: 'MANUAL', reference: 'Cash received 22 Nov' })).status, 200);
+  assert.equal((await rowOf(a.email)).package, 'PRO');
+  assert.ok((await walletOf(sponsor.c)).totalEarned > earned, 'the sponsor income plan ran');
+  const rec = await prisma.packagePurchase.findFirstOrThrow({ where: { userId: aRow.id, status: 'CONFIRMED' } });
+  assert.equal(rec.reference, 'ADMIN: Cash received 22 Nov');
+  assert.equal((await up(aRow.id, { package: 'PRO', mode: 'MANUAL', reference: 'cash again' })).status, 409, 'already PRO');
+
+  // from the member's activation wallet
+  await setTxn(b.c);
+  await addFund(b.c, prices.ELITE + 50, 'UTR-AU-1');
+  assert.equal((await up(bRow.id, { package: 'ELITE', mode: 'WALLET' })).status, 200);
+  assert.equal((await rowOf(b.email)).package, 'ELITE');
+  assert.equal((await actOf(b.c)).activation, 50);
+
+  // not while the member has a request waiting
+  const c = await signup(sponsor.left, 'LEFT', 'mny_au_c');
+  const cRow = await rowOf(c.email);
+  await setTxn(c.c);
+  await addFund(c.c, prices.PRO, 'UTR-AU-2');
+  assert.equal((await c.c.call('POST', '/api/packages/wallet-request', { package: 'PRO' })).status, 201);
+  assert.equal((await up(cRow.id, { package: 'PRO', mode: 'MANUAL', reference: 'cash 2' })).status, 409);
+
+  // never an admin account
+  const adminRow = await prisma.user.findFirstOrThrow({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } });
+  assert.equal((await up(adminRow.id, { package: 'ELITE', mode: 'MANUAL', reference: 'cash 3' })).status, 404);
 });
 
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {

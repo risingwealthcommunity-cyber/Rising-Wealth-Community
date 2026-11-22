@@ -180,6 +180,8 @@ model PackagePurchase {
   amount      Decimal        @db.Decimal(14, 2)
   status      PurchaseStatus @default(PENDING)
   reference   String? // payment reference / UTR entered by user
+  /// true = the member asked to pay with their activation wallet: the price is taken from it when an admin approves.
+  paidFromWallet Boolean     @default(false)
   /// The payment screenshot the member sent (kept in the database, compressed in the browser).
   fileName    String?
   fileMime    String?

@@ -28,6 +28,12 @@ router.post('/purchase', requireAuth, validateBody(purchaseSchema), async (req: 
   });
 });
 
+/** Ask to upgrade my own package and pay from my activation wallet. An admin approves, and only then is the price taken. */
+router.post('/wallet-request', requireAuth, validateBody(z.object({ package: z.enum(['PRO', 'ELITE']) })), async (req: Request, res: Response) => {
+  await packagesService.requestWithWallet(req.user!.id, req.body.package);
+  res.status(201).json({ success: true, message: 'Request sent. When an admin approves it, the price is taken from your activation wallet and your package is upgraded.' });
+});
+
 router.get('/mine', requireAuth, async (req: Request, res: Response) => {
   res.json({ success: true, data: { purchases: await packagesService.listMine(req.user!.id) } });
 });
