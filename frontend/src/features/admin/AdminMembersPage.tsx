@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api } from '../../shared/api/apiClient';
+import { compressImage } from '../../shared/compressImage';
 import { inr, label } from '../../shared/format';
-import { useRun } from '../../shared/useRun';
+import { toAmount, useRun } from '../../shared/useRun';
 
 interface Member {
   id: string;
@@ -17,23 +18,71 @@ interface Member {
   createdAt: string;
   walletBalance: string;
   activationBalance: string;
+  earned: number;
+  paid: number;
+  pending: number;
   sponsor: { name: string; referralCode: string } | null;
 }
 interface Page {
   page: number;
   pageSize: number;
   total: number;
+  totals: { earned: number; paid: number; pending: number };
   items: Member[];
 }
 
 const when = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
-/** Every member as a table, with search and a switch to turn someone off (they are signed out at once) or back on. */
+/** The form that pays a member part or all of their wallet and records the transaction. */
+function PayPanel({ m, onClose, onDone }: { m: Member; onClose: () => void; onDone: () => void }) {
+  const [amount, setAmount] = useState(String(m.pending));
+  const [ref, setRef] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const act = useRun();
+
+  const submit = () => {
+    const n = toAmount(amount);
+    if (Number.isNaN(n)) return act.setMsg({ type: 'error', text: 'Enter a valid amount.' });
+    if (!file) return act.setMsg({ type: 'error', text: 'Add the screenshot of the payment you made.' });
+    void act.run(async () => {
+      const picture = await compressImage(file);
+      const r = await api(`/admin/members/${m.id}/pay`, { method: 'POST', body: { amount: n, reference: ref.trim(), ...picture } });
+      onDone();
+      onClose();
+      return r;
+    });
+  };
+
+  return (
+    <div className="wd-panel">
+      <p className="muted">
+        Pay <b>{m.name}</b> from the app wallet. Pending now: <b>{inr(m.pending)}</b>. Pay them first from your bank app, then record it here.
+      </p>
+      <div className="wd-pay">
+        <input value={amount} inputMode="decimal" onChange={(e) => setAmount(e.target.value)} placeholder="Amount (₹)" aria-label="Amount to pay" />
+        <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Transaction ID of your payment" aria-label="Transaction ID" maxLength={100} />
+        <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-label="Payment screenshot" />
+      </div>
+      {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
+      <div className="wd-panel-actions">
+        <button className="btn ok" type="button" disabled={act.busy || !amount || ref.trim().length < 4 || !file} onClick={submit}>
+          {act.busy ? 'Saving...' : 'Confirm payment'}
+        </button>
+        <button className="btn ghost" type="button" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** User income management: what every member earned, was paid and has pending, with Pay, Block and Delete. */
 export default function AdminMembersPage() {
   const [q, setQ] = useState('');
   const [typed, setTyped] = useState('');
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Page | null>(null);
+  const [paying, setPaying] = useState<string | null>(null);
   const act = useRun();
 
   const load = useCallback(() => {
@@ -43,10 +92,19 @@ export default function AdminMembersPage() {
   }, [page, q]);
   useEffect(load, [load]);
 
-  const toggle = (m: Member) => {
-    if (m.isActive && !window.confirm(`Switch off ${m.name}? They are signed out and cannot use the app until you switch them on again.`)) return;
+  const block = (m: Member) => {
+    if (m.isActive && !window.confirm(`Block ${m.name}? They are signed out and cannot use the app until you unblock them.`)) return;
     void act.run(async () => {
       const r = await api(`/admin/members/${m.id}/active`, { method: 'POST', body: { isActive: !m.isActive } });
+      load();
+      return r;
+    }, m.isActive ? 'Member blocked and signed out.' : 'Member unblocked.');
+  };
+
+  const remove = (m: Member) => {
+    if (!window.confirm(`Delete ${m.name} permanently? This cannot be undone. It only works for an account with no team, money, purchases or reports.`)) return;
+    void act.run(async () => {
+      const r = await api(`/admin/members/${m.id}`, { method: 'DELETE' });
       load();
       return r;
     });
@@ -56,14 +114,33 @@ export default function AdminMembersPage() {
 
   return (
     <>
-      <h1>Users</h1>
+      <h1>User income management</h1>
+
+      <div className="levels admin-overview">
+        <div className="level">
+          <small>Total income on platform</small>
+          <strong>{data ? inr(data.totals.earned) : '...'}</strong>
+          <em>earned by all members, all time</em>
+        </div>
+        <div className="level">
+          <small>Total amount pending in wallets</small>
+          <strong>{data ? inr(data.totals.pending) : '...'}</strong>
+          <em>still to be paid, all members</em>
+        </div>
+        <div className="level">
+          <small>Total paid out</small>
+          <strong>{data ? inr(data.totals.paid) : '...'}</strong>
+          <em>already paid to members</em>
+        </div>
+      </div>
 
       <div className="card">
         <div className="team-head">
           <div>
             <h2>All members</h2>
-            <p className="muted">{data ? `${data.total} member${data.total === 1 ? '' : 's'}` : 'Loading...'}</p>
+            <p className="muted">View all users, manage their payouts, and administer accounts. Deleting a user is permanent and cannot be undone.</p>
           </div>
+          <span className="muted">{data ? `${data.total} member${data.total === 1 ? '' : 's'}` : 'Loading...'}</span>
         </div>
         <form
           className="rep-tools"
@@ -73,7 +150,7 @@ export default function AdminMembersPage() {
             setQ(typed.trim());
           }}
         >
-          <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search by name, email, mobile or Affiliate ID" aria-label="Search members" />
+          <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Filter by name or email..." aria-label="Search members" />
           <button className="btn ghost">Search</button>
         </form>
         {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
@@ -84,49 +161,75 @@ export default function AdminMembersPage() {
             <table className="rep-table">
               <thead>
                 <tr>
-                  <th>Member</th>
-                  <th>Contact</th>
+                  <th>User</th>
+                  <th className="num">Total earned</th>
+                  <th className="num">Total paid</th>
+                  <th className="num">Pending</th>
                   <th>Package</th>
-                  <th>Sponsor</th>
-                  <th>Wallet</th>
                   <th>Joined</th>
-                  <th>Status</th>
-                  <th className="center">Action</th>
+                  <th className="center">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {data.items.map((m) => (
-                  <tr key={m.id} className={m.isActive ? undefined : 'done-row'}>
-                    <td>
-                      <b>{m.name}</b>
-                      <small className="muted">ID {m.referralCode}</small>
-                    </td>
-                    <td>
-                      {m.email}
-                      {m.phone && <small className="muted">{m.phone}</small>}
-                      {m.city && <small className="muted">{m.city}</small>}
-                    </td>
-                    <td>
-                      {label(m.package)}
-                      {m.rank !== 'NONE' && <small className="muted">{label(m.rank)}</small>}
-                    </td>
-                    <td>{m.sponsor ? <>{m.sponsor.name}<small className="muted">{m.sponsor.referralCode}</small></> : <span className="muted">-</span>}</td>
-                    <td>
-                      <b>{inr(m.walletBalance)}</b>
-                      <small className="muted">Activation {inr(m.activationBalance)}</small>
-                    </td>
-                    <td>{when(m.createdAt)}</td>
-                    <td>
-                      {!m.isActive ? <span className="badge rejected">Off</span> : !m.isVerified ? <span className="badge pending">Not verified</span> : <span className="badge approved">Active</span>}
-                    </td>
-                    <td className="rep-actions center">
-                      <button className={m.isActive ? 'btn bad' : 'btn ok'} type="button" disabled={act.busy} onClick={() => toggle(m)}>
-                        {m.isActive ? 'Switch off' : 'Switch on'}
-                      </button>
-                    </td>
-                  </tr>
+                  <Fragment key={m.id}>
+                    <tr className={m.isActive ? undefined : 'done-row'}>
+                      <td>
+                        <b>{m.name}</b> {!m.isActive && <span className="badge rejected">Blocked</span>} {m.isActive && !m.isVerified && <span className="badge pending">Not verified</span>}
+                        <small className="muted">{m.email}</small>
+                        <small className="muted">
+                          ID {m.referralCode}
+                          {m.phone ? ` · ${m.phone}` : ''}
+                          {m.sponsor ? ` · sponsor ${m.sponsor.name}` : ''}
+                        </small>
+                      </td>
+                      <td className="num">{inr(m.earned)}</td>
+                      <td className="num green">{inr(m.paid)}</td>
+                      <td className="num orange">{inr(m.pending)}</td>
+                      <td>
+                        {label(m.package)}
+                        {m.rank !== 'NONE' && <small className="muted">{label(m.rank)}</small>}
+                      </td>
+                      <td>{when(m.createdAt)}</td>
+                      <td className="rep-actions center">
+                        <button className="btn solid" type="button" disabled={m.pending <= 0 || act.busy} onClick={() => setPaying(paying === m.id ? null : m.id)}>
+                          Pay
+                        </button>
+                        <button className="btn ghost" type="button" disabled={act.busy} onClick={() => block(m)} title={m.isActive ? 'Block this member' : 'Unblock this member'} aria-label={m.isActive ? `Block ${m.name}` : `Unblock ${m.name}`}>
+                          {m.isActive ? '⊘' : '↺'}
+                        </button>
+                        <button className="btn bad" type="button" disabled={act.busy} onClick={() => remove(m)} title="Delete permanently" aria-label={`Delete ${m.name}`}>
+                          🗑
+                        </button>
+                      </td>
+                    </tr>
+                    {paying === m.id && (
+                      <tr className="wd-panel-row">
+                        <td colSpan={7}>
+                          <PayPanel m={m} onClose={() => setPaying(null)} onDone={load} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
+              <tfoot>
+                <tr>
+                  <td>
+                    <b>Total (all members)</b>
+                  </td>
+                  <td className="num">
+                    <b>{inr(data.totals.earned)}</b>
+                  </td>
+                  <td className="num">
+                    <b>{inr(data.totals.paid)}</b>
+                  </td>
+                  <td className="num">
+                    <b>{inr(data.totals.pending)}</b>
+                  </td>
+                  <td colSpan={3} />
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}

@@ -16,6 +16,7 @@ interface Paid extends Person {
 interface Line extends Person {
   weight: number;
   amount: number;
+  sales?: { PRO: number; ELITE: number };
 }
 interface Bonuses {
   periods: { id: string; startsAt: string; endsAt: string; revenue: number }[];
@@ -53,6 +54,18 @@ const SECTIONS = [
   }
 ];
 
+/** "Single" for 3 direct sales of a package, "Double" for 6, in the weekly bonus. Other bonuses have no levels. */
+const levelOf = (r: Paid | Line) => {
+  const sales = 'sales' in r ? r.sales : undefined;
+  if (!sales) return '-';
+  const parts: string[] = [];
+  for (const pkg of ['PRO', 'ELITE'] as const) {
+    const shares = Math.min(2, Math.floor(sales[pkg] / 3));
+    if (shares > 0) parts.push(`${shares === 2 ? 'Double' : 'Single'} ${pkg} (${sales[pkg]} sales)`);
+  }
+  return parts.join(' + ') || '-';
+};
+
 function Table({ rows, unit, estimate }: { rows: (Paid | Line)[]; unit: string; estimate?: boolean }) {
   const total = rows.reduce((s, r) => s + r.amount, 0);
   if (rows.length === 0) return <p className="muted">{estimate ? 'Nobody is in line yet this week.' : 'Nobody was paid in this period.'}</p>;
@@ -63,6 +76,7 @@ function Table({ rows, unit, estimate }: { rows: (Paid | Line)[]; unit: string; 
           <tr>
             <th>User</th>
             {estimate && <th>{unit}</th>}
+            {estimate && <th>Level</th>}
             <th>{estimate ? 'Estimated bonus' : 'Bonus paid'}</th>
           </tr>
         </thead>
@@ -76,6 +90,7 @@ function Table({ rows, unit, estimate }: { rows: (Paid | Line)[]; unit: string; 
                 </small>
               </td>
               {estimate && <td>{'weight' in r ? r.weight : ''}</td>}
+              {estimate && <td>{levelOf(r)}</td>}
               <td>
                 <b>{inr(r.amount)}</b>
               </td>
@@ -87,6 +102,7 @@ function Table({ rows, unit, estimate }: { rows: (Paid | Line)[]; unit: string; 
             <td>
               <b>Total</b> ({rows.length})
             </td>
+            {estimate && <td />}
             {estimate && <td />}
             <td>
               <b>{inr(total)}</b>

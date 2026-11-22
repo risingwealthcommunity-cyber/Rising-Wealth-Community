@@ -224,7 +224,7 @@ async function computeWindow(tx: Tx, startsAt: Date, endsAt: Date) {
     .filter((l) => l.weight > 0);
 
   const minPerSharePaise = await weeklyMinPaise(tx);
-  return { revenue, weeklyPool, performancePool, leadershipPool, weeklyWeights, perfWeights, matched, minPerSharePaise };
+  return { revenue, weeklyPool, performancePool, leadershipPool, weeklyWeights, perfWeights, matched, minPerSharePaise, direct };
 }
 
 /** The window that is open right now (since the last close): pools so far and the members who would be paid, with estimates. */
@@ -242,7 +242,7 @@ export async function previewPayoutWindow(tx: Tx) {
     revenue: w.revenue,
     pools: { weekly: w.weeklyPool, performance: w.performancePool, leadership: w.leadershipPool },
     minPerSharePaise: w.minPerSharePaise,
-    weekly: rows(weekly.payouts, w.weeklyWeights),
+    weekly: rows(weekly.payouts, w.weeklyWeights).map((r) => ({ ...r, sales: w.direct.get(r.userId) ?? { PRO: 0, ELITE: 0 } })),
     performance: rows(performance.payouts, w.perfWeights),
     leadership: rows(leadership.payouts, w.matched)
   };

@@ -355,6 +355,10 @@ model Campaign {
   needsProof  Boolean  @default(true)
   /// true = a Demat account opening: approving a report runs the Demat referral plan (direct income + 5 passive levels).
   isDemat     Boolean  @default(false)
+  /// Optional label to group campaigns (for example "summer_promo_2024").
+  groupName   String   @default("")
+  /// STANDARD: everyone shares the same link. PERSONAL: the member's Affiliate ID is added to the link.
+  linkType    String   @default("STANDARD")
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 

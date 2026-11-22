@@ -26,8 +26,10 @@ async function logoMap(): Promise<Map<string, string>> {
   return new Map(rows.map((r) => [r.key.slice('campaign-'.length), `/api/site/assets/${r.key}?v=${r.updatedAt.getTime()}`]));
 }
 
-const publicCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean }, logo?: string) => ({
+const publicCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; groupName: string; linkType: string }, logo?: string) => ({
   logoUrl: logo ?? null,
+  groupName: c.groupName,
+  linkType: c.linkType,
   id: c.id,
   title: c.title,
   description: c.description,
@@ -156,14 +158,16 @@ const campaignSchema = z.object({
   title: z.string().trim().min(2).max(80),
   description: z.string().trim().max(300).default(''),
   reward: z.number().min(0).max(1_000_000),
-  url: https.refine((v) => v !== '', 'Add the link members will share'),
+  groupName: z.string().trim().max(60).default(''),
+  url: https.default(''),
+  linkType: z.enum(['STANDARD', 'PERSONAL']).default('STANDARD'),
   videoUrl: https.default(''),
   needsProof: z.boolean().default(true),
   isDemat: z.boolean().default(false),
   isActive: z.boolean().default(true)
 });
 
-const adminCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; isActive: boolean; isDemat: boolean }, logo?: string) => ({
+const adminCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; isActive: boolean; isDemat: boolean; groupName: string; linkType: string }, logo?: string) => ({
   ...publicCampaign(c, logo),
   isActive: c.isActive,
   isDemat: c.isDemat

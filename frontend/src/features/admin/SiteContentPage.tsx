@@ -27,6 +27,14 @@ export default function SiteContentPage() {
         </Link>
         <h1>Website content</h1>
         <p className="muted">Changes go live on the home page as soon as you save or upload.</p>
+        <nav className="jump" aria-label="What you can change">
+          <a href="#sec-images">Page images</a>
+          <a href="#sec-numbers">Numbers (milestones)</a>
+          <a href="#sec-team">Team members</a>
+          <a href="#sec-reviews">Reviews</a>
+          <a href="#sec-payment">Payment QR</a>
+          <a href="#sec-contact">Contact &amp; social links</a>
+        </nav>
       </div>
 
       {!loaded ? (
@@ -38,7 +46,7 @@ export default function SiteContentPage() {
         </div>
       ) : (
         <>
-          <div className="card">
+          <div className="card" id="sec-images">
             <h2>Page images</h2>
             <p className="muted">PNG, JPEG or WebP, up to 6 MB each.</p>
             <div className="site-imgs">
@@ -55,8 +63,11 @@ export default function SiteContentPage() {
             </div>
           </div>
 
-          <MilestonesEditor saved={content.milestones ?? DEFAULT_MILESTONES} assets={content.assets} onSaved={reload} />
+          <div id="sec-numbers">
+            <MilestonesEditor saved={content.milestones ?? DEFAULT_MILESTONES} assets={content.assets} onSaved={reload} />
+          </div>
 
+          <div id="sec-team" />
           <ListEditor
             block="team"
             title="Team"
@@ -75,6 +86,7 @@ export default function SiteContentPage() {
             onSaved={reload}
           />
 
+          <div id="sec-reviews" />
           <ListEditor
             block="reviews"
             title="Reviews"
@@ -94,8 +106,10 @@ export default function SiteContentPage() {
           />
 
 
+          <div id="sec-payment" />
           <PaymentEditor asset={content.assets['payment-qr']} onChanged={reload} />
 
+          <div id="sec-contact" />
           <ContactEditor saved={{ ...DEFAULT_CONTACT, ...(content.contact ?? {}) }} onSaved={reload} />
         </>
       )}

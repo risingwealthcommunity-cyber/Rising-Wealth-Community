@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../shared/api/apiClient';
-import { date, inr, label } from '../../shared/format';
+import { inr, label } from '../../shared/format';
 import { openProof } from '../campaigns/ReportsPage';
 import { useRun } from '../../shared/useRun';
 
 type State = 'PENDING' | 'APPROVED' | 'REJECTED' | 'INCOMPLETE' | 'MISSING' | 'ALREADY_EXISTING';
+type Mark = 'REJECTED' | 'INCOMPLETE' | 'MISSING' | 'ALREADY_EXISTING';
 
 interface Report {
   id: string;
@@ -29,11 +30,11 @@ const FILTERS: [string, string][] = [
 ];
 
 /** The decisions that pay nothing, with what they mean (shown as the tooltip). */
-const MARKS: { status: 'REJECTED' | 'INCOMPLETE' | 'MISSING' | 'ALREADY_EXISTING'; text: string; hint: string }[] = [
+const MARKS: { status: Mark; text: string; hint: string }[] = [
   { status: 'REJECTED', text: 'Reject', hint: 'Not valid. Nothing is paid.' },
-  { status: 'INCOMPLETE', text: 'Mark as incomplete', hint: 'The member can fix the report and send it again.' },
+  { status: 'INCOMPLETE', text: 'Mark as Incomplete', hint: 'The member can fix the report and send it again.' },
   { status: 'MISSING', text: 'Missing', hint: 'The account could not be found.' },
-  { status: 'ALREADY_EXISTING', text: 'Already existing', hint: 'This account was registered before.' }
+  { status: 'ALREADY_EXISTING', text: 'Already Existing', hint: 'This account was registered before.' }
 ];
 
 const stamp = (iso: string) => new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -45,7 +46,7 @@ const csvCell = (v: string | number) => {
   return `"${safe.replace(/"/g, '""')}"`;
 };
 
-/** Every report: filter by state and campaign, search, see when it was submitted, decide it, download as CSV. */
+/** Every report: filter, search, sort, tick several and decide them together, see when each was submitted, download as CSV. */
 export default function AdminReports() {
   const [status, setStatus] = useState('PENDING');
   const [campaignId, setCampaignId] = useState('');
@@ -53,6 +54,8 @@ export default function AdminReports() {
   const [q, setQ] = useState('');
   const [items, setItems] = useState<Report[] | null>(null);
   const [campaigns, setCampaigns] = useState<{ id: string; title: string }[]>([]);
+  const [asc, setAsc] = useState<boolean | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const act = useRun();
 
   useEffect(() => {
@@ -61,36 +64,68 @@ export default function AdminReports() {
 
   const load = useCallback(() => {
     const qs = `status=${status}${campaignId ? `&campaignId=${campaignId}` : ''}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
+    setPicked(new Set());
     api<{ items: Report[] }>(`/admin/reports?${qs}`).then((r) => setItems(r.data?.items ?? [])).catch(() => setItems([]));
   }, [status, campaignId, q]);
   useEffect(load, [load]);
 
-  const closeMenu = (el: HTMLElement) => el.closest('details')?.removeAttribute('open');
+  const rows = useMemo(() => {
+    if (!items || asc === null) return items;
+    return [...items].sort((a, b) => a.campaign.title.localeCompare(b.campaign.title) * (asc ? 1 : -1));
+  }, [items, asc]);
 
-  const approve = (r: Report, el: HTMLElement) => {
-    closeMenu(el);
-    void act.run(async () => {
-      const res = await api(`/admin/reports/${r.id}/approve`, { method: 'POST' });
-      load();
-      return res;
+  const closeMenu = (el: HTMLElement) => el.closest('details')?.removeAttribute('open');
+  const waiting = (rows ?? []).filter((r) => r.status === 'PENDING');
+  const chosen = waiting.filter((r) => picked.has(r.id));
+  const allTicked = waiting.length > 0 && chosen.length === waiting.length;
+
+  const flip = (id: string) =>
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
     });
+
+  /** Run one decision on several reports, one after the other, and report how many went through. */
+  const batch = (targets: Report[], run: (r: Report) => Promise<unknown>, done: string) =>
+    void act.run(async () => {
+      let ok = 0;
+      let last = '';
+      for (const r of targets) {
+        try {
+          await run(r);
+          ok++;
+        } catch (err) {
+          last = (err as Error).message;
+        }
+      }
+      load();
+      if (ok < targets.length) throw new Error(`${ok} of ${targets.length} done. ${last}`);
+      return { message: `${ok} ${done}` };
+    });
+
+  const approveOne = (r: Report, el: HTMLElement) => {
+    closeMenu(el);
+    batch([r], (x) => api(`/admin/reports/${x.id}/approve`, { method: 'POST' }), 'approved and the reward was added to the wallet.');
   };
 
-  const mark = (r: Report, m: (typeof MARKS)[number], el: HTMLElement) => {
-    closeMenu(el);
-    const answer = window.prompt(`${m.text}: ${m.hint}\n\nReason the member can see (optional):`);
+  const markMany = (targets: Report[], m: (typeof MARKS)[number], el?: HTMLElement) => {
+    if (el) closeMenu(el);
+    const answer = window.prompt(`${m.text}${targets.length > 1 ? ` (${targets.length} reports)` : ''}: ${m.hint}\n\nReason the member can see (optional):`);
     if (answer === null) return;
-    void act.run(async () => {
-      const res = await api(`/admin/reports/${r.id}/mark`, { method: 'POST', body: { status: m.status, ...(answer.trim() ? { note: answer.trim() } : {}) } });
-      load();
-      return res;
-    });
+    batch(targets, (x) => api(`/admin/reports/${x.id}/mark`, { method: 'POST', body: { status: m.status, ...(answer.trim() ? { note: answer.trim() } : {}) } }), `report${targets.length === 1 ? '' : 's'} marked as ${m.text.toLowerCase()}.`);
+  };
+
+  const approveMany = () => {
+    if (!window.confirm(`Approve ${chosen.length} report${chosen.length === 1 ? '' : 's'} and pay the rewards?`)) return;
+    batch(chosen, (x) => api(`/admin/reports/${x.id}/approve`, { method: 'POST' }), 'approved and the rewards were added.');
   };
 
   const download = () => {
-    if (!items?.length) return;
-    const head = ['Campaign', 'Submitter', 'Submitter email', 'Affiliate ID', 'Account holder', 'Phone', 'Submitted on', 'Status', 'Reason'];
-    const lines = items.map((r) => [r.campaign.title, r.user.name, r.user.email, r.user.referralCode, r.holderName, r.mobile, stamp(r.createdAt), label(r.status), r.note ?? ''].map(csvCell).join(','));
+    if (!rows?.length) return;
+    const head = ['Campaign', 'Campaign ID', 'Submitter', 'Submitter email', 'Affiliate ID', 'Account holder', 'Phone', 'Submitted on', 'Status', 'Reason'];
+    const lines = rows.map((r) => [r.campaign.title, r.campaign.id, r.user.name, r.user.email, r.user.referralCode, r.holderName, r.mobile, stamp(r.createdAt), label(r.status), r.note ?? ''].map(csvCell).join(','));
     const blob = new Blob([[head.map(csvCell).join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -99,7 +134,7 @@ export default function AdminReports() {
     URL.revokeObjectURL(a.href);
   };
 
-  const reward = items?.filter((r) => r.status === 'APPROVED').reduce((s, r) => s + r.campaign.reward, 0) ?? 0;
+  const reward = rows?.filter((r) => r.status === 'APPROVED').reduce((s, r) => s + r.campaign.reward, 0) ?? 0;
 
   return (
     <div className="card">
@@ -110,9 +145,9 @@ export default function AdminReports() {
           setQ(typed.trim());
         }}
       >
-        <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search by name, phone, email or Affiliate ID..." aria-label="Search reports" />
+        <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search by name or phone..." aria-label="Search reports" />
         <select value={campaignId} onChange={(e) => setCampaignId(e.target.value)} aria-label="Campaign">
-          <option value="">All campaigns</option>
+          <option value="">All Campaigns</option>
           {campaigns.map((c) => (
             <option key={c.id} value={c.id}>
               {c.title}
@@ -127,23 +162,54 @@ export default function AdminReports() {
           ))}
         </select>
         <button className="btn ghost">Search</button>
-        <button className="btn" type="button" disabled={!items?.length} onClick={download}>
+        <button className="btn" type="button" disabled={!rows?.length} onClick={download}>
           Download as CSV
         </button>
       </form>
       <p className="muted">
-        {items ? `${items.length} report${items.length === 1 ? '' : 's'}` : 'Loading...'}
+        {rows ? `${rows.length} report${rows.length === 1 ? '' : 's'}` : 'Loading...'}
         {reward > 0 && <> · approved rewards in this list {inr(reward)}</>}
       </p>
-      {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
-      {items && items.length === 0 && <p className="muted">No reports found.</p>}
 
-      {items && items.length > 0 && (
+      {chosen.length > 0 && (
+        <div className="bulk-bar" role="group" aria-label="Selected reports">
+          <b>{chosen.length} selected</b>
+          <button className="btn ok" type="button" disabled={act.busy} onClick={approveMany}>
+            Approve selected
+          </button>
+          {MARKS.map((m) => (
+            <button className="btn ghost" type="button" key={m.status} title={m.hint} disabled={act.busy} onClick={() => markMany(chosen, m)}>
+              {m.text}
+            </button>
+          ))}
+          <button className="btn ghost" type="button" onClick={() => setPicked(new Set())}>
+            Clear
+          </button>
+        </div>
+      )}
+      {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
+      {rows && rows.length === 0 && <p className="muted">No reports found.</p>}
+
+      {rows && rows.length > 0 && (
         <div className="table-wrap">
           <table className="rep-table">
             <thead>
               <tr>
-                <th>Campaign</th>
+                <th className="tick">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all waiting reports"
+                    checked={allTicked}
+                    disabled={waiting.length === 0}
+                    onChange={() => setPicked(allTicked ? new Set() : new Set(waiting.map((r) => r.id)))}
+                  />
+                </th>
+                <th>
+                  <button type="button" className="sort-btn" onClick={() => setAsc((v) => (v === null ? true : v ? false : null))} aria-label="Sort by campaign">
+                    Campaign {asc === null ? '↕' : asc ? '↑' : '↓'}
+                  </button>
+                </th>
+                <th>Campaign ID</th>
                 <th>Submitter</th>
                 <th>Account holder</th>
                 <th>Phone</th>
@@ -153,11 +219,19 @@ export default function AdminReports() {
               </tr>
             </thead>
             <tbody>
-              {items.map((r) => (
+              {rows.map((r) => (
                 <tr key={r.id}>
+                  <td className="tick">
+                    {r.status === 'PENDING' && <input type="checkbox" aria-label={`Select the report of ${r.holderName}`} checked={picked.has(r.id)} onChange={() => flip(r.id)} />}
+                  </td>
                   <td>
                     <b>{r.campaign.title}</b>
                     <small className="muted">{inr(r.campaign.reward)} per report</small>
+                  </td>
+                  <td>
+                    <code className="idcell" title={r.campaign.id}>
+                      {r.campaign.id.slice(0, 8)}
+                    </code>
                   </td>
                   <td>
                     <b>{r.user.name}</b>
@@ -173,19 +247,20 @@ export default function AdminReports() {
                   <td className="rep-actions">
                     <details className="menu">
                       <summary className="btn ghost" aria-label="Actions">
-                        Actions ▾
+                        •••
                       </summary>
                       <div className="menu-pop">
+                        <strong className="menu-title">Actions</strong>
                         <button type="button" onClick={(e) => void openProof(r.id).then(() => closeMenu(e.currentTarget))}>
                           View proof
                         </button>
                         {r.status === 'PENDING' && (
                           <>
-                            <button type="button" className="ok" disabled={act.busy} onClick={(e) => approve(r, e.currentTarget)}>
+                            <button type="button" className="ok" disabled={act.busy} onClick={(e) => approveOne(r, e.currentTarget)}>
                               Approve
                             </button>
                             {MARKS.map((m) => (
-                              <button type="button" key={m.status} title={m.hint} disabled={act.busy} onClick={(e) => mark(r, m, e.currentTarget)}>
+                              <button type="button" key={m.status} title={m.hint} disabled={act.busy} onClick={(e) => markMany([r], m, e.currentTarget)}>
                                 {m.text}
                               </button>
                             ))}

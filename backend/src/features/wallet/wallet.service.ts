@@ -224,6 +224,41 @@ export const walletService = {
     if (res.count !== 1) throw new AppError('Only a withdrawal that is still waiting can change state.', 409);
   },
 
+  /**
+   * An admin pays a member part or all of their wallet from the Users page, with the bank transaction ID and screenshot.
+   * It is recorded as a paid withdrawal, so the member sees it in their history like any other payout.
+   */
+  async payMember(memberId: string, adminId: string, rupees: number, payout: { reference: string; file: { data: Buffer; mime: string; name: string } }) {
+    if (memberId === adminId) throw new AppError('You cannot pay out your own wallet. Ask another admin.', 403);
+    const reference = payout.reference.trim();
+    const reused = await prisma.withdrawalRequest.findFirst({ where: { payoutRef: { equals: reference, mode: 'insensitive' }, status: 'APPROVED' }, select: { id: true } });
+    if (reused) throw new AppError('That transaction ID was already used for another payment.', 409);
+    return prisma.$transaction(async (tx) => {
+      const member = await tx.user.findFirst({ where: { id: memberId, role: 'USER' }, select: { id: true } });
+      if (!member) throw new AppError('Member not found', 404);
+      if ((await this.available(tx, memberId)) < rupees) throw new AppError('That is more than the member has available (money reserved for waiting withdrawals is not counted).', 400);
+      const taken = await tx.user.updateMany({ where: { id: memberId, walletBalance: { gte: dec(rupees) } }, data: { walletBalance: { decrement: dec(rupees) } } });
+      if (taken.count !== 1) throw new AppError('The wallet no longer holds this amount.', 409);
+      const w = await tx.withdrawalRequest.create({
+        data: {
+          userId: memberId,
+          amount: dec(rupees),
+          status: 'APPROVED',
+          processedAt: new Date(),
+          processedBy: adminId,
+          payoutRef: reference,
+          fileName: payout.file.name,
+          fileMime: payout.file.mime,
+          fileData: payout.file.data,
+          note: null
+        },
+        select: { id: true }
+      });
+      await tx.ledgerEntry.create({ data: { userId: memberId, type: 'WITHDRAWAL', amount: dec(-rupees), note: 'Paid by admin' } });
+      return w;
+    }, TX);
+  },
+
   async rejectWithdrawal(id: string, adminId: string, note?: string) {
     const res = await prisma.withdrawalRequest.updateMany({
       where: { id, status: 'PENDING' },

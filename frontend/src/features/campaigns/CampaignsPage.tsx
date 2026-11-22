@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
 import { inr } from '../../shared/format';
+import { useAuth } from '../auth';
 
 export interface Campaign {
   id: string;
@@ -12,6 +13,8 @@ export interface Campaign {
   videoUrl: string;
   needsProof: boolean;
   logoUrl?: string | null;
+  groupName?: string;
+  linkType?: 'STANDARD' | 'PERSONAL';
 }
 
 /** A YouTube link gets its cover image; anything else is shown as a plain play tile. */
@@ -22,10 +25,13 @@ function cover(url: string): string | null {
 
 function Card({ c }: { c: Campaign }) {
   const [copied, setCopied] = useState(false);
+  const { user } = useAuth();
   const img = c.videoUrl ? cover(c.videoUrl) : null;
+  // a personalised campaign adds the member's own Affiliate ID to the link, so the team can tell whose referral it is
+  const link = !c.url ? '' : c.linkType === 'PERSONAL' ? `${c.url}${c.url.includes('?') ? '&' : '?'}ref=${encodeURIComponent(user?.referralCode ?? '')}` : c.url;
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(c.url);
+      await navigator.clipboard.writeText(link);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -36,7 +42,10 @@ function Card({ c }: { c: Campaign }) {
     <div className="card campaign">
       <div className="campaign-head">
         {c.logoUrl && <img className="campaign-logo" src={c.logoUrl} alt="" width={48} height={48} />}
-        <h3>{c.title}</h3>
+        <div>
+          <h3>{c.title}</h3>
+          {c.groupName && <small className="muted">{c.groupName}</small>}
+        </div>
       </div>
       {c.description && <p className="muted">{c.description}</p>}
       <strong className="campaign-reward">Earn {inr(c.reward)}</strong>
@@ -46,12 +55,16 @@ function Card({ c }: { c: Campaign }) {
         </a>
       )}
       <div className="campaign-actions">
-        <button className="btn" type="button" onClick={() => void copy()}>
-          {copied ? 'Copied!' : 'Copy referral link'}
-        </button>
-        <a className="btn ghost" href={c.url} target="_blank" rel="noopener noreferrer" aria-label="Open the link">
-          ↗
-        </a>
+        {link && (
+          <>
+            <button className="btn" type="button" onClick={() => void copy()}>
+              {copied ? 'Copied!' : 'Copy referral link'}
+            </button>
+            <a className="btn ghost" href={link} target="_blank" rel="noopener noreferrer" aria-label="Open the link">
+              ↗
+            </a>
+          </>
+        )}
         {c.needsProof && (
           <Link className="btn ghost" to={`/reports?campaign=${c.id}`}>
             Submit report

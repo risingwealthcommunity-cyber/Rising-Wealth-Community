@@ -2457,6 +2457,7 @@ test('BONUS ACHIEVERS: admin sees who got weekly, performance and leadership bon
   const wk = before.open.weekly.find((x: any) => x.email === top.email);
   assert.ok(wk, 'top has 3 PRO direct sales => in line for the weekly bonus');
   assert.ok(wk.amount >= 375, 'at least the minimum for one PRO share');
+  assert.deepEqual(wk.sales, { PRO: 3, ELITE: 0 }, 'and the sales they come from');
   assert.ok(before.open.performance.some((x: any) => x.email === top.email));
   assert.ok(before.open.pools.weekly > 0 && before.open.revenue > 0);
   assert.equal(before.settings.minPerShare, 375);
@@ -2562,6 +2563,82 @@ test('ADMIN INCOME SUMMARY: the platform money picture by day: sales, income pai
   await prisma.packagePurchase.update({ where: { id: old.id }, data: { confirmedAt: new Date(Date.now() - 200 * 86_400_000) } });
   assert.equal((await get('90')).totals.sales, rupees(afterWd.totals.sales - 2499), 'a sale from 200 days ago is not in 90 days');
   assert.equal((await get('all')).totals.sales, afterWd.totals.sales, 'but it is in all time');
+});
+
+test('USER INCOME MANAGEMENT: per-member earned / paid / pending, platform totals, paying a member and a safe delete', async () => {
+  const top = await paidMember('RWCROOT', 'LEFT', 'mny_um_top');
+  const buyer = await signup(top.left, 'LEFT', 'mny_um_buyer');
+  await buy(buyer.c, 'PRO'); // direct and passive income for top
+  const topRow = await rowOf(top.email);
+  const spam = await signup('RWCROOT', 'RIGHT', 'mny_um_spam'); // an account with no history at all
+  const spamRow = await rowOf(spam.email);
+
+  const list = async (q: string) => (await admin.call('GET', `/api/admin/members?q=${encodeURIComponent(q)}`)).json.data;
+  const found = (await list('mny_um_top')).items[0];
+  assert.equal(found.email, top.email);
+  const wallet = rupees((await walletOf(top.c)).balance);
+  assert.equal(found.pending, wallet, 'pending = what is still in the wallet');
+  assert.equal(found.earned, rupees((await walletOf(top.c)).totalEarned));
+  assert.equal(found.paid, 0);
+
+  const all = await list('');
+  assert.deepEqual(Object.keys(all.totals).sort(), ['earned', 'paid', 'pending']);
+  assert.ok(all.totals.earned >= found.earned && all.totals.pending >= wallet);
+  assert.equal(JSON.stringify(all).includes('Hash'), false);
+
+  // paying: part of the wallet, with a transaction ID and a real screenshot
+  const pay = (id: string, body: object) => admin.call('POST', `/api/admin/members/${id}/pay`, body);
+  const good = { amount: 100, reference: 'UTR-UM-1', fileName: 'p.png', fileData: REPORT_PNG };
+  assert.equal((await top.c.call('POST', `/api/admin/members/${topRow.id}/pay`, good)).status, 403, 'members cannot pay');
+  assert.equal((await pay(topRow.id, { ...good, reference: 'ab' })).status, 400);
+  assert.equal((await pay(topRow.id, { ...good, fileData: Buffer.from('<html>no</html>').toString('base64') })).status, 400);
+  assert.equal((await pay(topRow.id, { ...good, amount: wallet + 1 })).status, 400, 'more than the wallet');
+  assert.equal((await pay(topRow.id, { ...good, amount: -5 })).status, 400);
+  assert.equal((await pay(topRow.id, { ...good, amount: 10.123 })).status, 400);
+  assert.equal((await pay('00000000-0000-0000-0000-000000000000', good)).status, 404);
+  assert.equal((await pay(topRow.id, good)).status, 200);
+  assert.equal((await pay(topRow.id, { ...good, amount: 5 })).status, 409, 'the same transaction ID cannot pay twice');
+
+  const after = (await list('mny_um_top')).items[0];
+  assert.equal(after.pending, rupees(wallet - 100));
+  assert.equal(after.paid, 100);
+  assert.equal(after.earned, found.earned, 'paying out is not income');
+  const mine = ((await top.c.call('GET', '/api/wallet/withdrawals')).json.data.items as any[]).find((x) => x.transactionId === 'UTR-UM-1');
+  assert.deepEqual([mine.status, mine.hasProof, mine.amount], ['APPROVED', true, '100.00'], 'the member sees it like any payout');
+  assert.equal((await walletOf(top.c)).totalPaid, 100);
+  const adminRow = await prisma.user.findFirstOrThrow({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } });
+  assert.equal((await pay(adminRow.id, { ...good, reference: 'UTR-UM-2' })).status, 403, 'not for admin accounts');
+
+  // delete: only an account with no history
+  assert.equal((await top.c.call('DELETE', `/api/admin/members/${spamRow.id}`)).status, 403);
+  assert.equal((await admin.call('DELETE', `/api/admin/members/${topRow.id}`)).status, 409, 'has a team, money and purchases');
+  const buyerRow = await rowOf(buyer.email);
+  assert.equal((await admin.call('DELETE', `/api/admin/members/${buyerRow.id}`)).status, 409, 'has a purchase');
+  assert.equal((await admin.call('DELETE', `/api/admin/members/${adminRow.id}`)).status, 403, 'not your own account');
+  assert.equal((await admin.call('DELETE', `/api/admin/members/${spamRow.id}`)).status, 200);
+  assert.equal(await prisma.user.count({ where: { id: spamRow.id } }), 0);
+  assert.equal((await admin.call('DELETE', `/api/admin/members/${spamRow.id}`)).status, 404, 'already gone');
+});
+
+test('CAMPAIGN FORM: group name, link type, an optional link; admin creates it and members see it', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_cf_one');
+  const base = { title: 'Upstox Non-Trade (November)', description: '', reward: 110, videoUrl: '', needsProof: true, isDemat: false, isActive: true };
+  assert.equal((await admin.call('POST', '/api/admin/campaigns', { ...base, linkType: 'MAGIC' })).status, 400);
+  assert.equal((await admin.call('POST', '/api/admin/campaigns', { ...base, url: 'http://x.com' })).status, 400);
+  const noLink = await admin.call('POST', '/api/admin/campaigns', { ...base, title: 'No link yet', groupName: 'nov_2026' });
+  assert.equal(noLink.status, 201, JSON.stringify(noLink.json));
+  assert.deepEqual([noLink.json.data.url, noLink.json.data.groupName, noLink.json.data.linkType], ['', 'nov_2026', 'STANDARD']);
+  const personal = await admin.call('POST', '/api/admin/campaigns', { ...base, title: 'Personal link', url: 'https://example.com/join?x=1', linkType: 'PERSONAL' });
+  assert.equal(personal.json.data.linkType, 'PERSONAL');
+
+  // what the admin created is what members see
+  const seen = (await m.c.call('GET', '/api/campaigns')).json.data.items as any[];
+  const p = seen.find((c) => c.id === personal.json.data.id);
+  assert.deepEqual([p.url, p.linkType, p.needsProof], ['https://example.com/join?x=1', 'PERSONAL', true]);
+  assert.equal(seen.find((c) => c.id === noLink.json.data.id).groupName, 'nov_2026');
+  // and a switched-off campaign is not shown
+  assert.equal((await admin.call('PUT', `/api/admin/campaigns/${personal.json.data.id}`, { ...base, title: 'Personal link', url: 'https://example.com/join?x=1', linkType: 'PERSONAL', isActive: false })).status, 200);
+  assert.equal(((await m.c.call('GET', '/api/campaigns')).json.data.items as any[]).some((c) => c.id === personal.json.data.id), false);
 });
 
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {

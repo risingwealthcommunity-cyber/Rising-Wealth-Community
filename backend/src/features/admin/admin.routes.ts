@@ -6,7 +6,7 @@ import { AppError } from '../../shared/errors/AppError';
 import { validateBody } from '../../shared/middleware/validate.middleware';
 import { requireAuth, requireRole } from '../auth';
 import { packagesService } from '../packages';
-import { walletService } from '../wallet/wallet.service';
+import { parseRupees, walletService } from '../wallet/wallet.service';
 import { readProof } from '../../shared/proof';
 import { closePayoutPeriod, distributeDematReferral, paiseToDecimal, previewPayoutWindow, weeklyMinPaise } from '../income/income.service';
 
@@ -71,7 +71,10 @@ router.get('/overview', async (_req: Request, res: Response) => {
   });
 });
 
-/** Member list with search (name, email, phone or Affiliate ID). Never includes hashes or tokens. */
+/**
+ * User income management: members with search, and for each one what they earned, what was paid out to them and what is
+ * still in their wallet. Also the totals for the whole platform. Never includes hashes or tokens.
+ */
 router.get('/members', async (req: Request, res: Response) => {
   const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
   const page = Math.min(100_000, Math.max(1, Math.floor(Number(req.query.page)) || 1));
@@ -89,7 +92,7 @@ router.get('/members', async (req: Request, res: Response) => {
         }
       : {})
   };
-  const [items, total] = await Promise.all([
+  const [items, total, tEarned, tPaid, tWallet] = await Promise.all([
     prisma.user.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -101,17 +104,86 @@ router.get('/members', async (req: Request, res: Response) => {
         sponsor: { select: { name: true, referralCode: true } }
       }
     }),
-    prisma.user.count({ where })
+    prisma.user.count({ where }),
+    prisma.ledgerEntry.aggregate({ where: { amount: { gt: 0 }, type: { not: 'COMPANY_FUND' }, user: { role: 'USER' } }, _sum: { amount: true } }),
+    prisma.ledgerEntry.aggregate({ where: { type: 'WITHDRAWAL', user: { role: 'USER' } }, _sum: { amount: true } }),
+    prisma.user.aggregate({ where: { role: 'USER' }, _sum: { walletBalance: true } })
   ]);
+  const ids = items.map((i) => i.id);
+  const [earnedRows, paidRows] = await Promise.all([
+    prisma.ledgerEntry.groupBy({ by: ['userId'], where: { userId: { in: ids }, amount: { gt: 0 }, type: { not: 'COMPANY_FUND' } }, _sum: { amount: true } }),
+    prisma.ledgerEntry.groupBy({ by: ['userId'], where: { userId: { in: ids }, type: 'WITHDRAWAL' }, _sum: { amount: true } })
+  ]);
+  const earned = new Map(earnedRows.map((r) => [r.userId, Number(r._sum.amount ?? 0)]));
+  const paid = new Map(paidRows.map((r) => [r.userId, Math.abs(Number(r._sum.amount ?? 0))]));
+
   res.json({
     success: true,
     data: {
       page,
       pageSize,
       total,
-      items: items.map((u) => ({ ...u, walletBalance: u.walletBalance.toFixed(2), activationBalance: u.activationBalance.toFixed(2) }))
+      totals: { earned: money(tEarned._sum.amount), paid: money(Math.abs(Number(tPaid._sum.amount ?? 0))), pending: money(tWallet._sum.walletBalance) },
+      items: items.map((u) => ({
+        ...u,
+        walletBalance: u.walletBalance.toFixed(2),
+        activationBalance: u.activationBalance.toFixed(2),
+        earned: money(earned.get(u.id)),
+        paid: money(paid.get(u.id)),
+        pending: money(u.walletBalance)
+      }))
     }
   });
+});
+
+const memberPaySchema = z.object({
+  amount: z.number({ message: 'Enter the amount' }),
+  reference: z.string().trim().min(4, 'Enter the transaction ID of the payment').max(100),
+  fileName: z.string().trim().max(120),
+  fileData: z.string().min(20, 'Add the screenshot of the payment')
+});
+
+/** Pay a member from their wallet (part or all of it) with the transaction ID and screenshot. */
+router.post('/members/:id/pay', validateBody(memberPaySchema), async (req: Request, res: Response) => {
+  const body = req.body as z.infer<typeof memberPaySchema>;
+  const rupees = parseRupees(body.amount);
+  const file = { ...readProof(body.fileData), name: body.fileName };
+  await walletService.payMember(String(req.params.id), req.user!.id, rupees, { reference: body.reference, file });
+  res.json({ success: true, message: 'Payment recorded and taken from the member wallet.' });
+});
+
+/**
+ * Permanently delete a member. Only allowed for an account with no history at all (no money, purchases, requests,
+ * reports or team), such as a spam sign-up. Anyone with activity must be switched off instead, because their records
+ * and the people placed under them have to stay.
+ */
+router.delete('/members/:id', async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  if (id === req.user!.id) throw new AppError('You cannot delete your own account.', 403);
+  await prisma.$transaction(async (tx) => {
+    const m = await tx.user.findFirst({ where: { id, role: 'USER' }, select: { id: true, walletBalance: true, activationBalance: true } });
+    if (!m) throw new AppError('Member not found', 404);
+    const [sponsored, placed, ledger, bySource, purchases, withdrawals, funds, activation, reports, claims, demat] = await Promise.all([
+      tx.user.count({ where: { sponsorId: id } }),
+      tx.user.count({ where: { parentId: id } }),
+      tx.ledgerEntry.count({ where: { userId: id } }),
+      tx.ledgerEntry.count({ where: { sourceUserId: id } }),
+      tx.packagePurchase.count({ where: { userId: id } }),
+      tx.withdrawalRequest.count({ where: { userId: id } }),
+      tx.fundRequest.count({ where: { userId: id } }),
+      tx.activationEntry.count({ where: { userId: id } }),
+      tx.campaignReport.count({ where: { userId: id } }),
+      tx.perkClaim.count({ where: { userId: id } }),
+      tx.dematReferral.count({ where: { referrerId: id } })
+    ]);
+    const history = sponsored + placed + ledger + bySource + purchases + withdrawals + funds + activation + reports + claims + demat;
+    if (history > 0 || m.walletBalance.gt(0) || m.activationBalance.gt(0)) {
+      throw new AppError('This member has activity (team, money, purchases or reports), so it cannot be deleted. Switch them off instead.', 409);
+    }
+    await tx.bankDetails.deleteMany({ where: { userId: id } });
+    await tx.user.delete({ where: { id } });
+  });
+  res.json({ success: true, message: 'Member deleted' });
 });
 
 /** Switch a member off (they are logged out and cannot sign in or act) or back on. Admin accounts are never touched here. */
@@ -278,10 +350,10 @@ router.get('/bonuses', async (req: Request, res: Response) => {
   const open = await prisma.$transaction((tx) => previewPayoutWindow(tx));
   const ids = [...new Set([...open.weekly, ...open.performance, ...open.leadership].map((x) => x.userId))];
   const people = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true, referralCode: true } });
-  const withUser = (list: { userId: string; weight: number; paise: number }[]) =>
+  const withUser = (list: { userId: string; weight: number; paise: number; sales?: { PRO: number; ELITE: number } }[]) =>
     list.flatMap((x) => {
       const u = people.find((p) => p.id === x.userId);
-      return u ? [{ ...u, weight: x.weight, amount: x.paise / 100 }] : [];
+      return u ? [{ ...u, weight: x.weight, amount: x.paise / 100, ...(x.sales ? { sales: x.sales } : {}) }] : [];
     });
 
   res.json({
