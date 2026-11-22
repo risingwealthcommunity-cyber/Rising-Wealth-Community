@@ -48,6 +48,14 @@ export default function ReportsPage() {
     load().catch(() => undefined);
   }, [load]);
 
+  // arriving from "My reports" with ?edit=<id>: open that report in the form
+  const editParam = params.get('edit');
+  useEffect(() => {
+    const r = editParam ? reports.find((x) => x.id === editParam) : undefined;
+    if (r && (r.status === 'PENDING' || r.status === 'INCOMPLETE')) edit(r);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editParam, reports]);
+
   const reset = () => {
     setEditing(null);
     setHolder('');

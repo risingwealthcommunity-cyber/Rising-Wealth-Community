@@ -12,7 +12,7 @@ import { notFoundHandler } from './shared/middleware/notFound.middleware';
 import { errorHandler } from './shared/errors/errorHandler';
 
 // Local dev servers are only trusted when we are not in production.
-const allowedOrigins = [config.frontendUrl, ...(config.isProduction ? [] : ['http://localhost:5173', 'http://localhost:3000'])];
+const allowedOrigins = [config.frontendUrl, ...(config.isProduction ? [] : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:3000'])];
 
 const app = express();
 

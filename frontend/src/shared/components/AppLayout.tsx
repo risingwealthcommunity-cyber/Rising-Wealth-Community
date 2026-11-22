@@ -93,6 +93,10 @@ export default function AppLayout() {
               {Icon.trophy}
               <span>Leaderboard</span>
             </NavLink>
+            <NavLink to="/income">
+              {Icon.receipt}
+              <span>Income Summary</span>
+            </NavLink>
             <NavLink to="/team">
               {Icon.users}
               <span>My Team</span>
@@ -135,6 +139,10 @@ export default function AppLayout() {
               {Icon.upload}
               <span>Submit Reports</span>
             </NavLink>
+            <NavLink to="/my-reports">
+              {Icon.file}
+              <span>My Reports</span>
+            </NavLink>
             <NavLink to="/activation">
               {Icon.bolt}
               <span>Activation</span>
@@ -142,6 +150,10 @@ export default function AppLayout() {
             <NavLink to="/wallet">
               {Icon.wallet}
               <span>Wallet</span>
+            </NavLink>
+            <NavLink to="/profile">
+              {Icon.user}
+              <span>My Profile</span>
             </NavLink>
             {isAdmin && (
               <NavLink to="/admin">

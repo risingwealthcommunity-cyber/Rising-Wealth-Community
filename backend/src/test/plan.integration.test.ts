@@ -2516,6 +2516,42 @@ test('CONTACT INBOX: the landing form stores messages, admins read and tidy them
   assert.equal((await admin.call('GET', '/api/admin/messages')).json.data.items.some((x: any) => x.id === mine.id), false);
 });
 
+test('INCOME SUMMARY: earnings grouped by Indian day and by type, credits only, with a range', async () => {
+  const m = await signup('RWCROOT', 'RIGHT', 'mny_is_one');
+  const row = await rowOf(m.email);
+  const ago = (n: number) => new Date(Date.now() - n * 86_400_000);
+  await prisma.ledgerEntry.createMany({
+    data: [
+      { userId: row.id, type: 'DIRECT_INCOME', amount: 100, createdAt: new Date() },
+      { userId: row.id, type: 'DEMAT_DIRECT', amount: 50, createdAt: new Date() },
+      { userId: row.id, type: 'TEAM_PERFORMANCE_BONUS', amount: 750, createdAt: ago(3) },
+      { userId: row.id, type: 'DIRECT_INCOME', amount: 10, createdAt: ago(40) },
+      { userId: row.id, type: 'WITHDRAWAL', amount: -5, createdAt: new Date() }
+    ]
+  });
+  await prisma.user.update({ where: { id: row.id }, data: { walletBalance: 905 } }); // keep wallet = ledger
+  assert.equal((await new Client().call('GET', '/api/dashboard/income')).status, 401);
+
+  const d7 = (await m.c.call('GET', '/api/dashboard/income?range=7')).json.data;
+  assert.equal(d7.range, '7');
+  assert.equal(d7.total, 900, 'the 40 day old income and the withdrawal are not in 7 days');
+  assert.deepEqual(d7.byType, { DIRECT_INCOME: 100, DEMAT_DIRECT: 50, TEAM_PERFORMANCE_BONUS: 750 });
+  assert.equal(d7.days.length >= 2, true);
+  assert.equal(d7.days[0].total >= 150, true, 'newest day first');
+  assert.equal(d7.days.reduce((s: number, x: any) => s + x.total, 0), 900, 'the days add up to the total');
+  assert.match(d7.days[0].date, /^\d{4}-\d{2}-\d{2}$/);
+
+  const d30 = (await m.c.call('GET', '/api/dashboard/income')).json.data;
+  assert.deepEqual([d30.range, d30.total], ['30', 900], 'default is 30 days');
+  const all = (await m.c.call('GET', '/api/dashboard/income?range=all')).json.data;
+  assert.deepEqual([all.range, all.total, all.byType.DIRECT_INCOME], ['all', 910, 110]);
+  assert.equal((await m.c.call('GET', '/api/dashboard/income?range=abc')).json.data.range, '30', 'junk falls back to 30');
+  assert.equal(JSON.stringify(all).includes('WITHDRAWAL'), false, 'money going out is not income');
+  // someone else sees none of it
+  const other = await signup('RWCROOT', 'RIGHT', 'mny_is_two');
+  assert.equal((await other.c.call('GET', '/api/dashboard/income?range=all')).json.data.total, 0);
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

@@ -26,8 +26,8 @@ import {
   AdminWithdrawalsPage,
   SiteContentPage
 } from '../features/admin';
-import { CampaignsPage, ReportsPage } from '../features/campaigns';
-import { DashboardPage, LeaderboardPage, ProfilePage, TrainingPage } from '../features/dashboard';
+import { CampaignsPage, MyReportsPage, ReportsPage } from '../features/campaigns';
+import { DashboardPage, IncomePage, LeaderboardPage, ProfilePage, TrainingPage } from '../features/dashboard';
 import { LandingPage } from '../features/landing';
 import { PackagesPage } from '../features/packages';
 import { LivePage } from '../features/live';
@@ -73,6 +73,8 @@ export default function App() {
           <Route path="/ranks" element={<RanksPage />} />
           <Route path="/live" element={<LivePage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/my-reports" element={<MyReportsPage />} />
+          <Route path="/income" element={<IncomePage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />
           <Route
             element={
