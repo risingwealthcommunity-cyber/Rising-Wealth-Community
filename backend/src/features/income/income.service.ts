@@ -149,7 +149,7 @@ export async function distributePackageSale(
   tx: Tx,
   sale: { purchaseId: string; buyerId: string; sponsorId: string | null; package: PaidPackage }
 ) {
-  const upline = await getSponsorUpline(tx, sale.sponsorId, 12);
+  const upline = await getSponsorUpline(tx, sale.sponsorId, 13); // the sponsor (direct income) and 12 seniors (passive levels)
   const dist = computePackageSale(sale.package, upline);
 
   await postLedger(tx, {

@@ -48,10 +48,11 @@ export interface Distribution {
 export const pctOf = (paise: number, pct: number): number => Math.floor((paise * pct) / 100);
 
 /**
- * Package sale: 35% direct (capped to sponsor's own package) + passive levels 1..12
+ * Package sale: the direct sponsor gets ONLY the 35% direct income (capped to their own package). The passive levels 1..12
+ * go to the sponsor's seniors: level 1 is the sponsor's sponsor, level 2 the one above, and so on
  * (unlocked by the RECEIVER's package; locked levels go to the company fund).
  *
- * `upline[0]` is the direct sponsor (level 1), `upline[1]` the sponsor's sponsor, and so on.
+ * `upline[0]` is the direct sponsor, `upline[1]` the sponsor's sponsor (passive level 1), and so on.
  */
 export function computePackageSale(pkg: PaidPackage, upline: UplineMember[]): Distribution {
   const price = PACKAGE_PRICE_PAISE[pkg];
@@ -74,7 +75,7 @@ export function computePackageSale(pkg: PaidPackage, upline: UplineMember[]): Di
   PASSIVE_PCT.forEach((pct, i) => {
     const level = i + 1;
     const amount = pctOf(price, pct);
-    const member = upline[i];
+    const member = upline[i + 1];
     if (member && member.active && PASSIVE_LEVELS_UNLOCKED[member.package] >= level) {
       payouts.push({ userId: member.id, type: 'PASSIVE_INCOME', level, paise: amount });
     } else {

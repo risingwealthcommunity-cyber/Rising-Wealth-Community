@@ -1133,7 +1133,7 @@ test('binary placement: same leg spills down, one child per leg', async () => {
 
 // ---------------------------------------------------------------- PACKAGES / INCOME
 
-test('income: PRO sale pays sponsor 35% direct + L1 5%, grandsponsor L2 3%', async () => {
+test('income: PRO sale pays the sponsor only the 35% direct income; passive level 1 (5%) goes to the sponsor sponsor', async () => {
   const root = (await prisma.user.findUniqueOrThrow({ where: { email: 'admin@test.com' } })).id;
   const a = await signup('RWCROOT', 'LEFT', 'inc_a'); // sponsor: root
   await buy(a.c, 'PRO');
@@ -1143,8 +1143,8 @@ test('income: PRO sale pays sponsor 35% direct + L1 5%, grandsponsor L2 3%', asy
   const aBefore = await balance(a.c);
   await buy(b.c, 'PRO');
 
-  assert.equal(rupees((await balance(a.c)) - aBefore), rupees(874.65 + 124.95)); // direct + L1
-  assert.equal(rupees((await balance(admin)) - rootBefore), 74.97); // L2 (root is ELITE: unlocked)
+  assert.equal(rupees((await balance(a.c)) - aBefore), 874.65); // the direct sponsor gets only the direct income
+  assert.equal(rupees((await balance(admin)) - rootBefore), 124.95); // passive level 1 is the sponsor's sponsor (root is ELITE: unlocked)
   assert.ok(root);
 });
 
@@ -1154,8 +1154,8 @@ test('income: direct is capped to sponsor package (PRO sponsor, ELITE sale)', as
   const b = await signup(a.user.referralCode, 'LEFT', 'cap_b');
   const before = await balance(a.c);
   await buy(b.c, 'ELITE');
-  // direct capped at 874.65 (35% of 2499), level-1 passive = 5% of 4999 = 249.95
-  assert.equal(rupees((await balance(a.c)) - before), rupees(874.65 + 249.95));
+  // direct capped at 874.65 (35% of 2499); the sponsor gets no passive income from their own direct sale
+  assert.equal(rupees((await balance(a.c)) - before), 874.65);
 
   const excess = await prisma.ledgerEntry.findMany({
     where: { type: 'COMPANY_FUND', note: 'DIRECT_CAPPED_TO_SPONSOR_PACKAGE', sourceUserId: b.user.id }
@@ -1176,13 +1176,13 @@ test('income: PRO sponsor does not earn passive levels 8-12 (goes to company)', 
   }
   const top = users[0];
   const before = await balance(top.c);
-  const buyer = await signup(sponsor, 'LEFT', 'deepbuyer'); // sponsored by deep8 => deep0 (top) is level 9
+  const buyer = await signup(sponsor, 'LEFT', 'deepbuyer'); // sponsored by deep8 => deep8 gets the direct income, and deep0 (top) is passive level 8
   await buy(buyer.c, 'PRO');
-  assert.equal(await balance(top.c), before); // level 9 is locked for PRO (PRO unlocks 1-7)
+  assert.equal(await balance(top.c), before); // level 8 is locked for PRO (PRO unlocks 1-7)
   const locked = await prisma.ledgerEntry.count({
     where: { type: 'COMPANY_FUND', sourceUserId: buyer.user.id, note: 'PASSIVE_LEVEL_LOCKED' }
   });
-  assert.equal(locked, 2); // levels 8 (deep1) and 9 (deep0)
+  assert.equal(locked, 1); // level 8 (deep0); level 9 is the ELITE root, which is unlocked
 });
 
 test('income: Trainee sponsor earns nothing from package sales', async () => {
@@ -1216,7 +1216,7 @@ test('packages: confirming twice / concurrently pays only once', async () => {
     [1, 2, 3].map(() => admin.call('POST', `/api/admin/purchases/${p.json.data.purchase.id}/confirm`))
   );
   assert.equal(results.filter((r) => r.status === 200).length, 1);
-  assert.equal(rupees((await balance(a.c)) - before), rupees(874.65 + 124.95));
+  assert.equal(rupees((await balance(a.c)) - before), 874.65); // the sponsor gets only the direct income
 });
 
 // ---------------------------------------------------------------- BINARY / RANK

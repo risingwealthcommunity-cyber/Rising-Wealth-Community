@@ -31,7 +31,7 @@ test('PRO sale: sponsor PRO gets full 35% direct = 874.65', () => {
 });
 
 test('passive amounts match the plan table for PRO price (125,75,50,50,25...)', () => {
-  const upline = Array.from({ length: 12 }, (_, i) => m(`u${i}`, 'ELITE'));
+  const upline = Array.from({ length: 13 }, (_, i) => m(`u${i}`, 'ELITE'));
   const d = computePackageSale('PRO', upline);
   const levels = d.payouts.filter((p) => p.type === 'PASSIVE_INCOME').map((p) => p.paise / 100);
   assert.deepEqual(levels.slice(0, 5), [124.95, 74.97, 49.98, 49.98, 24.99]);
@@ -52,7 +52,7 @@ test('Trainee sponsor earns no package income; everything flows to company', () 
 });
 
 test('PRO receiver unlocks levels 1-7 only; levels 8-12 go to company', () => {
-  const upline = Array.from({ length: 12 }, (_, i) => m(`u${i}`, 'PRO'));
+  const upline = Array.from({ length: 13 }, (_, i) => m(`u${i}`, 'PRO'));
   const d = computePackageSale('PRO', upline);
   const passive = d.payouts.filter((p) => p.type === 'PASSIVE_INCOME');
   assert.equal(passive.length, 7);
