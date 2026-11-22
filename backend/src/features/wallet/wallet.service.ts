@@ -4,6 +4,7 @@ import { prisma } from '../../config/database';
 import { AppError } from '../../shared/errors/AppError';
 import { decryptField, encryptField } from '../../shared/crypto/field';
 import { paiseToDecimal } from '../income/income.service';
+import { storeFile } from '../../shared/storage';
 
 const ROUNDS = process.env.NODE_ENV === 'test' ? 4 : 12;
 const TX = { timeout: 30_000, maxWait: 10_000 };
@@ -146,8 +147,9 @@ export const walletService = {
       where: { reference: { equals: reference.trim(), mode: 'insensitive' }, status: { in: ['PENDING', 'APPROVED'] } }
     });
     if (used) throw new AppError('That payment reference was already submitted.', 409);
+    const fileData = await storeFile(file.data, file.mime, 'funds');
     return prisma.fundRequest.create({
-      data: { userId, amount: dec(rupees), reference: reference.trim(), fileName: file.name, fileMime: file.mime, fileData: file.data },
+      data: { userId, amount: dec(rupees), reference: reference.trim(), fileName: file.name, fileMime: file.mime, fileData },
       select: { id: true }
     });
   },
@@ -211,6 +213,7 @@ export const walletService = {
     const own = await prisma.withdrawalRequest.findUnique({ where: { id }, select: { userId: true } });
     if (own?.userId === adminId) throw new AppError('You cannot approve your own withdrawal. Ask another admin.', 403);
     const reference = payout.reference.trim();
+    const payoutFile = await storeFile(payout.file.data, payout.file.mime, 'payouts');
     await prisma.$transaction(async (tx) => {
       await lockReference(tx, reference);
       const reused = await tx.withdrawalRequest.findFirst({ where: { payoutRef: { equals: reference, mode: 'insensitive' }, status: 'APPROVED' }, select: { id: true } });
@@ -226,7 +229,7 @@ export const walletService = {
           payoutRef: reference,
           fileName: payout.file.name,
           fileMime: payout.file.mime,
-          fileData: payout.file.data
+          fileData: payoutFile
         }
       });
       if (claimed.count !== 1) throw new AppError('Request not found or already processed', 409);
@@ -253,6 +256,7 @@ export const walletService = {
   async payMember(memberId: string, adminId: string, rupees: number, payout: { reference: string; file: { data: Buffer; mime: string; name: string } }) {
     if (memberId === adminId) throw new AppError('You cannot pay out your own wallet. Ask another admin.', 403);
     const reference = payout.reference.trim();
+    const payoutFile = await storeFile(payout.file.data, payout.file.mime, 'payouts');
     return prisma.$transaction(async (tx) => {
       await lockReference(tx, reference);
       const reused = await tx.withdrawalRequest.findFirst({ where: { payoutRef: { equals: reference, mode: 'insensitive' }, status: 'APPROVED' }, select: { id: true } });
@@ -272,7 +276,7 @@ export const walletService = {
           payoutRef: reference,
           fileName: payout.file.name,
           fileMime: payout.file.mime,
-          fileData: payout.file.data,
+          fileData: payoutFile,
           note: null
         },
         select: { id: true }

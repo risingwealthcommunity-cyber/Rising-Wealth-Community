@@ -1,3 +1,4 @@
+import { loadFile } from '../../shared/storage';
 import { Router, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
@@ -233,7 +234,7 @@ const proofOf = (kind: 'fund' | 'purchase') => async (req: Request, res: Respons
       ? await prisma.fundRequest.findUnique({ where, select: { fileData: true, fileMime: true } })
       : await prisma.packagePurchase.findUnique({ where, select: { fileData: true, fileMime: true } });
   if (!row?.fileData || !row.fileMime) throw new AppError('No screenshot was sent with this one.', 404);
-  res.json({ success: true, data: { mime: row.fileMime, data: Buffer.from(row.fileData).toString('base64') } });
+  res.json({ success: true, data: { mime: row.fileMime, data: (await loadFile(row.fileData)).toString('base64') } });
 };
 router.get('/fund-requests/:id/proof', proofOf('fund'));
 router.get('/purchases/:id/proof', proofOf('purchase'));
@@ -315,7 +316,7 @@ router.get('/withdrawals', async (req: Request, res: Response) => {
 router.get('/withdrawals/:id/proof', async (req: Request, res: Response) => {
   const row = await prisma.withdrawalRequest.findUnique({ where: { id: String(req.params.id) }, select: { fileData: true, fileMime: true } });
   if (!row?.fileData || !row.fileMime) throw new AppError('No payment screenshot on this one.', 404);
-  res.json({ success: true, data: { mime: row.fileMime, data: Buffer.from(row.fileData).toString('base64') } });
+  res.json({ success: true, data: { mime: row.fileMime, data: (await loadFile(row.fileData)).toString('base64') } });
 });
 
 /** Start working on a waiting withdrawal ("Processing", optionally with a message for the member), or put it back to waiting. */

@@ -1,3 +1,4 @@
+import { storeFile } from '../../shared/storage';
 import type { Package } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { AppError } from '../../shared/errors/AppError';
@@ -35,8 +36,9 @@ export const packagesService = {
     });
     if (used) throw new AppError('That transaction ID was already submitted.', 409);
 
+    const fileData = await storeFile(file.data, file.mime, 'purchases');
     return prisma.packagePurchase.create({
-      data: { userId, package: pkg, amount: paiseToDecimal(PACKAGE_PRICE_PAISE[pkg]), reference: reference.trim(), fileName: file.name, fileMime: file.mime, fileData: file.data },
+      data: { userId, package: pkg, amount: paiseToDecimal(PACKAGE_PRICE_PAISE[pkg]), reference: reference.trim(), fileName: file.name, fileMime: file.mime, fileData },
       select: PURCHASE_FIELDS
     });
   },

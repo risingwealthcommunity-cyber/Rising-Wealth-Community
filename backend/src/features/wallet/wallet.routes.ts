@@ -1,3 +1,4 @@
+import { loadFile } from '../../shared/storage';
 import { Router, Request, Response } from 'express';
 import { LedgerType } from '@prisma/client';
 import { z } from 'zod';
@@ -146,7 +147,7 @@ router.get('/withdrawals', requireAuth, async (req: Request, res: Response) => {
 router.get('/withdrawals/:id/proof', requireAuth, async (req: Request, res: Response) => {
   const row = await prisma.withdrawalRequest.findFirst({ where: { id: String(req.params.id), userId: req.user!.id }, select: { fileData: true, fileMime: true } });
   if (!row?.fileData || !row.fileMime) throw new AppError('No payment screenshot yet.', 404);
-  res.json({ success: true, data: { mime: row.fileMime, data: Buffer.from(row.fileData).toString('base64') } });
+  res.json({ success: true, data: { mime: row.fileMime, data: (await loadFile(row.fileData)).toString('base64') } });
 });
 
 // ---------------------------------------------------------------- bank / UPI details

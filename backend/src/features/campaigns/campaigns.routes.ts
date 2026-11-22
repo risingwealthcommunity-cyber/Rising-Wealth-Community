@@ -7,6 +7,7 @@ import { validateBody } from '../../shared/middleware/validate.middleware';
 import { requireAuth, requireRole } from '../auth';
 import { distributeDematReferral, paiseToDecimal } from '../income/income.service';
 import { readProof } from '../../shared/proof';
+import { loadFile, storeFile } from '../../shared/storage';
 
 /** Members: see the campaigns, send proof reports and watch them get approved. */
 export const campaignRoutes = Router();
@@ -89,6 +90,7 @@ campaignRoutes.post('/reports', requireAuth, validateBody(createSchema), async (
   const pending = await prisma.campaignReport.count({ where: { userId: req.user!.id, status: 'PENDING' } });
   if (pending >= 20) throw new AppError('You have 20 reports waiting. Please wait for them to be checked.', 409);
   const file = readProof(body.fileData);
+  const stored = await storeFile(file.data, file.mime, 'reports');
   const r = await prisma.$transaction(async (tx) => {
     await lockPair(tx, campaign.id, body.mobile);
     const dup = await tx.campaignReport.findFirst({
@@ -103,7 +105,7 @@ campaignRoutes.post('/reports', requireAuth, validateBody(createSchema), async (
         mobile: body.mobile,
         fileName: body.fileName,
         fileMime: file.mime,
-        fileData: file.data
+        fileData: stored
       }
     });
   });
@@ -119,6 +121,7 @@ campaignRoutes.put('/reports/:id', requireAuth, validateBody(editSchema), async 
   if (!existing) throw new AppError('Report not found', 404);
 
   const file = body.fileData ? readProof(body.fileData) : null;
+  const storedEdit = file ? await storeFile(file.data, file.mime, 'reports') : null;
   const dup = await prisma.campaignReport.findFirst({
     where: { id: { not: id }, campaignId: existing.campaignId, mobile: body.mobile, status: { in: ['PENDING', 'APPROVED', 'INCOMPLETE'] } }
   });
@@ -132,7 +135,7 @@ campaignRoutes.put('/reports/:id', requireAuth, validateBody(editSchema), async 
       note: null,
       holderName: body.holderName,
       mobile: body.mobile,
-      ...(file ? { fileData: file.data, fileMime: file.mime, fileName: body.fileName || existing.fileName } : {})
+      ...(file && storedEdit ? { fileData: storedEdit, fileMime: file.mime, fileName: body.fileName || existing.fileName } : {})
     }
   });
   if (done.count !== 1) throw new AppError('Only a report that is still waiting can be changed.', 409);
@@ -153,7 +156,7 @@ campaignRoutes.get('/reports/:id/file', requireAuth, async (req: Request, res: R
     select: { fileData: true, fileMime: true }
   });
   if (!r) throw new AppError('Report not found', 404);
-  res.json({ success: true, data: { mime: r.fileMime, data: Buffer.from(r.fileData).toString('base64') } });
+  res.json({ success: true, data: { mime: r.fileMime, data: (await loadFile(r.fileData)).toString('base64') } });
 });
 
 // ---------------------------------------------------------------- admin side
