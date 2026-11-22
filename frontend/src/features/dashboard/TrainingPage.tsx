@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
+import { useAuth } from '../auth';
 
 export type Tier = 'TRAINEE' | 'PRO' | 'ELITE';
 
@@ -55,6 +56,8 @@ function Card({ lesson }: { lesson: Lesson }) {
 export default function TrainingPage() {
   const [lessons, setLessons] = useState<Lesson[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
 
   useEffect(() => {
     api<{ items: Lesson[] }>('/site/training')
@@ -76,6 +79,12 @@ export default function TrainingPage() {
         <div className="card empty-state">
           <strong>Lessons are coming soon</strong>
           The team has not added any training yet. Check back shortly.
+          {isAdmin && (
+            <>
+              {' '}
+              <Link to="/admin/training">Add lessons in Admin &gt; Training library</Link>
+            </>
+          )}
         </div>
       )}
 

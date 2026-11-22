@@ -303,6 +303,76 @@ router.get('/bonuses', async (req: Request, res: Response) => {
   });
 });
 
+const IST_MS = 330 * 60_000;
+const DAY_MS = 86_400_000;
+const money = (n: unknown) => Math.round(Number(n ?? 0) * 100) / 100;
+
+/**
+ * The platform money picture by Indian day: package sales, income credited to members (per type), what the company fund
+ * got, and withdrawals paid out. ?range=7 | 30 | 90 | all (default 30).
+ */
+router.get('/income', async (req: Request, res: Response) => {
+  const raw = String(req.query.range ?? '30');
+  const days = raw === 'all' ? null : [7, 30, 90].includes(Number(raw)) ? Number(raw) : 30;
+  const startOfToday = Math.floor((Date.now() + IST_MS) / DAY_MS) * DAY_MS - IST_MS;
+  const from = days === null ? new Date(0) : new Date(startOfToday - (days - 1) * DAY_MS);
+
+  const [sales, paid, company, withdrawn] = await Promise.all([
+    prisma.$queryRaw<{ day: string; n: bigint; total: unknown }[]>`
+      SELECT to_char("confirmedAt" + interval '330 minutes', 'YYYY-MM-DD') AS day, COUNT(*) AS n, SUM(amount) AS total
+      FROM "PackagePurchase" WHERE status = 'CONFIRMED' AND "confirmedAt" >= ${from} GROUP BY 1`,
+    prisma.$queryRaw<{ day: string; type: string; total: unknown }[]>`
+      SELECT to_char("createdAt" + interval '330 minutes', 'YYYY-MM-DD') AS day, type::text AS type, SUM(amount) AS total
+      FROM "LedgerEntry" WHERE "userId" IS NOT NULL AND amount > 0 AND type <> 'COMPANY_FUND' AND "createdAt" >= ${from} GROUP BY 1, 2`,
+    prisma.$queryRaw<{ day: string; total: unknown }[]>`
+      SELECT to_char("createdAt" + interval '330 minutes', 'YYYY-MM-DD') AS day, SUM(amount) AS total
+      FROM "LedgerEntry" WHERE "userId" IS NULL AND type = 'COMPANY_FUND' AND "createdAt" >= ${from} GROUP BY 1`,
+    prisma.$queryRaw<{ day: string; total: unknown }[]>`
+      SELECT to_char("createdAt" + interval '330 minutes', 'YYYY-MM-DD') AS day, SUM(-amount) AS total
+      FROM "LedgerEntry" WHERE type = 'WITHDRAWAL' AND "createdAt" >= ${from} GROUP BY 1`
+  ]);
+
+  type Day = { date: string; sales: number; salesCount: number; paid: number; byType: Record<string, number>; companyFund: number; withdrawn: number };
+  const byDay = new Map<string, Day>();
+  const day = (d: string) => {
+    let row = byDay.get(d);
+    if (!row) byDay.set(d, (row = { date: d, sales: 0, salesCount: 0, paid: 0, byType: {}, companyFund: 0, withdrawn: 0 }));
+    return row;
+  };
+  const totals = { sales: 0, salesCount: 0, paid: 0, byType: {} as Record<string, number>, companyFund: 0, withdrawn: 0 };
+
+  for (const r of sales) {
+    const d = day(r.day);
+    d.sales = money(r.total);
+    d.salesCount = Number(r.n);
+    totals.sales = money(totals.sales + d.sales);
+    totals.salesCount += d.salesCount;
+  }
+  for (const r of paid) {
+    const d = day(r.day);
+    const v = money(r.total);
+    d.byType[r.type] = v;
+    d.paid = money(d.paid + v);
+    totals.byType[r.type] = money((totals.byType[r.type] ?? 0) + v);
+    totals.paid = money(totals.paid + v);
+  }
+  for (const r of company) {
+    const d = day(r.day);
+    d.companyFund = money(r.total);
+    totals.companyFund = money(totals.companyFund + d.companyFund);
+  }
+  for (const r of withdrawn) {
+    const d = day(r.day);
+    d.withdrawn = money(r.total);
+    totals.withdrawn = money(totals.withdrawn + d.withdrawn);
+  }
+
+  res.json({
+    success: true,
+    data: { range: days === null ? 'all' : String(days), totals, days: [...byDay.values()].sort((a, b) => (a.date < b.date ? 1 : -1)) }
+  });
+});
+
 router.post('/demat', validateBody(dematSchema), async (req: Request, res: Response) => {
   const { referrerEmail, clientName, amount, note } = req.body as z.infer<typeof dematSchema>;
   const directPaise = Math.round(amount * 100);

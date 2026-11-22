@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../shared/api/apiClient';
-import { date, inr, label } from '../../shared/format';
+import { inr, label } from '../../shared/format';
 import { useRun } from '../../shared/useRun';
 
 export type Status = 'PENDING' | 'APPROVED' | 'REJECTED';
@@ -22,15 +22,22 @@ export const who = (p: Person) => (
   </>
 );
 
-/** One review queue: pick a status, list the rows, approve or reject each. Shows the total when rows carry an amount. */
+const stamp = (iso: string) => new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+/**
+ * A review queue as a table: when, the details, and Approve / Reject (plus any extra button, like "View screenshot").
+ * When rows carry an amount the total is shown too.
+ */
 export function Queue<T extends { id: string; status: Status; createdAt: string }>({
   path,
+  title,
   row,
   extra,
   amountOf,
   rejectLabel = 'Reject'
 }: {
   path: string;
+  title?: string;
   row: (r: T) => React.ReactNode;
   extra?: (r: T) => React.ReactNode;
   amountOf?: (r: T) => number;
@@ -64,45 +71,74 @@ export function Queue<T extends { id: string; status: Status; createdAt: string 
   return (
     <div className="card">
       <div className="team-head">
+        {title ? <h2>{title}</h2> : <span />}
+        {total !== null && (
+          <div className="wd-total">
+            <small>Total of the shown</small>
+            <strong>{inr(total)}</strong>
+            <small>{items ? `${items.length} request${items.length === 1 ? '' : 's'}` : ''}</small>
+          </div>
+        )}
+      </div>
+      <div className="rep-tools">
         <select value={status} onChange={(e) => setStatus(e.target.value as Status)} aria-label="Status">
           <option value="PENDING">Waiting</option>
           <option value="APPROVED">Approved</option>
           <option value="REJECTED">Rejected</option>
         </select>
-        <span className="muted">
-          {items ? `${items.length} shown` : 'Loading...'}
-          {total !== null && items && items.length > 0 && (
-            <>
-              {' · '}total <b>{inr(total)}</b>
-            </>
-          )}
-        </span>
+        {total === null && <span className="muted">{items ? `${items.length} shown` : 'Loading...'}</span>}
       </div>
       {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
       {items && items.length === 0 && <p className="muted">Nothing here.</p>}
-      <div className="report-list">
-        {items?.map((r) => (
-          <div className="report-row ops-row" key={r.id}>
-            <div>{row(r)}</div>
-            <span className="muted">{date(r.createdAt)}</span>
-            <div className="report-actions">
-              {extra?.(r)}
-              {r.status === 'PENDING' ? (
-                <>
-                  <button className="btn" type="button" disabled={act.busy} onClick={() => decide(r.id, 'approve')}>
-                    Approve
-                  </button>
-                  <button className="btn ghost danger" type="button" disabled={act.busy} onClick={() => decide(r.id, 'reject')}>
-                    {rejectLabel}
-                  </button>
-                </>
-              ) : (
-                <span className={`badge ${r.status.toLowerCase()}`}>{label(r.status)}</span>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+
+      {items && items.length > 0 && (
+        <div className="table-wrap">
+          <table className="rep-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Details</th>
+                <th className="center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((r) => (
+                <tr key={r.id}>
+                  <td>{stamp(r.createdAt)}</td>
+                  <td>{row(r)}</td>
+                  <td className="rep-actions center">
+                    {extra?.(r)}
+                    {r.status === 'PENDING' ? (
+                      <>
+                        <button className="btn ok" type="button" disabled={act.busy} onClick={() => decide(r.id, 'approve')}>
+                          Approve
+                        </button>
+                        <button className="btn bad" type="button" disabled={act.busy} onClick={() => decide(r.id, 'reject')}>
+                          {rejectLabel}
+                        </button>
+                      </>
+                    ) : (
+                      <span className={`badge ${r.status.toLowerCase()}`}>{label(r.status)}</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {total !== null && (
+              <tfoot>
+                <tr>
+                  <td>
+                    <b>Total</b>
+                  </td>
+                  <td colSpan={2}>
+                    <b>{inr(total)}</b>
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
     </div>
   );
 }

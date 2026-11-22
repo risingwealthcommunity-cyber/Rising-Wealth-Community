@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api } from '../../shared/api/apiClient';
 import { compressImage } from '../../shared/compressImage';
-import { date, inr, label } from '../../shared/format';
+import { inr, label } from '../../shared/format';
 import { openProofAt } from '../../shared/openProof';
 import { useRun } from '../../shared/useRun';
 
@@ -21,7 +21,9 @@ interface Withdrawal {
   bank: { bankName: string; account: string; ifsc: string; upiId: string } | null;
 }
 
-function CopyText({ text, children }: { text: string; children?: React.ReactNode }) {
+const stamp = (iso: string) => new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+function CopyText({ text }: { text: string }) {
   const [done, setDone] = useState(false);
   return (
     <button
@@ -38,13 +40,13 @@ function CopyText({ text, children }: { text: string; children?: React.ReactNode
           .catch(() => undefined);
       }}
     >
-      {done ? 'Copied!' : children ?? text}
+      {done ? 'Copied!' : text}
     </button>
   );
 }
 
-/** One withdrawal as the admin sees it: who, how much, where to pay, and a form to record the payment. */
-function Row({ w, onDone }: { w: Withdrawal; onDone: () => void }) {
+/** The panel that opens under a row: the member's details, or the form that records the payment. */
+function Panel({ w, mode, onClose, onDone }: { w: Withdrawal; mode: 'view' | 'pay'; onClose: () => void; onDone: () => void }) {
   const [ref, setRef] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const act = useRun();
@@ -55,6 +57,7 @@ function Row({ w, onDone }: { w: Withdrawal; onDone: () => void }) {
       const picture = await compressImage(file);
       const r = await api(`/admin/withdrawals/${w.id}/approve`, { method: 'POST', body: { reference: ref.trim(), ...picture } });
       onDone();
+      onClose();
       return r;
     });
   };
@@ -74,114 +77,108 @@ function Row({ w, onDone }: { w: Withdrawal; onDone: () => void }) {
     });
   };
 
-  const reject = () => {
-    const answer = window.prompt('Reason (the member can see it). Leave empty for none.');
-    if (answer === null) return;
-    void act.run(async () => {
-      const r = await api(`/admin/withdrawals/${w.id}/reject`, { method: 'POST', body: answer.trim() ? { note: answer.trim() } : {} });
-      onDone();
-      return r;
-    });
-  };
-
   return (
-    <div className="wd-row">
-      <div className="wd-main">
-        <div className="wd-who">
-          <b>{w.user.name}</b>
-          <small className="muted">
-            {w.user.email}
-            {w.user.phone ? ` · ${w.user.phone}` : ''}
-            {w.user.city ? ` · ${w.user.city}` : ''}
-          </small>
-          <small className="muted">
-            ID {w.user.referralCode} · {label(w.user.package)} · wallet {inr(w.user.walletBalance)}
-          </small>
-        </div>
-        <div className="wd-amount">
-          <strong>{inr(w.amount)}</strong>
-          <small className="muted">asked {date(w.createdAt)}</small>
-        </div>
-      </div>
-
-      {w.bank ? (
-        <div className="wd-bank">
-          <span>
-            <small>Bank</small> {w.bank.bankName}
-          </span>
-          <span>
-            <small>Account no.</small> <CopyText text={w.bank.account} />
-          </span>
-          <span>
-            <small>IFSC</small> <CopyText text={w.bank.ifsc} />
-          </span>
-          {w.bank.upiId && (
-            <span>
-              <small>UPI</small> <CopyText text={w.bank.upiId} />
-            </span>
-          )}
-        </div>
+    <div className="wd-panel">
+      {mode === 'pay' ? (
+        <>
+          <p className="muted">
+            Pay <b>{inr(w.amount)}</b> to the account shown in the row, then record it. The amount leaves the member's wallet when you confirm.
+          </p>
+          <div className="wd-pay">
+            <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Transaction ID of your payment" aria-label="Transaction ID" maxLength={100} />
+            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-label="Payment screenshot" />
+          </div>
+        </>
       ) : (
-        <div className="alert error">This member has no bank details saved.</div>
-      )}
-
-      {w.status === 'PENDING' && (
-        <div className="wd-state">
-          <span className={`badge ${w.inProgress ? 'processing' : 'pending'}`}>{w.inProgress ? 'Processing' : 'Waiting'}</span>
-          {w.inProgress && w.note && <span className="muted">Message to member: {w.note}</span>}
-          <button className="btn ghost" type="button" disabled={act.busy} onClick={() => setProgress(!w.inProgress)}>
-            {w.inProgress ? 'Back to waiting' : 'Mark as processing'}
-          </button>
-        </div>
-      )}
-
-      {w.status === 'PENDING' && (
-        <div className="wd-pay">
-          <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Transaction ID of your payment" aria-label="Transaction ID" maxLength={100} />
-          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-label="Payment screenshot" />
-          <div className="report-actions">
-            <button className="btn" type="button" disabled={act.busy || ref.trim().length < 4 || !file} onClick={pay}>
-              {act.busy ? 'Saving...' : 'Mark as paid'}
-            </button>
-            <button className="btn ghost danger" type="button" disabled={act.busy} onClick={reject}>
-              Reject
-            </button>
+        <div className="wd-details">
+          <div>
+            <small>Member</small>
+            <b>{w.user.name}</b>
+            <span>{w.user.email}</span>
+            {w.user.phone && <span>{w.user.phone}</span>}
+            {w.user.city && <span>{w.user.city}</span>}
+          </div>
+          <div>
+            <small>Account</small>
+            <span>
+              ID <b>{w.user.referralCode}</b> · {label(w.user.package)}
+            </span>
+            <span>Wallet balance {inr(w.user.walletBalance)}</span>
+          </div>
+          <div>
+            <small>Pay to</small>
+            {w.bank ? (
+              <>
+                <span>{w.bank.bankName}</span>
+                <span>
+                  A/C <CopyText text={w.bank.account} />
+                </span>
+                <span>
+                  IFSC <CopyText text={w.bank.ifsc} />
+                </span>
+                {w.bank.upiId && (
+                  <span>
+                    UPI <CopyText text={w.bank.upiId} />
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="muted">No bank details saved</span>
+            )}
+          </div>
+          <div>
+            <small>State</small>
+            <span>
+              <span className={`badge ${w.status === 'PENDING' ? (w.inProgress ? 'processing' : 'pending') : w.status.toLowerCase()}`}>
+                {w.status === 'PENDING' ? (w.inProgress ? 'Processing' : 'Waiting') : label(w.status)}
+              </span>
+            </span>
+            {w.inProgress && w.note && <span className="muted">Message to member: {w.note}</span>}
+            {w.status === 'REJECTED' && w.note && <span className="muted">Reason: {w.note}</span>}
+            {w.status === 'APPROVED' && (
+              <>
+                <span>
+                  Transaction ID <b>{w.payoutRef}</b>
+                </span>
+                {w.processedAt && <span className="muted">Paid {stamp(w.processedAt)}</span>}
+              </>
+            )}
           </div>
         </div>
       )}
-
-      {w.status === 'APPROVED' && (
-        <div className="wd-done">
-          <span className="badge approved">Paid {w.processedAt ? date(w.processedAt) : ''}</span>
-          <span>
-            Transaction ID <b>{w.payoutRef}</b>
-          </span>
-          {w.hasProof && (
-            <button className="btn ghost" type="button" onClick={() => void openProofAt(`/admin/withdrawals/${w.id}/proof`)}>
-              View screenshot
-            </button>
-          )}
-        </div>
-      )}
-
-      {w.status === 'REJECTED' && (
-        <div className="wd-done">
-          <span className="badge rejected">Rejected</span>
-          {w.note && <span className="muted">{w.note}</span>}
-        </div>
-      )}
-
       {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
+      <div className="wd-panel-actions">
+        {mode === 'pay' && (
+          <button className="btn" type="button" disabled={act.busy || ref.trim().length < 4 || !file} onClick={pay}>
+            {act.busy ? 'Saving...' : 'Confirm paid'}
+          </button>
+        )}
+        {mode === 'view' && w.status === 'PENDING' && (
+          <button className="btn ghost" type="button" disabled={act.busy} onClick={() => setProgress(!w.inProgress)}>
+            {w.inProgress ? 'Back to waiting' : 'Mark as processing'}
+          </button>
+        )}
+        {mode === 'view' && w.status === 'APPROVED' && w.hasProof && (
+          <button className="btn ghost" type="button" onClick={() => void openProofAt(`/admin/withdrawals/${w.id}/proof`)}>
+            View payment screenshot
+          </button>
+        )}
+        <button className="btn ghost" type="button" onClick={onClose}>
+          Close
+        </button>
+      </div>
     </div>
   );
 }
 
-/** All withdrawals, newest first. The default view is the ones waiting for the admin to pay. */
+/** Withdrawals as a table: when, who and where to pay, how much, and View / Approve / Reject. */
 export default function AdminWithdrawals({ onChanged }: { onChanged?: () => void }) {
   const [status, setStatus] = useState<Status>('PENDING');
   const [typed, setTyped] = useState('');
   const [q, setQ] = useState('');
   const [items, setItems] = useState<Withdrawal[] | null>(null);
+  const [panel, setPanel] = useState<{ id: string; mode: 'view' | 'pay' } | null>(null);
+  const act = useRun();
 
   const load = useCallback(() => {
     api<{ items: Withdrawal[] }>(`/admin/withdrawals?status=${status}${q ? `&q=${encodeURIComponent(q)}` : ''}`)
@@ -194,9 +191,35 @@ export default function AdminWithdrawals({ onChanged }: { onChanged?: () => void
     onChanged?.();
   };
 
+  const reject = (w: Withdrawal) => {
+    const answer = window.prompt('Reason (the member can see it). Leave empty for none.');
+    if (answer === null) return;
+    void act.run(async () => {
+      const r = await api(`/admin/withdrawals/${w.id}/reject`, { method: 'POST', body: answer.trim() ? { note: answer.trim() } : {} });
+      setPanel(null);
+      changed();
+      return r;
+    });
+  };
+
+  const toggle = (id: string, mode: 'view' | 'pay') => setPanel((p) => (p && p.id === id && p.mode === mode ? null : { id, mode }));
+  const total = items ? items.reduce((s, w) => s + Number(w.amount), 0) : 0;
+
   return (
     <div className="card">
       <div className="team-head">
+        <div>
+          <h2>{status === 'PENDING' ? 'Pending withdrawal requests' : 'Withdrawal requests'}</h2>
+          <p className="muted">Review and process the withdrawal requests from members.</p>
+        </div>
+        <div className="wd-total">
+          <small>{status === 'ALL' ? 'Total of all shown' : 'Total of the shown'}</small>
+          <strong>{inr(total)}</strong>
+          <small>{items ? `${items.length} request${items.length === 1 ? '' : 's'}` : 'Loading...'}</small>
+        </div>
+      </div>
+
+      <div className="rep-tools">
         <select value={status} onChange={(e) => setStatus(e.target.value as Status)} aria-label="Status">
           <option value="PENDING">Waiting to be paid</option>
           <option value="PROCESSING">Processing</option>
@@ -204,32 +227,92 @@ export default function AdminWithdrawals({ onChanged }: { onChanged?: () => void
           <option value="REJECTED">Rejected</option>
           <option value="ALL">All</option>
         </select>
-        <form
-          className="wd-search"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setQ(typed.trim());
-          }}
-        >
-          <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search name, email, mobile or Affiliate ID" aria-label="Search withdrawals" />
-          <button className="btn ghost">Search</button>
-        </form>
-        <span className="muted">
-          {items ? `${items.length} shown` : 'Loading...'}
-          {items && items.length > 0 && (
-            <>
-              {' · '}total <b>{inr(items.reduce((s, w) => s + Number(w.amount), 0))}</b>
-            </>
-          )}
-        </span>
+        <input value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && setQ(typed.trim())} placeholder="Search name, email, mobile or Affiliate ID" aria-label="Search withdrawals" />
+        <button className="btn ghost" type="button" onClick={() => setQ(typed.trim())}>
+          Search
+        </button>
       </div>
-      <p className="muted">Pay the member from your bank app using the details shown, then enter the transaction ID, add the payment screenshot and press "Mark as paid". The amount leaves the member's wallet at that moment.</p>
+      {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
       {items && items.length === 0 && <p className="muted">Nothing here.</p>}
-      <div className="wd-list">
-        {items?.map((w) => (
-          <Row w={w} key={w.id} onDone={changed} />
-        ))}
-      </div>
+
+      {items && items.length > 0 && (
+        <div className="table-wrap">
+          <table className="rep-table wd-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>User &amp; payment details</th>
+                <th>Amount</th>
+                <th className="center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((w) => (
+                <Fragment key={w.id}>
+                  <tr>
+                    <td>{stamp(w.createdAt)}</td>
+                    <td>
+                      <b>{w.user.name}</b>
+                      {w.bank ? (
+                        <small className="muted wd-bank-lines">
+                          A/C: {w.bank.account}
+                          <br />
+                          IFSC: {w.bank.ifsc}
+                          {w.bank.upiId && (
+                            <>
+                              <br />
+                              UPI: {w.bank.upiId}
+                            </>
+                          )}
+                        </small>
+                      ) : (
+                        <small className="muted">No bank details</small>
+                      )}
+                      {w.status !== 'PENDING' && <span className={`badge ${w.status.toLowerCase()}`}>{w.status === 'APPROVED' ? 'Paid' : 'Rejected'}</span>}
+                      {w.status === 'PENDING' && w.inProgress && <span className="badge processing">Processing</span>}
+                    </td>
+                    <td>
+                      <b>{inr(w.amount)}</b>
+                    </td>
+                    <td className="rep-actions center">
+                      <button className="btn ghost" type="button" onClick={() => toggle(w.id, 'view')}>
+                        View
+                      </button>
+                      {w.status === 'PENDING' && (
+                        <>
+                          <button className="btn ok" type="button" disabled={act.busy} onClick={() => toggle(w.id, 'pay')}>
+                            Approve
+                          </button>
+                          <button className="btn bad" type="button" disabled={act.busy} onClick={() => reject(w)}>
+                            Reject
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                  {panel?.id === w.id && (
+                    <tr className="wd-panel-row">
+                      <td colSpan={4}>
+                        <Panel w={w} mode={panel.mode} onClose={() => setPanel(null)} onDone={changed} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={2}>
+                  <b>Total</b>
+                </td>
+                <td colSpan={2}>
+                  <b>{inr(total)}</b>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

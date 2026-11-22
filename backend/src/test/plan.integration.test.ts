@@ -2516,40 +2516,52 @@ test('CONTACT INBOX: the landing form stores messages, admins read and tidy them
   assert.equal((await admin.call('GET', '/api/admin/messages')).json.data.items.some((x: any) => x.id === mine.id), false);
 });
 
-test('INCOME SUMMARY: earnings grouped by Indian day and by type, credits only, with a range', async () => {
-  const m = await signup('RWCROOT', 'RIGHT', 'mny_is_one');
-  const row = await rowOf(m.email);
-  const ago = (n: number) => new Date(Date.now() - n * 86_400_000);
-  await prisma.ledgerEntry.createMany({
-    data: [
-      { userId: row.id, type: 'DIRECT_INCOME', amount: 100, createdAt: new Date() },
-      { userId: row.id, type: 'DEMAT_DIRECT', amount: 50, createdAt: new Date() },
-      { userId: row.id, type: 'TEAM_PERFORMANCE_BONUS', amount: 750, createdAt: ago(3) },
-      { userId: row.id, type: 'DIRECT_INCOME', amount: 10, createdAt: ago(40) },
-      { userId: row.id, type: 'WITHDRAWAL', amount: -5, createdAt: new Date() }
-    ]
-  });
-  await prisma.user.update({ where: { id: row.id }, data: { walletBalance: 905 } }); // keep wallet = ledger
-  assert.equal((await new Client().call('GET', '/api/dashboard/income')).status, 401);
+test('ADMIN INCOME SUMMARY: the platform money picture by day: sales, income paid out per type, company fund, withdrawals', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_ai_one');
+  assert.equal((await m.c.call('GET', '/api/admin/income')).status, 403);
+  assert.equal((await new Client().call('GET', '/api/admin/income')).status, 401);
 
-  const d7 = (await m.c.call('GET', '/api/dashboard/income?range=7')).json.data;
-  assert.equal(d7.range, '7');
-  assert.equal(d7.total, 900, 'the 40 day old income and the withdrawal are not in 7 days');
-  assert.deepEqual(d7.byType, { DIRECT_INCOME: 100, DEMAT_DIRECT: 50, TEAM_PERFORMANCE_BONUS: 750 });
-  assert.equal(d7.days.length >= 2, true);
-  assert.equal(d7.days[0].total >= 150, true, 'newest day first');
-  assert.equal(d7.days.reduce((s: number, x: any) => s + x.total, 0), 900, 'the days add up to the total');
-  assert.match(d7.days[0].date, /^\d{4}-\d{2}-\d{2}$/);
+  const get = async (range = 'all') => (await admin.call('GET', `/api/admin/income?range=${range}`)).json.data;
+  const before = await get();
+  assert.deepEqual(Object.keys(before.totals).sort(), ['byType', 'companyFund', 'paid', 'sales', 'salesCount', 'withdrawn']);
 
-  const d30 = (await m.c.call('GET', '/api/dashboard/income')).json.data;
-  assert.deepEqual([d30.range, d30.total], ['30', 900], 'default is 30 days');
-  const all = (await m.c.call('GET', '/api/dashboard/income?range=all')).json.data;
-  assert.deepEqual([all.range, all.total, all.byType.DIRECT_INCOME], ['all', 910, 110]);
-  assert.equal((await m.c.call('GET', '/api/dashboard/income?range=abc')).json.data.range, '30', 'junk falls back to 30');
-  assert.equal(JSON.stringify(all).includes('WITHDRAWAL'), false, 'money going out is not income');
-  // someone else sees none of it
-  const other = await signup('RWCROOT', 'RIGHT', 'mny_is_two');
-  assert.equal((await other.c.call('GET', '/api/dashboard/income?range=all')).json.data.total, 0);
+  const top = await paidMember('RWCROOT', 'RIGHT', 'mny_ai_top');
+  const afterTop = await get();
+  assert.equal(afterTop.totals.salesCount, before.totals.salesCount + 1);
+  assert.equal(afterTop.totals.sales, rupees(before.totals.sales + 2499), 'a PRO sale is Rs 2,499');
+
+  const buyer = await signup(top.left, 'LEFT', 'mny_ai_buyer');
+  await buy(buyer.c, 'ELITE'); // pays top a direct and passive income, the rest goes to the company fund
+  const afterSale = await get();
+  assert.equal(afterSale.totals.sales, rupees(afterTop.totals.sales + 4999));
+  assert.ok(afterSale.totals.paid > afterTop.totals.paid, 'income was credited to members');
+  assert.ok((afterSale.totals.byType.DIRECT_INCOME ?? 0) > (afterTop.totals.byType.DIRECT_INCOME ?? 0));
+  assert.equal(rupees(Object.values(afterSale.totals.byType as Record<string, number>).reduce((s, v) => s + v, 0)), afterSale.totals.paid, 'the types add up to the total paid');
+
+  // a withdrawal that was paid shows as money out, and is not income
+  const row = await rowOf(top.email);
+  await prisma.ledgerEntry.create({ data: { userId: row.id, type: 'WITHDRAWAL', amount: -100 } });
+  await prisma.user.update({ where: { id: row.id }, data: { walletBalance: { decrement: 100 } } });
+  const afterWd = await get();
+  assert.equal(afterWd.totals.withdrawn, rupees(afterSale.totals.withdrawn + 100));
+  assert.equal(afterWd.totals.paid, afterSale.totals.paid, 'withdrawing is not income');
+
+  // days: newest first, and they add up to the totals
+  assert.ok(afterWd.days.length >= 1);
+  const dates = afterWd.days.map((d: any) => d.date);
+  assert.deepEqual(dates, [...dates].sort().reverse());
+  assert.equal(rupees(afterWd.days.reduce((s: number, d: any) => s + d.sales, 0)), afterWd.totals.sales);
+  assert.equal(rupees(afterWd.days.reduce((s: number, d: any) => s + d.paid, 0)), afterWd.totals.paid);
+  assert.equal(rupees(afterWd.days.reduce((s: number, d: any) => s + d.withdrawn, 0)), afterWd.totals.withdrawn);
+
+  // ranges
+  assert.equal((await get('7')).range, '7');
+  assert.equal((await get('junk')).range, '30');
+  assert.ok((await get('7')).totals.sales >= 2499 + 4999);
+  const old = await prisma.packagePurchase.findFirstOrThrow({ where: { userId: row.id, status: 'CONFIRMED' } });
+  await prisma.packagePurchase.update({ where: { id: old.id }, data: { confirmedAt: new Date(Date.now() - 200 * 86_400_000) } });
+  assert.equal((await get('90')).totals.sales, rupees(afterWd.totals.sales - 2499), 'a sale from 200 days ago is not in 90 days');
+  assert.equal((await get('all')).totals.sales, afterWd.totals.sales, 'but it is in all time');
 });
 
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {

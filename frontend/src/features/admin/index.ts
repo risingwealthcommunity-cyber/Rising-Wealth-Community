@@ -1,9 +1,11 @@
 export { default as AdminBonusesPage } from './AdminBonusesPage';
 export { default as AdminCampaignsPage } from './AdminCampaignsPage';
 export { default as AdminContactPage } from './AdminContactPage';
+export { default as AdminIncomePage } from './AdminIncomePage';
 export { default as AdminLayout } from './AdminLayout';
 export { default as AdminPage } from './AdminPage';
 export { default as AdminReportsPage } from './AdminReportsPage';
+export { default as AdminTrainingPage } from './AdminTrainingPage';
 export { default as AdminMembersPage } from './AdminMembersPage';
 export { default as AdminOpsPage } from './AdminOpsPage';
 export { default as AdminWithdrawalsPage } from './AdminWithdrawalsPage';

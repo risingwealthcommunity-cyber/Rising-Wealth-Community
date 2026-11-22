@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
-import { date, inr, label } from '../../shared/format';
+import { inr, label } from '../../shared/format';
 import { useRun } from '../../shared/useRun';
 
 interface Member {
@@ -27,6 +26,9 @@ interface Page {
   items: Member[];
 }
 
+const when = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+
+/** Every member as a table, with search and a switch to turn someone off (they are signed out at once) or back on. */
 export default function AdminMembersPage() {
   const [q, setQ] = useState('');
   const [typed, setTyped] = useState('');
@@ -54,60 +56,81 @@ export default function AdminMembersPage() {
 
   return (
     <>
-      <div className="team-head">
-        <h1>Members</h1>
-        <Link className="btn ghost" to="/admin">
-          Back to admin
-        </Link>
-      </div>
-
-      <form
-        className="card"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setPage(1);
-          setQ(typed.trim());
-        }}
-      >
-        <div className="form-row">
-          <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search by name, email, mobile or Affiliate ID" aria-label="Search members" />
-          <button className="btn">Search</button>
-        </div>
-        {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
-        <p className="muted">{data ? `${data.total} member${data.total === 1 ? '' : 's'}` : 'Loading...'}</p>
-      </form>
+      <h1>Users</h1>
 
       <div className="card">
-        {data && data.items.length === 0 && <p className="muted">No member found.</p>}
-        <div className="report-list">
-          {data?.items.map((m) => (
-            <div className="report-row ops-row" key={m.id}>
-              <div>
-                <b>
-                  {m.name} {!m.isActive && <span className="badge rejected">Off</span>} {!m.isVerified && <span className="badge pending">Not verified</span>}
-                </b>
-                <small className="muted">
-                  {m.email}
-                  {m.phone ? ` · ${m.phone}` : ''}
-                  {m.city ? ` · ${m.city}` : ''}
-                </small>
-                <small className="muted">
-                  {label(m.package)} · ID {m.referralCode} · joined {date(m.createdAt)}
-                  {m.sponsor ? ` · sponsor ${m.sponsor.name} (${m.sponsor.referralCode})` : ''}
-                </small>
-                <small>
-                  Wallet <b>{inr(m.walletBalance)}</b> · Activation <b>{inr(m.activationBalance)}</b>
-                </small>
-              </div>
-              <span />
-              <div className="report-actions">
-                <button className={`btn ghost${m.isActive ? ' danger' : ''}`} type="button" disabled={act.busy} onClick={() => toggle(m)}>
-                  {m.isActive ? 'Switch off' : 'Switch on'}
-                </button>
-              </div>
-            </div>
-          ))}
+        <div className="team-head">
+          <div>
+            <h2>All members</h2>
+            <p className="muted">{data ? `${data.total} member${data.total === 1 ? '' : 's'}` : 'Loading...'}</p>
+          </div>
         </div>
+        <form
+          className="rep-tools"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setPage(1);
+            setQ(typed.trim());
+          }}
+        >
+          <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search by name, email, mobile or Affiliate ID" aria-label="Search members" />
+          <button className="btn ghost">Search</button>
+        </form>
+        {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
+        {data && data.items.length === 0 && <p className="muted">No member found.</p>}
+
+        {data && data.items.length > 0 && (
+          <div className="table-wrap">
+            <table className="rep-table">
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Contact</th>
+                  <th>Package</th>
+                  <th>Sponsor</th>
+                  <th>Wallet</th>
+                  <th>Joined</th>
+                  <th>Status</th>
+                  <th className="center">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map((m) => (
+                  <tr key={m.id} className={m.isActive ? undefined : 'done-row'}>
+                    <td>
+                      <b>{m.name}</b>
+                      <small className="muted">ID {m.referralCode}</small>
+                    </td>
+                    <td>
+                      {m.email}
+                      {m.phone && <small className="muted">{m.phone}</small>}
+                      {m.city && <small className="muted">{m.city}</small>}
+                    </td>
+                    <td>
+                      {label(m.package)}
+                      {m.rank !== 'NONE' && <small className="muted">{label(m.rank)}</small>}
+                    </td>
+                    <td>{m.sponsor ? <>{m.sponsor.name}<small className="muted">{m.sponsor.referralCode}</small></> : <span className="muted">-</span>}</td>
+                    <td>
+                      <b>{inr(m.walletBalance)}</b>
+                      <small className="muted">Activation {inr(m.activationBalance)}</small>
+                    </td>
+                    <td>{when(m.createdAt)}</td>
+                    <td>
+                      {!m.isActive ? <span className="badge rejected">Off</span> : !m.isVerified ? <span className="badge pending">Not verified</span> : <span className="badge approved">Active</span>}
+                    </td>
+                    <td className="rep-actions center">
+                      <button className={m.isActive ? 'btn bad' : 'btn ok'} type="button" disabled={act.busy} onClick={() => toggle(m)}>
+                        {m.isActive ? 'Switch off' : 'Switch on'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {pages > 1 && (
           <div className="pager">
             <button className="btn ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>

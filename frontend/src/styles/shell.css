@@ -646,3 +646,24 @@ label.check input[type='checkbox'] { width: auto; flex: none; margin: 0; }
 .income-total strong { font-size: 2rem; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { padding: 3px 10px; border-radius: 999px; border: 1px solid #94a3b8; font-size: 0.78rem; background: #fff; white-space: nowrap; }
+
+/* ---------- admin tables like the reference: coloured action buttons, withdrawals, totals */
+.rep-table th.center, .rep-table td.center { text-align: center; }
+.btn.ok { background: #16a34a; color: #fff; border-color: #16a34a; }
+.btn.ok:hover:not(:disabled) { background: #15803d; }
+.btn.bad { background: #ef4444; color: #fff; border-color: #ef4444; }
+.btn.bad:hover:not(:disabled) { background: #dc2626; }
+.rep-actions.center { display: table-cell; }
+.rep-actions .btn { margin: 2px; }
+.wd-total { display: grid; justify-items: end; gap: 2px; text-align: right; }
+.wd-total strong { font: 900 1.5rem 'Unbounded', sans-serif; letter-spacing: -0.03em; }
+.wd-bank-lines { margin-top: 4px; line-height: 1.5; }
+.wd-table tbody td { vertical-align: middle; }
+.wd-panel-row > td { background: #f9fafb; padding: 0; }
+.wd-panel { padding: 16px 18px; display: grid; gap: 12px; }
+.wd-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; }
+.wd-details > div { display: grid; gap: 3px; align-content: start; font-size: 0.9rem; }
+.wd-details small { font: 400 0.58rem 'Space Mono', monospace; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.wd-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-section-gap { height: 18px; }
+.wd-details span { overflow-wrap: anywhere; word-break: break-word; }

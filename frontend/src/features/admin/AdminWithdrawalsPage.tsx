@@ -22,17 +22,15 @@ interface FundReq {
   user: Person;
 }
 
-type Tab = 'withdrawals' | 'funds';
-
-/** Money in and out on one page: withdrawals to pay, and add-fund payments to approve. */
+/** Money in and out on one page: withdrawals to pay, then the add-fund payments to approve. */
 export default function AdminWithdrawalsPage() {
   const [o, setO] = useState<Overview | null>(null);
   const [tick, setTick] = useState(0);
-  const [tab, setTab] = useState<Tab>('withdrawals');
 
   useEffect(() => {
     api<Overview>('/admin/overview').then((r) => setO(r.data ?? null)).catch(() => undefined);
-  }, [tick, tab]);
+  }, [tick]);
+  const refresh = () => setTick((t) => t + 1);
 
   return (
     <>
@@ -56,38 +54,28 @@ export default function AdminWithdrawalsPage() {
         </div>
       </div>
 
-      <div className="dash-tabs ops-tabs">
-        <button type="button" aria-pressed={tab === 'withdrawals'} onClick={() => setTab('withdrawals')}>
-          Withdrawals
-        </button>
-        <button type="button" aria-pressed={tab === 'funds'} onClick={() => setTab('funds')}>
-          Add fund approvals
-        </button>
-      </div>
+      <AdminWithdrawals onChanged={refresh} />
 
-      {tab === 'withdrawals' && <AdminWithdrawals onChanged={() => setTick((t) => t + 1)} />}
-      {tab === 'funds' && (
-        <>
-          <p className="muted">Members pay by QR and send the amount, the transaction ID and a screenshot. Check the screenshot, then approve to add the money to their activation wallet.</p>
-          <Queue<FundReq>
-            path="/admin/fund-requests"
-            amountOf={(r) => Number(r.amount)}
-            row={(r) => (
-              <>
-                {who(r.user)}
-                <small>
-                  <b>{inr(r.amount)}</b> · transaction ID <b>{r.reference}</b>
-                </small>
-              </>
-            )}
-            extra={(r) => (
-              <button className="btn ghost" type="button" onClick={() => void openProofAt(`/admin/fund-requests/${r.id}/proof`)}>
-                View screenshot
-              </button>
-            )}
-          />
-        </>
-      )}
+      <div className="admin-section-gap" />
+      <Queue<FundReq>
+        path="/admin/fund-requests"
+        title="Add fund approvals"
+        amountOf={(r) => Number(r.amount)}
+        row={(r) => (
+          <>
+            {who(r.user)}
+            <small>
+              <b>{inr(r.amount)}</b> · transaction ID <b>{r.reference}</b>
+            </small>
+          </>
+        )}
+        extra={(r) => (
+          <button className="btn ghost" type="button" onClick={() => void openProofAt(`/admin/fund-requests/${r.id}/proof`)}>
+            View screenshot
+          </button>
+        )}
+      />
+      <p className="muted" onClick={refresh} />
     </>
   );
 }

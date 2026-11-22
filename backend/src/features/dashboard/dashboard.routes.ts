@@ -146,40 +146,6 @@ router.put('/profile', requireAuth, async (req: Request, res: Response) => {
 });
 
 /**
- * Income summary: everything the member earned (credits only, the company fund excluded), grouped by Indian day and by
- * income type. ?range=7 | 30 | 90 | all (default 30).
- */
-router.get('/income', requireAuth, async (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const raw = String(req.query.range ?? '30');
-  const days = raw === 'all' ? null : [7, 30, 90].includes(Number(raw)) ? Number(raw) : 30;
-  // the range starts at the beginning of an IST day, so "7 days" means today and the 6 days before it
-  const from = days === null ? new Date(0) : new Date(startOfIstDay(new Date()) - (days - 1) * DAY_MS);
-
-  const rows = await prisma.$queryRaw<{ day: string; type: string; total: unknown }[]>`
-    SELECT to_char("createdAt" + interval '330 minutes', 'YYYY-MM-DD') AS day, type::text AS type, SUM(amount) AS total
-    FROM "LedgerEntry"
-    WHERE "userId" = ${userId} AND amount > 0 AND type <> 'COMPANY_FUND' AND "createdAt" >= ${from}
-    GROUP BY 1, 2
-    ORDER BY 1 DESC`;
-
-  const byDay = new Map<string, { date: string; total: number; byType: Record<string, number> }>();
-  const byType: Record<string, number> = {};
-  let total = 0;
-  for (const r of rows) {
-    const amount = rupees(Number(r.total));
-    const d = byDay.get(r.day) ?? { date: r.day, total: 0, byType: {} };
-    d.byType[r.type] = amount;
-    d.total = rupees(d.total + amount);
-    byDay.set(r.day, d);
-    byType[r.type] = rupees((byType[r.type] ?? 0) + amount);
-    total = rupees(total + amount);
-  }
-
-  res.json({ success: true, data: { range: days === null ? 'all' : String(days), total, byType, days: [...byDay.values()] } });
-});
-
-/**
  * Top 10 members by total income earned (credits only, the company fund excluded). Only first name + last initial,
  * the chosen avatar and rank are shown. The caller always gets their own position too, so they can see it when
  * they are not in the top 10. Members who have not earned anything yet are not ranked.

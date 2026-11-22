@@ -18,16 +18,18 @@ import {
   AdminBonusesPage,
   AdminCampaignsPage,
   AdminContactPage,
+  AdminIncomePage,
   AdminLayout,
   AdminMembersPage,
   AdminOpsPage,
   AdminPage,
   AdminReportsPage,
+  AdminTrainingPage,
   AdminWithdrawalsPage,
   SiteContentPage
 } from '../features/admin';
-import { CampaignsPage, MyReportsPage, ReportsPage } from '../features/campaigns';
-import { DashboardPage, IncomePage, LeaderboardPage, ProfilePage, TrainingPage } from '../features/dashboard';
+import { CampaignsPage, ReportsPage } from '../features/campaigns';
+import { DashboardPage, LeaderboardPage, ProfilePage, TrainingPage } from '../features/dashboard';
 import { LandingPage } from '../features/landing';
 import { PackagesPage } from '../features/packages';
 import { LivePage } from '../features/live';
@@ -73,8 +75,6 @@ export default function App() {
           <Route path="/ranks" element={<RanksPage />} />
           <Route path="/live" element={<LivePage />} />
           <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/my-reports" element={<MyReportsPage />} />
-          <Route path="/income" element={<IncomePage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />
           <Route
             element={
@@ -90,6 +90,8 @@ export default function App() {
             <Route path="/admin/members" element={<AdminMembersPage />} />
             <Route path="/admin/withdrawals" element={<AdminWithdrawalsPage />} />
             <Route path="/admin/bonuses" element={<AdminBonusesPage />} />
+            <Route path="/admin/income" element={<AdminIncomePage />} />
+            <Route path="/admin/training" element={<AdminTrainingPage />} />
             <Route path="/admin/contact" element={<AdminContactPage />} />
             <Route path="/admin/operations" element={<AdminOpsPage />} />
           </Route>

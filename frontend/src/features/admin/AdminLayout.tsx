@@ -8,6 +8,8 @@ const TABS: { to: string; label: string; end?: boolean }[] = [
   { to: '/admin/members', label: 'Users' },
   { to: '/admin/withdrawals', label: 'Funds & withdrawals' },
   { to: '/admin/bonuses', label: 'Bonuses' },
+  { to: '/admin/income', label: 'Income summary' },
+  { to: '/admin/training', label: 'Training library' },
   { to: '/admin/contact', label: 'Contact' },
   { to: '/admin/operations', label: 'Perks & live' }
 ];
