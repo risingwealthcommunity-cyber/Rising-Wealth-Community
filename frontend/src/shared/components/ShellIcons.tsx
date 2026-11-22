@@ -20,6 +20,8 @@ export const Icon = {
   upload: svg(<path d="M12 16V4M7 9l5-5 5 5M5 20h14" />),
   medal: svg(<><circle cx="12" cy="15" r="5" /><path d="M9 3h6l-1.5 6M9 3l1.5 6M12 12.5v5M10 15h4" /></>),
   video: svg(<><rect x="3" y="6" width="13" height="12" rx="2.5" /><path d="m16 10.5 5-3v9l-5-3z" /></>),
+  globe: svg(<><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" /></>),
+  mail: svg(<><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="m4 7 8 6 8-6" /></>),
   receipt: svg(<path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6M9 16h3" />),
   file: svg(<><path d="M7 3h7l4 4v14H7z" /><path d="M14 3v4h4M9.5 12h5M9.5 16h5" /></>),
   user: svg(<><circle cx="12" cy="8" r="3.6" /><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" /></>),

@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import { useAuth } from '../../features/auth';
 import { Avatar } from './Avatar';
 import MemberFooter from './MemberFooter';
+import { ADMIN_LINKS } from '../adminLinks';
 import { Icon } from './ShellIcons';
 
 const BONUS_LINKS = [
@@ -144,10 +145,15 @@ export default function AppLayout() {
               <span>Wallet</span>
             </NavLink>
             {isAdmin && (
-              <NavLink to="/admin">
-                {Icon.shield}
-                <span>Admin</span>
-              </NavLink>
+              <>
+                <div className="shell-label admin-label">ADMIN PANEL</div>
+                {ADMIN_LINKS.map((l) => (
+                  <NavLink key={l.to} to={l.to} end={l.end}>
+                    {Icon[l.icon]}
+                    <span>{l.label}</span>
+                  </NavLink>
+                ))}
+              </>
             )}
           </nav>
 

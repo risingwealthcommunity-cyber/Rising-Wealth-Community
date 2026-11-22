@@ -701,3 +701,13 @@ label.narrow { max-width: 360px; }
 .jump a { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--text); text-decoration: none; font-size: 0.82rem; font-weight: 600; }
 .jump a:hover { background: #0d1117; color: #fff; }
 @media (max-width: 700px) { .form-row.two { grid-template-columns: 1fr; } }
+
+/* ---------- admin panel in the sidebar and on the admin's dashboard */
+.shell-label.admin-label { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.admin-shortcuts { display: grid; gap: 10px; }
+.admin-shortcuts h2 { margin: 0; }
+.admin-shortcut-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.admin-shortcut { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border); background: #fff; color: var(--text); text-decoration: none; font-weight: 600; transition: transform 0.15s, box-shadow 0.15s, background 0.15s; }
+.admin-shortcut:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1); background: #f9fafb; }
+.admin-shortcut-icon { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: #0d1117; color: #fff; flex: none; }
+.admin-shortcut-icon svg { width: 18px; height: 18px; }

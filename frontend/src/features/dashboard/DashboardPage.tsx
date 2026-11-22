@@ -5,6 +5,7 @@ import { Avatar } from '../../shared/components/Avatar';
 import AvatarPicker from '../../shared/components/AvatarPicker';
 import { Icon } from '../../shared/components/ShellIcons';
 import { inr, label, typeLabel } from '../../shared/format';
+import { ADMIN_LINKS } from '../../shared/adminLinks';
 import { streamsOf } from '../../shared/streams';
 import type { Stream } from '../../shared/streams';
 import { useAuth } from '../auth';
@@ -227,6 +228,21 @@ export default function DashboardPage() {
 
   return (
     <>
+      {(user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') && (
+        <div className="card admin-shortcuts">
+          <h2>Admin panel</h2>
+          <p className="muted">Change the landing page, upload campaigns and manage everything from here.</p>
+          <div className="admin-shortcut-grid">
+            {ADMIN_LINKS.filter((l) => l.to !== '/admin').map((l) => (
+              <Link className="admin-shortcut" key={l.to} to={l.to}>
+                <span className="admin-shortcut-icon">{Icon[l.icon]}</span>
+                {l.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="card dash-profile">
         <button type="button" className="dash-avatar" aria-label="Change your avatar" onClick={() => setPicking(true)}>
           <Avatar avatar={user.avatar} name={user.name} size={108} />
