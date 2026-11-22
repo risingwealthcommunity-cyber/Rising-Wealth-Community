@@ -715,3 +715,7 @@ label.narrow { max-width: 360px; }
 /* ---------- a labelled input (withdrawal form) */
 .field { display: grid; gap: 6px; }
 .field > span { font-weight: 600; font-size: 0.9rem; }
+
+/* ---------- an expired campaign looks switched off */
+.campaign.expired { opacity: 0.6; filter: grayscale(0.6); }
+.campaign-reward .badge { margin-left: 8px; vertical-align: middle; }

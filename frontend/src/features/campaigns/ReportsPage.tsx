@@ -14,6 +14,7 @@ interface Report {
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'INCOMPLETE' | 'MISSING' | 'ALREADY_EXISTING';
   note: string | null;
   createdAt: string;
+  hasFile?: boolean;
   campaign: { id: string; title: string; reward: number };
 }
 
@@ -41,7 +42,7 @@ export default function ReportsPage() {
 
   const load = useCallback(async () => {
     const [c, r] = await Promise.all([api<{ items: Campaign[] }>('/campaigns'), api<{ items: Report[] }>('/campaigns/reports')]);
-    setCampaigns((c.data?.items ?? []).filter((x) => x.needsProof));
+    setCampaigns((c.data?.items ?? []).filter((x) => x.status !== 'EXPIRED'));
     setReports(r.data?.items ?? []);
   }, []);
   useEffect(() => {
@@ -64,6 +65,8 @@ export default function ReportsPage() {
     if (fileRef.current) fileRef.current.value = '';
   };
 
+  const selected = campaigns.find((c) => c.id === campaignId);
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
     void form.run(async () => {
@@ -74,8 +77,8 @@ export default function ReportsPage() {
         await load();
         return r;
       }
-      if (!picture) throw new Error('Choose the screenshot that proves the account was opened.');
-      const r = await api('/campaigns/reports', { method: 'POST', body: { campaignId, holderName: holder, mobile, ...picture } });
+      if (!picture && selected?.needsProof) throw new Error('Choose the screenshot that proves the account was opened.');
+      const r = await api('/campaigns/reports', { method: 'POST', body: { campaignId, holderName: holder, mobile, ...(picture ?? {}) } });
       reset();
       await load();
       return r;
@@ -134,6 +137,7 @@ export default function ReportsPage() {
           </label>
           <label>
             Screenshot {editing && <span className="muted">(leave empty to keep the old one)</span>}
+            {!editing && selected && !selected.needsProof && <span className="muted"> (optional for this campaign)</span>}
             <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </label>
           {form.msg && <div className={`alert ${form.msg.type}`}>{form.msg.text}</div>}
@@ -169,9 +173,11 @@ export default function ReportsPage() {
                 </div>
                 <span className={`badge ${r.status.toLowerCase()}`}>{label(r.status)}</span>
                 <div className="report-actions">
-                  <button className="btn ghost" type="button" onClick={() => void openProof(r.id)}>
-                    View
-                  </button>
+                  {r.hasFile && (
+                    <button className="btn ghost" type="button" onClick={() => void openProof(r.id)}>
+                      View
+                    </button>
+                  )}
                   {(r.status === 'PENDING' || r.status === 'INCOMPLETE') && (
                     <>
                       <button className="btn ghost" type="button" onClick={() => edit(r)}>

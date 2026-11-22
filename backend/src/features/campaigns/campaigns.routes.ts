@@ -18,7 +18,7 @@ export const campaignAdminRoutes = Router();
 
 const holder = z.string().trim().min(2, 'Enter the account holder name').max(80);
 const mobile = z.string().trim().regex(/^[6-9][0-9]{9}$/, 'Enter a valid 10 digit mobile number');
-const proof = z.object({ fileName: z.string().trim().max(120), fileData: z.string().min(20).optional(), fileKey: z.string().max(200).optional() });
+const proof = z.object({ fileName: z.string().trim().max(120).default(''), fileData: z.string().min(20).optional(), fileKey: z.string().max(200).optional() });
 
 /** Serialises everything about one (campaign, mobile) pair for the length of a transaction, so checks and writes cannot interleave. */
 const lockPair = (tx: Prisma.TransactionClient, campaignId: string, mobile: string) =>
@@ -32,7 +32,7 @@ async function logoMap(): Promise<Map<string, string>> {
   return new Map(rows.map((r) => [r.key.slice('campaign-'.length), `/api/site/assets/${r.key}?v=${r.updatedAt.getTime()}`]));
 }
 
-const publicCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; groupName: string; linkType: string }, logo?: string) => ({
+const publicCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; groupName: string; linkType: string; isActive?: boolean; expiredAt?: Date | null }, logo?: string) => ({
   logoUrl: logo ?? null,
   groupName: c.groupName,
   linkType: c.linkType,
@@ -42,11 +42,13 @@ const publicCampaign = (c: { id: string; title: string; description: string; rew
   reward: Number(c.reward),
   url: c.url,
   videoUrl: c.videoUrl,
-  needsProof: c.needsProof
+  needsProof: c.needsProof,
+  status: c.isActive === false ? 'EXPIRED' : 'LIVE',
+  expiredAt: c.expiredAt ?? null
 });
 
 campaignRoutes.get('/', requireAuth, async (_req: Request, res: Response) => {
-  const [items, logos] = await Promise.all([prisma.campaign.findMany({ where: { isActive: true }, orderBy: { createdAt: 'desc' } }), logoMap()]);
+  const [items, logos] = await Promise.all([prisma.campaign.findMany({ where: { OR: [{ isActive: true }, { isActive: false, expiredAt: { gte: new Date(Date.now() - 30 * 86_400_000) } }] }, orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }], take: 200 }), logoMap()]);
   res.json({ success: true, data: { items: items.map((c) => publicCampaign(c, logos.get(c.id))) } });
 });
 
@@ -60,13 +62,14 @@ campaignRoutes.get('/stats', requireAuth, async (req: Request, res: Response) =>
   res.json({ success: true, data: { total, approved, earnings: Number(earned._sum.amount ?? 0) } });
 });
 
-const reportView = (r: { id: string; holderName: string; mobile: string; status: string; note: string | null; createdAt: Date; campaign: { id: string; title: string; reward: unknown } }) => ({
+const reportView = (r: { id: string; holderName: string; mobile: string; status: string; note: string | null; createdAt: Date; fileMime?: string | null; campaign: { id: string; title: string; reward: unknown } }) => ({
   id: r.id,
   holderName: r.holderName,
   mobile: r.mobile,
   status: r.status,
   note: r.note,
   createdAt: r.createdAt,
+  hasFile: Boolean(r.fileMime),
   campaign: { id: r.campaign.id, title: r.campaign.title, reward: Number(r.campaign.reward) }
 });
 
@@ -75,7 +78,7 @@ campaignRoutes.get('/reports', requireAuth, async (req: Request, res: Response) 
     where: { userId: req.user!.id },
     orderBy: { createdAt: 'desc' },
     take: 200,
-    select: { id: true, holderName: true, mobile: true, status: true, note: true, createdAt: true, campaign: { select: { id: true, title: true, reward: true } } }
+    select: { id: true, holderName: true, mobile: true, status: true, note: true, createdAt: true, fileMime: true, campaign: { select: { id: true, title: true, reward: true } } }
   });
   res.json({ success: true, data: { items: items.map(reportView) } });
 });
@@ -84,13 +87,14 @@ const createSchema = z.object({ campaignId: z.string().uuid(), holderName: holde
 
 campaignRoutes.post('/reports', requireAuth, validateBody(createSchema), async (req: Request, res: Response) => {
   const body = req.body as z.infer<typeof createSchema>;
-  const campaign = await prisma.campaign.findFirst({ where: { id: body.campaignId, isActive: true, needsProof: true } });
+  const campaign = await prisma.campaign.findFirst({ where: { id: body.campaignId, isActive: true } });
   if (!campaign) throw new AppError('That campaign is not open for reports.', 404);
 
   const pending = await prisma.campaignReport.count({ where: { userId: req.user!.id, status: 'PENDING' } });
   if (pending >= 20) throw new AppError('You have 20 reports waiting. Please wait for them to be checked.', 409);
-  const file = await proofFrom(req.user!.id, body);
-  const stored = await storeFile(file.data, file.mime, 'reports');
+  const file = body.fileData || body.fileKey ? await proofFrom(req.user!.id, body) : null;
+  if (campaign.needsProof && !file) throw new AppError('Add the screenshot that proves the account was opened.', 400);
+  const stored = file ? await storeFile(file.data, file.mime, 'reports') : null;
   const r = await prisma.$transaction(async (tx) => {
     await lockPair(tx, campaign.id, body.mobile);
     const dup = await tx.campaignReport.findFirst({
@@ -103,8 +107,8 @@ campaignRoutes.post('/reports', requireAuth, validateBody(createSchema), async (
         campaignId: campaign.id,
         holderName: body.holderName,
         mobile: body.mobile,
-        fileName: body.fileName,
-        fileMime: file.mime,
+        fileName: file ? body.fileName : null,
+        fileMime: file ? file.mime : null,
         fileData: stored
       }
     });
@@ -156,6 +160,7 @@ campaignRoutes.get('/reports/:id/file', requireAuth, async (req: Request, res: R
     select: { fileData: true, fileMime: true }
   });
   if (!r) throw new AppError('Report not found', 404);
+  if (!r.fileData || !r.fileMime) throw new AppError('This report has no screenshot.', 404);
   res.json({ success: true, data: { mime: r.fileMime, data: (await loadFile(r.fileData)).toString('base64') } });
 });
 
@@ -177,7 +182,7 @@ const campaignSchema = z.object({
   isActive: z.boolean().default(true)
 });
 
-const adminCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; isActive: boolean; isDemat: boolean; groupName: string; linkType: string }, logo?: string) => ({
+const adminCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; isActive: boolean; isDemat: boolean; groupName: string; linkType: string; expiredAt?: Date | null }, logo?: string) => ({
   ...publicCampaign(c, logo),
   isActive: c.isActive,
   isDemat: c.isDemat
@@ -190,15 +195,24 @@ campaignAdminRoutes.get('/campaigns', async (_req: Request, res: Response) => {
 
 campaignAdminRoutes.post('/campaigns', validateBody(campaignSchema), async (req: Request, res: Response) => {
   const b = req.body as z.infer<typeof campaignSchema>;
-  const c = await prisma.campaign.create({ data: { ...b, reward: paiseToDecimal(Math.round(b.reward * 100)) } });
+  const c = await prisma.campaign.create({ data: { ...b, expiredAt: b.isActive ? null : new Date(), reward: paiseToDecimal(Math.round(b.reward * 100)) } });
   res.status(201).json({ success: true, message: 'Campaign created', data: adminCampaign(c) });
 });
 
 campaignAdminRoutes.put('/campaigns/:id', validateBody(campaignSchema), async (req: Request, res: Response) => {
   const b = req.body as z.infer<typeof campaignSchema>;
-  const done = await prisma.campaign.updateMany({ where: { id: String(req.params.id) }, data: { ...b, reward: paiseToDecimal(Math.round(b.reward * 100)) } });
+  const done = await prisma.campaign.updateMany({ where: { id: String(req.params.id) }, data: { ...b, ...(b.isActive ? { expiredAt: null } : {}), reward: paiseToDecimal(Math.round(b.reward * 100)) } });
   if (done.count !== 1) throw new AppError('Campaign not found', 404);
+  if (!b.isActive) await prisma.campaign.updateMany({ where: { id: String(req.params.id), isActive: false, expiredAt: null }, data: { expiredAt: new Date() } });
   res.json({ success: true, message: 'Campaign saved' });
+});
+
+/** Make a campaign Live again, or Expire it (members then see it marked Expired and can no longer send reports). */
+campaignAdminRoutes.post('/campaigns/:id/status', validateBody(z.object({ status: z.enum(['LIVE', 'EXPIRED']) })), async (req: Request, res: Response) => {
+  const live = req.body.status === 'LIVE';
+  const done = await prisma.campaign.updateMany({ where: { id: String(req.params.id) }, data: { isActive: live, expiredAt: live ? null : new Date() } });
+  if (done.count !== 1) throw new AppError('Campaign not found', 404);
+  res.json({ success: true, message: live ? 'Campaign is Live.' : 'Campaign expired.' });
 });
 
 campaignAdminRoutes.delete('/campaigns/:id', async (req: Request, res: Response) => {
@@ -240,7 +254,7 @@ campaignAdminRoutes.get('/reports', async (req: Request, res: Response) => {
     orderBy: { createdAt: 'desc' },
     take: 500,
     select: {
-      id: true, holderName: true, mobile: true, status: true, note: true, createdAt: true, processedAt: true, fileName: true,
+      id: true, holderName: true, mobile: true, status: true, note: true, createdAt: true, processedAt: true, fileName: true, fileMime: true,
       campaign: { select: { id: true, title: true, reward: true } },
       user: { select: { id: true, name: true, email: true, referralCode: true } }
     }

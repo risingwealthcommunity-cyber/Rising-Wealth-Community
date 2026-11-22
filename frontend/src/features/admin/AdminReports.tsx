@@ -15,6 +15,7 @@ interface Report {
   note: string | null;
   createdAt: string;
   processedAt: string | null;
+  hasFile?: boolean;
   campaign: { id: string; title: string; reward: number };
   user: { name: string; email: string; referralCode: string };
 }
@@ -251,9 +252,13 @@ export default function AdminReports() {
                       </summary>
                       <div className="menu-pop">
                         <strong className="menu-title">Actions</strong>
-                        <button type="button" onClick={(e) => void openProof(r.id).then(() => closeMenu(e.currentTarget))}>
-                          View proof
-                        </button>
+                        {r.hasFile ? (
+                          <button type="button" onClick={(e) => void openProof(r.id).then(() => closeMenu(e.currentTarget))}>
+                            View proof
+                          </button>
+                        ) : (
+                          <small className="muted">No screenshot (not required)</small>
+                        )}
                         {r.status === 'PENDING' && (
                           <>
                             <button type="button" className="ok" disabled={act.busy} onClick={(e) => approveOne(r, e.currentTarget)}>

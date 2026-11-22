@@ -2027,13 +2027,21 @@ test('CAMPAIGNS: members send proof reports, admins approve, and the reward is p
 
   const list = (await m.c.call('GET', '/api/campaigns')).json.data.items as any[];
   assert.ok(list.some((c) => c.id === cid) && list.some((c) => c.id === noProof.json.data.id));
-  assert.ok(!list.some((c) => c.id === off.json.data.id), 'inactive campaigns are hidden');
+  assert.equal(list.find((c) => c.id === off.json.data.id)?.status, 'EXPIRED', 'an expired campaign is listed, marked Expired');
 
   const body = { campaignId: cid, holderName: 'Ravi Kumar', mobile: '9876543210', fileName: 'proof.png', fileData: REPORT_PNG };
   assert.equal((await m.c.call('POST', '/api/campaigns/reports', { ...body, mobile: '12345' })).status, 400);
   assert.equal((await m.c.call('POST', '/api/campaigns/reports', { ...body, fileData: Buffer.from('<html>not an image</html>').toString('base64') })).status, 400, 'must really be an image');
   assert.equal((await m.c.call('POST', '/api/campaigns/reports', { ...body, fileData: 'A'.repeat(950_000) })).status, 413);
-  assert.equal((await m.c.call('POST', '/api/campaigns/reports', { ...body, campaignId: noProof.json.data.id })).status, 404, 'no reports for a no-proof campaign');
+  // a campaign without documents can be reported without a screenshot; one with documents cannot
+  const np = noProof.json.data.id;
+  assert.equal((await m.c.call('POST', '/api/campaigns/reports', { campaignId: np, holderName: 'No Pic', mobile: '9123456780' })).status, 201, 'no screenshot needed here');
+  assert.equal((await m.c.call('POST', '/api/campaigns/reports', { campaignId: cid, holderName: 'No Pic', mobile: '9123456781' })).status, 400, 'a screenshot is needed here');
+  const myReports = (await m.c.call('GET', '/api/campaigns/reports')).json.data.items as any[];
+  const noPic = myReports.find((r) => r.mobile === '9123456780');
+  assert.equal(noPic.hasFile, false);
+  assert.equal((await m.c.call('GET', `/api/campaigns/reports/${noPic.id}/file`)).status, 404, 'nothing to open');
+  assert.equal((await m.c.call('POST', '/api/campaigns/reports', { ...body, campaignId: off.json.data.id })).status, 404, 'no reports for an inactive campaign');
   const sent = await m.c.call('POST', '/api/campaigns/reports', body);
   assert.equal(sent.status, 201, JSON.stringify(sent.json));
   assert.equal((await other.c.call('POST', '/api/campaigns/reports', body)).status, 409, 'same mobile, same campaign');
@@ -2058,7 +2066,7 @@ test('CAMPAIGNS: members send proof reports, admins approve, and the reward is p
   assert.equal(Number((await walletOf(m.c)).balance), w0 + 300);
   const ledger = (await m.c.call('GET', '/api/wallet/transactions')).json.data.items as any[];
   assert.ok(ledger.some((e) => e.type === 'CAMPAIGN_REWARD' && Number(e.amount) === 300));
-  assert.deepEqual((await m.c.call('GET', '/api/campaigns/stats')).json.data, { total: 1, approved: 1, earnings: 300 });
+  assert.deepEqual((await m.c.call('GET', '/api/campaigns/stats')).json.data, { total: 2, approved: 1, earnings: 300 });
 
   // an approved report is a record: it cannot be edited or deleted
   assert.equal((await m.c.call('PUT', `/api/campaigns/reports/${rid}`, { holderName: 'Changed', mobile: '9876543210' })).status, 409);
@@ -2643,9 +2651,9 @@ test('CAMPAIGN FORM: group name, link type, an optional link; admin creates it a
   const p = seen.find((c) => c.id === personal.json.data.id);
   assert.deepEqual([p.url, p.linkType, p.needsProof], ['https://example.com/join?x=1', 'PERSONAL', true]);
   assert.equal(seen.find((c) => c.id === noLink.json.data.id).groupName, 'nov_2026');
-  // and a switched-off campaign is not shown
+  // and a switched-off campaign is shown as Expired, not as live
   assert.equal((await admin.call('PUT', `/api/admin/campaigns/${personal.json.data.id}`, { ...base, title: 'Personal link', url: 'https://example.com/join?x=1', linkType: 'PERSONAL', isActive: false })).status, 200);
-  assert.equal(((await m.c.call('GET', '/api/campaigns')).json.data.items as any[]).some((c) => c.id === personal.json.data.id), false);
+  assert.equal(((await m.c.call('GET', '/api/campaigns')).json.data.items as any[]).find((c) => c.id === personal.json.data.id)?.status, 'EXPIRED');
 });
 
 test('UPGRADE REQUEST: the member asks from their activation wallet; the price leaves it only when an admin approves', async () => {
@@ -2776,6 +2784,34 @@ test('SECURITY: the contact form, reused references and the 24 hour pause after 
 
   // the weekly minimum has a ceiling
   assert.equal((await admin.call('PUT', '/api/site/content/weeklyBonus', { minPerShare: 5000 })).status, 400);
+});
+
+test('CAMPAIGN STATUS: the admin makes a campaign Live or Expired; members see Expired ones marked, and cannot report on them', async () => {
+  const sponsor = await paidMember('RWCROOT', 'LEFT', 'mny_cs_sp');
+  const m = await signup(sponsor.left, 'LEFT', 'mny_cs_m');
+  const camp = (await admin.call('POST', '/api/admin/campaigns', { title: 'Status test', description: '', reward: 20, url: 'https://example.com/s', videoUrl: '', needsProof: false, isActive: true })).json.data;
+  const seen = async () => ((await m.c.call('GET', '/api/campaigns')).json.data.items as any[]).find((c) => c.id === camp.id);
+  const report = (extra: object = {}) => m.c.call('POST', '/api/campaigns/reports', { campaignId: camp.id, holderName: 'Status Tester', mobile: '9000000011', ...extra });
+
+  assert.equal((await seen()).status, 'LIVE');
+  assert.equal((await m.c.call('POST', `/api/admin/campaigns/${camp.id}/status`, { status: 'EXPIRED' })).status, 403, 'members cannot');
+  assert.equal((await admin.call('POST', `/api/admin/campaigns/${camp.id}/status`, { status: 'PAUSED' })).status, 400);
+  assert.equal((await admin.call('POST', '/api/admin/campaigns/00000000-0000-0000-0000-000000000000/status', { status: 'EXPIRED' })).status, 404);
+
+  assert.equal((await admin.call('POST', `/api/admin/campaigns/${camp.id}/status`, { status: 'EXPIRED' })).status, 200);
+  const gone = await seen();
+  assert.equal(gone.status, 'EXPIRED', 'still listed, marked expired');
+  assert.ok(gone.expiredAt);
+  assert.equal((await report()).status, 404, 'no reports on an expired campaign');
+
+  // expired for more than 30 days: no longer listed for members, and the admin still sees it
+  await prisma.campaign.update({ where: { id: camp.id }, data: { expiredAt: new Date(Date.now() - 31 * 86_400_000) } });
+  assert.equal(await seen(), undefined);
+  assert.ok(((await admin.call('GET', '/api/admin/campaigns')).json.data.items as any[]).some((c) => c.id === camp.id && c.status === 'EXPIRED'));
+
+  assert.equal((await admin.call('POST', `/api/admin/campaigns/${camp.id}/status`, { status: 'LIVE' })).status, 200);
+  assert.equal((await seen()).status, 'LIVE');
+  assert.equal((await report()).status, 201, 'live again: a report is accepted');
 });
 
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {

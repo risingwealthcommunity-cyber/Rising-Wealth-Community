@@ -17,6 +17,7 @@ export interface Camp {
   needsProof: boolean;
   isDemat: boolean;
   isActive: boolean;
+  status?: 'LIVE' | 'EXPIRED';
   logoUrl: string | null;
 }
 
@@ -122,11 +123,11 @@ export default function AdminCampaigns() {
   const toggle = (c: Camp, on: boolean) =>
     void act.run(
       async () => {
-        const r = await api(`/admin/campaigns/${c.id}`, { method: 'PUT', body: body({ ...formOf(c), isActive: on }, c.reward) });
+        const r = await api(`/admin/campaigns/${c.id}/status`, { method: 'POST', body: { status: on ? 'LIVE' : 'EXPIRED' } });
         load();
         return r;
       },
-      on ? 'Campaign is live for members.' : 'Campaign hidden from members.'
+      on ? 'Campaign is Live. Members can see it and send reports.' : 'Campaign expired. Members see it marked Expired and cannot send reports.'
     );
 
   const remove = (c: Camp) => {
@@ -179,7 +180,7 @@ export default function AdminCampaigns() {
           </select>
         </label>
 
-        <Switch checked={form.isActive} onChange={(v) => set('isActive', v)} label="Campaign is active" />
+        <Switch checked={form.isActive} onChange={(v) => set('isActive', v)} label="Campaign is Live (turn off to expire it)" />
         <Switch checked={form.needsProof} onChange={(v) => set('needsProof', v)} label="Campaign requires documents" />
         <p className="muted">
           {form.needsProof
@@ -243,7 +244,18 @@ export default function AdminCampaigns() {
               </div>
             </div>
             <div className="camp-actions">
-              <Switch checked={c.isActive} disabled={act.busy} onChange={(v) => toggle(c, v)} label={c.isActive ? 'Active' : 'Inactive'} />
+              <span className={`badge ${c.isActive ? 'approved' : 'rejected'}`}>{c.isActive ? '● Live' : '● Expired'}</span>
+              <button
+                className={c.isActive ? 'btn ghost' : 'btn ok'}
+                type="button"
+                disabled={act.busy}
+                onClick={() => {
+                  if (c.isActive && !window.confirm(`Expire "${c.title}"? Members will see it marked Expired and cannot send new reports.`)) return;
+                  toggle(c, !c.isActive);
+                }}
+              >
+                {c.isActive ? 'Expire' : 'Make live'}
+              </button>
               <button className="btn ghost" type="button" onClick={() => edit(c)}>
                 Edit
               </button>

@@ -12,6 +12,7 @@ export interface Campaign {
   url: string;
   videoUrl: string;
   needsProof: boolean;
+  status?: 'LIVE' | 'EXPIRED';
   logoUrl?: string | null;
   groupName?: string;
   linkType?: 'STANDARD' | 'PERSONAL';
@@ -27,6 +28,7 @@ function Card({ c }: { c: Campaign }) {
   const [copied, setCopied] = useState(false);
   const { user } = useAuth();
   const img = c.videoUrl ? cover(c.videoUrl) : null;
+  const expired = c.status === 'EXPIRED';
   // a personalised campaign adds the member's own Affiliate ID to the link, so the team can tell whose referral it is
   const link = !c.url ? '' : c.linkType === 'PERSONAL' ? `${c.url}${c.url.includes('?') ? '&' : '?'}ref=${encodeURIComponent(user?.referralCode ?? '')}` : c.url;
   const copy = async () => {
@@ -39,7 +41,7 @@ function Card({ c }: { c: Campaign }) {
     }
   };
   return (
-    <div className="card campaign">
+    <div className={`card campaign${expired ? ' expired' : ''}`}>
       <div className="campaign-head">
         {c.logoUrl && <img className="campaign-logo" src={c.logoUrl} alt="" width={48} height={48} />}
         <div>
@@ -48,14 +50,17 @@ function Card({ c }: { c: Campaign }) {
         </div>
       </div>
       {c.description && <p className="muted">{c.description}</p>}
-      <strong className="campaign-reward">Earn {inr(c.reward)}</strong>
+      <strong className="campaign-reward">
+        Earn {inr(c.reward)} {expired ? <span className="badge rejected">Expired</span> : <span className="badge approved">Live</span>}
+      </strong>
       {c.videoUrl && (
         <a className={`lesson-cover campaign-video${img ? '' : ' plain'}`} style={img ? { backgroundImage: `url(${img})` } : undefined} href={c.videoUrl} target="_blank" rel="noopener noreferrer" aria-label={`Watch the video for ${c.title}`}>
           <span className="lesson-play">▶</span>
         </a>
       )}
+      {expired && <p className="muted">This campaign has ended. New reports are not accepted.</p>}
       <div className="campaign-actions">
-        {link && (
+        {!expired && link && (
           <>
             <button className="btn" type="button" onClick={() => void copy()}>
               {copied ? 'Copied!' : 'Copy referral link'}
@@ -65,7 +70,7 @@ function Card({ c }: { c: Campaign }) {
             </a>
           </>
         )}
-        {c.needsProof && (
+        {!expired && (
           <Link className="btn ghost" to={`/reports?campaign=${c.id}`}>
             Submit report
           </Link>
@@ -85,8 +90,9 @@ export default function CampaignsPage() {
       .catch(() => setFailed(true));
   }, []);
 
-  const withDocs = items?.filter((c) => c.needsProof) ?? [];
-  const without = items?.filter((c) => !c.needsProof) ?? [];
+  const withDocs = items?.filter((c) => c.needsProof && c.status !== 'EXPIRED') ?? [];
+  const without = items?.filter((c) => !c.needsProof && c.status !== 'EXPIRED') ?? [];
+  const ended = items?.filter((c) => c.status === 'EXPIRED') ?? [];
 
   return (
     <>
@@ -117,6 +123,16 @@ export default function CampaignsPage() {
           <h2>Campaigns without documents</h2>
           <div className="lessons">
             {without.map((c) => (
+              <Card c={c} key={c.id} />
+            ))}
+          </div>
+        </section>
+      )}
+      {ended.length > 0 && (
+        <section className="lesson-section">
+          <h2>Expired campaigns</h2>
+          <div className="lessons">
+            {ended.map((c) => (
               <Card c={c} key={c.id} />
             ))}
           </div>

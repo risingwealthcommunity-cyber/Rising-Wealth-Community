@@ -363,7 +363,9 @@ model Campaign {
   groupName   String   @default("")
   /// STANDARD: everyone shares the same link. PERSONAL: the member's Affiliate ID is added to the link.
   linkType    String   @default("STANDARD")
+  /// true = Live. false = Expired: members still see it for 30 days, marked Expired, and cannot send reports.
   isActive    Boolean  @default(true)
+  expiredAt   DateTime?
   createdAt   DateTime @default(now())
 
   reports CampaignReport[]
@@ -377,9 +379,10 @@ model CampaignReport {
   campaign    Campaign      @relation(fields: [campaignId], references: [id])
   holderName  String
   mobile      String
-  fileName    String
-  fileMime    String
-  fileData    Bytes
+  /// A campaign that does not require documents can be reported without a screenshot.
+  fileName    String?
+  fileMime    String?
+  fileData    Bytes?
   status      RequestStatus @default(PENDING)
   note        String?
   createdAt   DateTime      @default(now())
