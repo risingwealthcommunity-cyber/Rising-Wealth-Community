@@ -35,7 +35,17 @@ if (nodeEnv === 'production') {
   }
 }
 
+/** The address pictures are uploaded to straight from the browser (Cloudflare R2), so the page is allowed to send there. */
+const r2Origin = (() => {
+  try {
+    return clean(process.env.R2_ENDPOINT) ? new URL(clean(process.env.R2_ENDPOINT)).origin : '';
+  } catch {
+    return '';
+  }
+})();
+
 export const config = {
+  r2Origin,
   nodeEnv,
   isProduction: nodeEnv === 'production',
   /** Local convenience only: the fixed admin code 123456. Needs NODE_ENV=development AND this flag. */
