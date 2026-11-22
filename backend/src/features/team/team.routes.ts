@@ -5,6 +5,7 @@ import { AppError } from '../../shared/errors/AppError';
 import { requireAuth } from '../auth';
 import { PASSIVE_LEVELS_UNLOCKED, PASSIVE_PCT, RANKS, TEAM_TARGETS } from '../income/plan.config';
 import { leadershipTargets } from '../income/income.engine';
+import { bonusRewards } from '../income/income.service';
 
 const router = Router();
 
@@ -95,6 +96,7 @@ router.get('/bonuses', requireAuth, async (req: Request, res: Response) => {
     prisma.perkClaim.findMany({ where: { userId }, select: { rank: true, status: true, note: true } })
   ]);
   const perks = ((perkRow?.value as { items?: { rank: string; title: string; description: string }[] } | null)?.items ?? []);
+  const rewards = await bonusRewards(prisma);
   const team = TEAM_TARGETS.map((t, i) => ({
     target: i + 1,
     // each target is a rank: its name, and the extra reward (a perk) the admin set for that rank
@@ -102,7 +104,7 @@ router.get('/bonuses', requireAuth, async (req: Request, res: Response) => {
     extraReward: perks.find((p) => p.rank === RANKS[i]?.rank)?.title ?? null,
     claim: perkClaims.find((c) => c.rank === RANKS[i]?.rank) ?? null,
     members: t.members,
-    reward: t.reward,
+    reward: rewards.team[i] ?? t.reward,
     status: i < me.teamTargetsDone ? 'DONE' : i === me.teamTargetsDone ? 'CURRENT' : 'LOCKED',
     completedAt: i < me.teamTargetsDone ? doneAt('TEAM_PERFORMANCE_BONUS', i + 1) : null
   }));
@@ -112,7 +114,7 @@ router.get('/bonuses', requireAuth, async (req: Request, res: Response) => {
     target: t.index,
     size: t.size,
     threshold: t.threshold,
-    reward: t.paise / 100,
+    reward: rewards.leadership[t.index - 1] ?? t.paise / 100,
     status: t.index <= me.leadershipTargetsDone ? 'DONE' : t.index === me.leadershipTargetsDone + 1 ? 'CURRENT' : 'LOCKED',
     completedAt: t.index <= me.leadershipTargetsDone ? doneAt('LEADERSHIP_TARGET_BONUS', t.index) : null
   }));

@@ -9,7 +9,7 @@ import { requireAuth, requireRole } from '../auth';
 import { packagesService } from '../packages';
 import { parseRupees, walletService } from '../wallet/wallet.service';
 import { proofFrom } from '../../shared/proof';
-import { closePayoutPeriod, distributeDematReferral, paiseToDecimal, previewPayoutWindow, weeklyMinPaise } from '../income/income.service';
+import { bonusRewards, closePayoutPeriod, distributeDematReferral, paiseToDecimal, previewPayoutWindow, weeklyMinPaise } from '../income/income.service';
 
 const dematSchema = z.object({
   referrerEmail: z.string().trim().toLowerCase().email(),
@@ -387,7 +387,7 @@ router.get('/bonuses', async (req: Request, res: Response) => {
         performance: withUser(open.performance),
         leadership: withUser(open.leadership)
       },
-      settings: { minPerShare: (await weeklyMinPaise(prisma)) / 100 }
+      settings: { minPerShare: (await weeklyMinPaise(prisma)) / 100, rewards: await bonusRewards(prisma) }
     }
   });
 });

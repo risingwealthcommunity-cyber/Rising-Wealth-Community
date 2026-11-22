@@ -67,6 +67,12 @@ export const weeklyBonusSchema = z.object({
   minPerShare: z.number().min(0).max(1000)
 });
 
+/** The rupee reward of each Team Performance target (5) and each Leadership target (8), in order. Applies to targets completed from now on. */
+export const bonusRewardsSchema = z.object({
+  team: z.array(z.number().min(0).max(10_000_000)).length(5),
+  leadership: z.array(z.number().min(0).max(10_000_000)).length(8)
+});
+
 export const contactSchema = z.object({
   phone,
   whatsapp: phone,
@@ -86,7 +92,8 @@ export const SETTING_SCHEMAS = {
   training: trainingSchema,
   payment: paymentSchema,
   rankPerks: rankPerksSchema,
-  weeklyBonus: weeklyBonusSchema
+  weeklyBonus: weeklyBonusSchema,
+  bonusRewards: bonusRewardsSchema
 } as const;
 
 export type SettingName = keyof typeof SETTING_SCHEMAS;

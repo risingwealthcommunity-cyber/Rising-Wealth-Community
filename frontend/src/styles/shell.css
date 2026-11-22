@@ -742,3 +742,7 @@ label.narrow { max-width: 360px; }
 @keyframes wb-shine { to { background-position: -200% 0; } }
 @keyframes wb-pulse { 0%, 100% { transform: translate(-50%, -50%) scale(1); } 50% { transform: translate(-50%, -50%) scale(1.35); } }
 @media (prefers-reduced-motion: reduce) { .wb-fill.double, .wb-mark.pulse { animation: none; } .wb-fill, .wb-pointer { transition: none; } }
+
+/* ---------- admin: the amounts of each bonus target */
+.reward-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.reward-grid label { display: grid; gap: 6px; font-size: 0.85rem; }

@@ -3,6 +3,7 @@ import { AppError } from '../../shared/errors/AppError';
 import {
   computeDematIncome,
   computePackageSale,
+  leadershipTargets,
   nextRankReached,
   performanceWeight,
   pctOf,
@@ -13,7 +14,7 @@ import {
   type Payout,
   type UplineMember
 } from './income.engine';
-import { PACKAGE_HALF_POINTS, POOL_PCT, WEEKLY_MIN_PER_SHARE_PAISE, type PaidPackage } from './plan.config';
+import { LEADERSHIP_TARGET_SIZES, PACKAGE_HALF_POINTS, POOL_PCT, TEAM_TARGETS, WEEKLY_MIN_PER_SHARE_PAISE, type PaidPackage } from './plan.config';
 
 type Tx = Prisma.TransactionClient;
 
@@ -176,6 +177,20 @@ export async function weeklyMinPaise(tx: Tx): Promise<number> {
   const row = await tx.siteSetting.findUnique({ where: { key: 'weeklyBonus' } });
   const v = (row?.value as { minPerShare?: unknown } | null)?.minPerShare;
   return typeof v === 'number' && v >= 0 ? Math.round(v * 100) : WEEKLY_MIN_PER_SHARE_PAISE;
+}
+
+/**
+ * The rupee reward of every Team Performance target and Leadership target: the admin's setting, or the plan default.
+ * Changing it affects only targets completed afterwards.
+ */
+export async function bonusRewards(tx: Tx): Promise<{ team: number[]; leadership: number[] }> {
+  const row = await tx.siteSetting.findUnique({ where: { key: 'bonusRewards' } });
+  const v = row?.value as { team?: unknown; leadership?: unknown } | null;
+  const ok = (a: unknown, n: number): a is number[] => Array.isArray(a) && a.length === n && a.every((x) => typeof x === 'number' && x >= 0);
+  return {
+    team: ok(v?.team, TEAM_TARGETS.length) ? v.team : TEAM_TARGETS.map((t) => t.reward),
+    leadership: ok(v?.leadership, LEADERSHIP_TARGET_SIZES.length) ? v.leadership : leadershipTargets().map((t) => t.paise / 100)
+  };
 }
 
 /** What a payout window holds: the revenue, the three pools, and who is in line for each. Read-only. */

@@ -2862,6 +2862,28 @@ test('TRANSACTION PASSWORD RESET: an emailed one-time link, for the signed-in me
   assert.equal((await m.c.call('POST', '/api/wallet/withdraw', { amount: 300, txnPassword: 'Another#Txn1' })).status, 403);
 });
 
+test('BONUS AMOUNTS: the admin edits the Team Performance and Leadership rewards; members see them', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_ba_m');
+  const put = (c: Client, body: object) => c.call('PUT', '/api/site/content/bonusRewards', body);
+  const team = [800, 1600, 3200, 6400, 12800];
+  const leadership = [700, 1400, 2800, 5600, 11200, 22400, 44800, 89600];
+
+  assert.equal((await put(m.c, { team, leadership })).status, 403, 'members cannot');
+  assert.equal((await put(admin, { team: [1, 2, 3], leadership })).status, 400, 'five team amounts');
+  assert.equal((await put(admin, { team, leadership: [1, 2, 3] })).status, 400, 'eight leadership amounts');
+  assert.equal((await put(admin, { team: [-5, 1, 2, 3, 4], leadership })).status, 400, 'no negative amounts');
+  assert.equal((await put(admin, { team, leadership })).status, 200);
+
+  const seen = (await m.c.call('GET', '/api/team/bonuses')).json.data;
+  assert.deepEqual(seen.team.targets.map((t: any) => t.reward), team);
+  assert.deepEqual(seen.leadership.targets.map((t: any) => t.reward), leadership);
+  assert.deepEqual((await admin.call('GET', '/api/admin/bonuses')).json.data.settings.rewards, { team, leadership });
+  // the rank name and the extra reward come with each team target
+  assert.equal(seen.team.targets[0].rank, 'SILVER');
+  await prisma.siteSetting.delete({ where: { key: 'bonusRewards' } }).catch(() => undefined);
+  assert.deepEqual(((await m.c.call('GET', '/api/team/bonuses')).json.data.team.targets as any[]).map((t) => t.reward), [750, 1500, 3000, 6000, 12000], 'back to the plan amounts');
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

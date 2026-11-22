@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
-import { advanceLeadership, advanceTeamTargets } from './income.engine';
-import { postLedger } from './income.service';
+import { advanceLeadership, advanceTeamTargets, leadershipTargets } from './income.engine';
+import { bonusRewards, postLedger } from './income.service';
+import { TEAM_TARGETS } from './plan.config';
 
 type Tx = Prisma.TransactionClient;
 
@@ -60,12 +61,14 @@ export async function awardTeamGrowth(tx: Tx, memberId: string): Promise<void> {
     await tx.user.updateMany({ where: { id: { in: right } }, data: { teamRightNew: { increment: 1 }, teamRightTotal: { increment: 1 } } });
   }
 
+  const rewards = await bonusRewards(tx);
+  const teamTargets = TEAM_TARGETS.map((t, i) => ({ ...t, reward: rewards.team[i] ?? t.reward }));
   const touched = await tx.user.findMany({
     where: { id: { in: [...left, ...right] } },
     select: { id: true, teamLeftNew: true, teamRightNew: true, teamTargetsDone: true }
   });
   for (const u of touched) {
-    const r = advanceTeamTargets(u.teamTargetsDone, u.teamLeftNew, u.teamRightNew);
+    const r = advanceTeamTargets(u.teamTargetsDone, u.teamLeftNew, u.teamRightNew, teamTargets);
     if (!r.steps.length) continue;
     await tx.user.update({
       where: { id: u.id },
@@ -87,7 +90,8 @@ export async function awardTeamGrowth(tx: Tx, memberId: string): Promise<void> {
       data: { leadershipPoints: { increment: 1 } },
       select: { leadershipPoints: true, leadershipTargetsDone: true }
     });
-    const r = advanceLeadership(l.leadershipTargetsDone, l.leadershipPoints);
+    const leadTargets = leadershipTargets().map((t, i) => ({ ...t, paise: Math.round((rewards.leadership[i] ?? t.paise / 100) * 100) }));
+    const r = advanceLeadership(l.leadershipTargetsDone, l.leadershipPoints, leadTargets);
     if (r.steps.length) {
       await tx.user.update({ where: { id: leaderId }, data: { leadershipTargetsDone: r.done } });
       for (const step of r.steps) {

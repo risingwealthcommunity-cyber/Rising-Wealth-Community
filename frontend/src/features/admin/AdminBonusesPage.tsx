@@ -30,7 +30,7 @@ interface Bonuses {
     performance: Line[];
     leadership: Line[];
   };
-  settings: { minPerShare: number };
+  settings: { minPerShare: number; rewards: { team: number[]; leadership: number[] } };
 }
 
 const SECTIONS = [
@@ -119,6 +119,9 @@ export default function AdminBonusesPage() {
   const [data, setData] = useState<Bonuses | null>(null);
   const [periodId, setPeriodId] = useState('');
   const [min, setMin] = useState('');
+  const [teamAmts, setTeamAmts] = useState<string[]>([]);
+  const [leadAmts, setLeadAmts] = useState<string[]>([]);
+  const rewards = useRun();
   const save = useRun();
   const close = useRun();
 
@@ -127,6 +130,10 @@ export default function AdminBonusesPage() {
       .then((r) => {
         setData(r.data ?? null);
         if (r.data) setMin((m) => m || String(r.data!.settings.minPerShare));
+        if (r.data) {
+          setTeamAmts((a) => (a.length ? a : r.data!.settings.rewards.team.map(String)));
+          setLeadAmts((a) => (a.length ? a : r.data!.settings.rewards.leadership.map(String)));
+        }
       })
       .catch(() => setData(null));
   }, [periodId]);
@@ -141,6 +148,18 @@ export default function AdminBonusesPage() {
       load();
       return r;
     }, 'Saved. It applies the next time a period is closed.');
+  };
+
+  const saveRewards = (e: FormEvent) => {
+    e.preventDefault();
+    const team = teamAmts.map(Number);
+    const leadership = leadAmts.map(Number);
+    if ([...team, ...leadership].some((n) => !Number.isFinite(n) || n < 0)) return rewards.setMsg({ type: 'error', text: 'Every amount must be a number in rupees, zero or more.' });
+    void rewards.run(async () => {
+      const r = await api('/site/content/bonusRewards', { method: 'PUT', body: { team, leadership } });
+      load();
+      return r;
+    }, 'Saved. Members see the new amounts now, and they are paid for targets completed from now on.');
   };
 
   const closeNow = () => {
@@ -159,6 +178,33 @@ export default function AdminBonusesPage() {
   return (
     <>
       <h1>Bonuses</h1>
+
+      <form className="card stack" onSubmit={saveRewards}>
+        <h2>Team Performance and Leadership bonus amounts</h2>
+        <p className="muted">The rupees paid when a member completes each target. Changing them affects only targets completed from now on.</p>
+        <h3>Team Performance (new members on each side)</h3>
+        <div className="reward-grid">
+          {teamAmts.map((v, i) => (
+            <label key={i}>
+              Target {i + 1} ({2 ** (i + 1)} : {2 ** (i + 1)}) ₹
+              <input value={v} inputMode="decimal" onChange={(e) => setTeamAmts((a) => a.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Team Performance target ${i + 1} amount`} />
+            </label>
+          ))}
+        </div>
+        <h3>Leadership (points from your directs&rsquo; new members)</h3>
+        <div className="reward-grid">
+          {leadAmts.map((v, i) => (
+            <label key={i}>
+              Target {i + 1} ₹
+              <input value={v} inputMode="decimal" onChange={(e) => setLeadAmts((a) => a.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Leadership target ${i + 1} amount`} />
+            </label>
+          ))}
+        </div>
+        {rewards.msg && <div className={`alert ${rewards.msg.type}`}>{rewards.msg.text}</div>}
+        <button className="btn" disabled={rewards.busy || teamAmts.length === 0}>
+          {rewards.busy ? 'Saving...' : 'Save target amounts'}
+        </button>
+      </form>
 
       <div className="bonus-top">
         <form className="card stack" onSubmit={saveMin}>
