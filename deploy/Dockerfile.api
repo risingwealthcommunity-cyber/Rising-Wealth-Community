@@ -8,5 +8,6 @@ COPY backend/ ./
 RUN npx prisma generate && npx tsc
 ENV NODE_ENV=production
 EXPOSE 5000
-# the tables are created or brought up to date from schema.prisma every start, then the server runs
-CMD ["sh", "-c", "npx prisma db push --skip-generate && node dist/server.js"]
+# every start: create or update the tables, create the admin and the starting site text if ROOT_PASSWORD is set (both skip what already
+# exists), then run the server
+CMD ["sh", "-c", "npx prisma db push --skip-generate && if [ -n \"$ROOT_PASSWORD\" ]; then npx ts-node src/seed.ts && npx ts-node src/seed-site.ts; fi; node dist/server.js"]
