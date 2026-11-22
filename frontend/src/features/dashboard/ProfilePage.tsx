@@ -201,7 +201,7 @@ export default function ProfilePage() {
               <div className="alert">Set a transaction password below first, then you can add your bank details.</div>
             ) : (
               <div className="form-row">
-                <input type="password" value={unlockPass} onChange={(e) => setUnlockPass(e.target.value)} placeholder="Transaction password" autoComplete="off" aria-label="Transaction password" />
+                <input type="password" value={unlockPass} onChange={(e) => setUnlockPass(e.target.value)} placeholder="Transaction password" autoComplete="new-password" aria-label="Transaction password" />
                 <button className="btn" disabled={bank.busy || !unlockPass}>
                   Unlock bank details
                 </button>

@@ -55,12 +55,16 @@ export default function WalletPage() {
   const [tx, setTx] = useState<TxPage | null>(null);
   const [page, setPage] = useState(1);
   const [showFund, setShowFund] = useState(false);
+  const [bank, setBank] = useState<{ bankName: string; account: string; ifsc: string; upiId: string } | null | undefined>(undefined);
 
   const load = useCallback(async () => {
     const [s, f, w] = await Promise.all([api<Summary>('/wallet'), api<{ items: Req[] }>('/wallet/fund'), api<{ items: Req[] }>('/wallet/withdrawals')]);
     setSummary(s.data ?? null);
     setFunds(f.data?.items ?? []);
     setWithdrawals(w.data?.items ?? []);
+    api<{ bank: { bankName: string; account: string; ifsc: string; upiId: string } | null }>('/wallet/bank')
+      .then((b) => setBank(b.data?.bank ?? null))
+      .catch(() => setBank(null));
   }, []);
   useEffect(() => {
     load().catch(() => undefined);
@@ -183,24 +187,52 @@ export default function WalletPage() {
         </table>
       </div>
 
-      <form className="card" onSubmit={withdraw}>
+      <form className="card" onSubmit={withdraw} autoComplete="off">
         <h2>Withdrawal</h2>
         <p className="muted">
-          Available balance: <b>{money(summary?.available)}</b>. Smallest withdrawal {summary ? inr(summary.minWithdrawal) : '...'}. Money is paid to the bank or UPI details in{' '}
-          <Link to="/profile">My profile</Link>.
+          Available balance: <b>{money(summary?.available)}</b>. Smallest withdrawal: <b>{summary ? inr(summary.minWithdrawal) : '...'}</b>. There is no fee, you receive the full amount you ask for.
         </p>
+
+        <div className="wd-bank">
+          <strong>Money will be paid to</strong>
+          {bank === undefined && <span className="muted">Checking your bank details...</span>}
+          {bank === null && (
+            <div className="alert">
+              You have not added your bank details yet, so we do not know where to pay. <Link to="/profile">Add bank account or UPI in My profile</Link>
+            </div>
+          )}
+          {bank && (
+            <span>
+              {bank.bankName} · A/C {bank.account} · IFSC {bank.ifsc}
+              {bank.upiId ? ` · UPI ${bank.upiId}` : ''} · <Link to="/profile">Change</Link>
+            </span>
+          )}
+        </div>
+
         {summary && !summary.hasTxnPassword && (
           <div className="alert">
             Set a transaction password first. <Link to="/profile">Open My profile</Link>
           </div>
         )}
-        <div className="form-row">
-          <input value={wAmount} inputMode="decimal" onChange={(e) => setWAmount(e.target.value)} placeholder="Enter withdrawal amount" aria-label="Withdrawal amount" />
-          <input type="password" value={wPass} onChange={(e) => setWPass(e.target.value)} placeholder="Transaction password" autoComplete="off" aria-label="Transaction password" />
-          <button className="btn" disabled={wd.busy || !wAmount || !wPass}>
-            Request withdrawal
-          </button>
-        </div>
+
+        <label className="field">
+          <span>Amount to withdraw (₹)</span>
+          <input name="wd-amount" value={wAmount} inputMode="decimal" autoComplete="off" onChange={(e) => setWAmount(e.target.value)} placeholder={summary ? `Minimum ${inr(summary.minWithdrawal)}` : 'Amount'} />
+        </label>
+        {wAmount && !Number.isNaN(toAmount(wAmount)) && (
+          <p className="muted">
+            You will receive <b>{inr(toAmount(wAmount))}</b>
+            {summary && toAmount(wAmount) < summary.minWithdrawal ? ` (below the smallest withdrawal of ${inr(summary.minWithdrawal)})` : ''}
+            {summary && toAmount(wAmount) > summary.available ? ' (more than your available balance)' : ''}
+          </p>
+        )}
+        <label className="field">
+          <span>Transaction password</span>
+          <input name="wd-txn" type="password" value={wPass} autoComplete="new-password" onChange={(e) => setWPass(e.target.value)} placeholder="Your transaction password" />
+        </label>
+        <button className="btn" disabled={wd.busy || !wAmount || !wPass || !bank}>
+          Request withdrawal
+        </button>
         {wd.msg && <div className={`alert ${wd.msg.type}`}>{wd.msg.text}</div>}
       </form>
 

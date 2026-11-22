@@ -188,7 +188,7 @@ export default function ActivationPage() {
         <h2>Transfer to activation wallet</h2>
         <div className="form-row">
           <input value={amount} inputMode="decimal" onChange={(e) => setAmount(e.target.value)} placeholder="Amount" aria-label="Amount to transfer" />
-          <input type="password" value={tPass} onChange={(e) => setTPass(e.target.value)} placeholder="Transaction password" autoComplete="off" aria-label="Transaction password" />
+          <input type="password" value={tPass} onChange={(e) => setTPass(e.target.value)} placeholder="Transaction password" autoComplete="new-password" aria-label="Transaction password" />
           <button className="btn" disabled={transfer.busy || !amount || !tPass}>
             Transfer
           </button>
@@ -207,7 +207,7 @@ export default function ActivationPage() {
             <option value="">Select package</option>
             {options}
           </select>
-          <input type="password" value={dPass} onChange={(e) => setDPass(e.target.value)} placeholder="Transaction password" autoComplete="off" aria-label="Transaction password" />
+          <input type="password" value={dPass} onChange={(e) => setDPass(e.target.value)} placeholder="Transaction password" autoComplete="new-password" aria-label="Transaction password" />
           <button className="btn" disabled={downline.busy || !memberId || !memberPkg || !dPass}>
             Activate
           </button>
