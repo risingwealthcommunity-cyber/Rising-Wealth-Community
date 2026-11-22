@@ -11,6 +11,7 @@ export interface Campaign {
   url: string;
   videoUrl: string;
   needsProof: boolean;
+  logoUrl?: string | null;
 }
 
 /** A YouTube link gets its cover image; anything else is shown as a plain play tile. */
@@ -33,7 +34,10 @@ function Card({ c }: { c: Campaign }) {
   };
   return (
     <div className="card campaign">
-      <h3>{c.title}</h3>
+      <div className="campaign-head">
+        {c.logoUrl && <img className="campaign-logo" src={c.logoUrl} alt="" width={48} height={48} />}
+        <h3>{c.title}</h3>
+      </div>
       {c.description && <p className="muted">{c.description}</p>}
       <strong className="campaign-reward">Earn {inr(c.reward)}</strong>
       {c.videoUrl && (

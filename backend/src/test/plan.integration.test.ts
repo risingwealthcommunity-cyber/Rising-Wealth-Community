@@ -2092,6 +2092,7 @@ test('ADMIN: overview and member list are admin-only, and switching a member off
   assert.deepEqual(Object.keys(o.waiting).sort(), ['funds', 'purchases', 'reports', 'withdrawals']);
   assert.equal(typeof o.withdrawalsPendingAmount, 'number');
   assert.equal(typeof o.withdrawalsPaidAmount, 'number');
+  assert.equal(typeof o.fundsPendingAmount, 'number');
 
   const found = (await admin.call('GET', `/api/admin/members?q=${encodeURIComponent('mny_ad_one')}`)).json.data;
   assert.equal(found.total, 1);

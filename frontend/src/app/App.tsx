@@ -14,7 +14,18 @@ import {
 } from '../features/auth';
 import AppLayout from '../shared/components/AppLayout';
 import { ActivationPage } from '../features/activation';
-import { AdminMembersPage, AdminOpsPage, AdminPage, AdminWithdrawalsPage, SiteContentPage } from '../features/admin';
+import {
+  AdminBonusesPage,
+  AdminCampaignsPage,
+  AdminContactPage,
+  AdminLayout,
+  AdminMembersPage,
+  AdminOpsPage,
+  AdminPage,
+  AdminReportsPage,
+  AdminWithdrawalsPage,
+  SiteContentPage
+} from '../features/admin';
 import { CampaignsPage, ReportsPage } from '../features/campaigns';
 import { DashboardPage, LeaderboardPage, ProfilePage, TrainingPage } from '../features/dashboard';
 import { LandingPage } from '../features/landing';
@@ -63,11 +74,23 @@ export default function App() {
           <Route path="/live" element={<LivePage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />
-          <Route path="/admin" element={<AdminOnly><AdminPage /></AdminOnly>} />
-          <Route path="/admin/site" element={<AdminOnly><SiteContentPage /></AdminOnly>} />
-          <Route path="/admin/members" element={<AdminOnly><AdminMembersPage /></AdminOnly>} />
-          <Route path="/admin/withdrawals" element={<AdminOnly><AdminWithdrawalsPage /></AdminOnly>} />
-          <Route path="/admin/operations" element={<AdminOnly><AdminOpsPage /></AdminOnly>} />
+          <Route
+            element={
+              <AdminOnly>
+                <AdminLayout />
+              </AdminOnly>
+            }
+          >
+            <Route path="/admin" element={<AdminPage />} />
+            <Route path="/admin/site" element={<SiteContentPage />} />
+            <Route path="/admin/campaigns" element={<AdminCampaignsPage />} />
+            <Route path="/admin/reports" element={<AdminReportsPage />} />
+            <Route path="/admin/members" element={<AdminMembersPage />} />
+            <Route path="/admin/withdrawals" element={<AdminWithdrawalsPage />} />
+            <Route path="/admin/bonuses" element={<AdminBonusesPage />} />
+            <Route path="/admin/contact" element={<AdminContactPage />} />
+            <Route path="/admin/operations" element={<AdminOpsPage />} />
+          </Route>
         </Route>
       </Route>
 

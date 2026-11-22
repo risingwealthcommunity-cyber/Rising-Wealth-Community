@@ -214,7 +214,14 @@ export default function AdminWithdrawals({ onChanged }: { onChanged?: () => void
           <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search name, email, mobile or Affiliate ID" aria-label="Search withdrawals" />
           <button className="btn ghost">Search</button>
         </form>
-        <span className="muted">{items ? `${items.length} shown` : 'Loading...'}</span>
+        <span className="muted">
+          {items ? `${items.length} shown` : 'Loading...'}
+          {items && items.length > 0 && (
+            <>
+              {' · '}total <b>{inr(items.reduce((s, w) => s + Number(w.amount), 0))}</b>
+            </>
+          )}
+        </span>
       </div>
       <p className="muted">Pay the member from your bank app using the details shown, then enter the transaction ID, add the payment screenshot and press "Mark as paid". The amount leaves the member's wallet at that moment.</p>
       {items && items.length === 0 && <p className="muted">Nothing here.</p>}

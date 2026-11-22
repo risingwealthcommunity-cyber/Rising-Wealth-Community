@@ -98,7 +98,7 @@ export default function AdminPage() {
           <strong>{overview ? overview.members : '...'}</strong>
           <em>{overview ? `${overview.active} active · ${overview.newToday} new in 24h` : ''}</em>
         </Link>
-        <Link className="level" to="/admin/operations">
+        <Link className="level" to="/admin/withdrawals">
           <small>Fund requests</small>
           <strong>{overview ? overview.waiting.funds : '...'}</strong>
           <em>waiting</em>
@@ -108,7 +108,7 @@ export default function AdminPage() {
           <strong>{overview ? overview.waiting.withdrawals : '...'}</strong>
           <em>{overview ? `${inr(overview.withdrawalsPendingAmount)} to pay` : 'waiting'}</em>
         </Link>
-        <Link className="level" to="/admin/operations">
+        <Link className="level" to="/admin/reports">
           <small>Reports</small>
           <strong>{overview ? overview.waiting.reports : '...'}</strong>
           <em>waiting</em>
@@ -138,8 +138,17 @@ export default function AdminPage() {
           <Link className="btn" to="/admin/withdrawals">
             Withdrawals
           </Link>
-          <Link className="btn" to="/admin/operations">
-            Operations
+          <Link className="btn" to="/admin/campaigns">
+            Campaigns
+          </Link>
+          <Link className="btn" to="/admin/reports">
+            Reports
+          </Link>
+          <Link className="btn" to="/admin/bonuses">
+            Bonuses
+          </Link>
+          <Link className="btn" to="/admin/contact">
+            Contact
           </Link>
           <Link className="btn" to="/admin/site">
             Open website content

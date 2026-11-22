@@ -597,3 +597,47 @@
 
 .badge.processing { background: #dbeafe; color: #1d4ed8; }
 .wd-state { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+
+/* ---------- admin panel tabs, reports table, campaigns, bonuses, contact */
+.admin-tabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; margin-bottom: 18px; border: 1px solid var(--border); border-radius: 18px; background: #fff; }
+.admin-tabs a { padding: 9px 16px; border-radius: 12px; text-decoration: none; color: var(--muted); font-weight: 600; font-size: 0.86rem; transition: background 0.15s, color 0.15s; }
+.admin-tabs a:hover { color: var(--text); background: #f4f5f7; }
+.admin-tabs a.active { background: #0d1117; color: #fff; }
+.table-wrap { overflow-x: auto; }
+.rep-table { width: 100%; border-collapse: collapse; }
+.rep-table th { text-align: left; font: 400 0.62rem 'Space Mono', monospace; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.rep-table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.rep-table td small { display: block; margin-top: 2px; }
+.rep-table tfoot td { border-bottom: 0; background: #f9fafb; }
+.rep-table tr.done-row { opacity: 0.6; }
+.rep-actions { text-align: right; white-space: nowrap; }
+.msg-cell { max-width: 420px; white-space: pre-wrap; word-break: break-word; }
+.rep-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px; }
+.rep-tools input { flex: 1; min-width: 220px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--border); background: #f4f5f7; font: inherit; }
+.rep-tools select { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: #fff; font: inherit; }
+details.menu { position: relative; display: inline-block; text-align: left; }
+details.menu > summary { list-style: none; cursor: pointer; }
+details.menu > summary::-webkit-details-marker { display: none; }
+.menu-pop { position: absolute; right: 0; z-index: 20; min-width: 210px; margin-top: 6px; padding: 6px; display: grid; gap: 2px; background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18); }
+.menu-pop button { text-align: left; border: 0; background: transparent; padding: 10px 12px; border-radius: 10px; font: inherit; cursor: pointer; }
+.menu-pop button:hover:not(:disabled) { background: #f4f5f7; }
+.menu-pop button.ok { font-weight: 700; color: #15803d; }
+.camp-line { display: flex; gap: 12px; align-items: center; }
+.camp-line small { display: block; word-break: break-all; }
+.camp-thumb { width: 44px; height: 44px; border-radius: 12px; object-fit: contain; background: #f4f5f7; border: 1px solid var(--border); flex: none; }
+.camp-thumb.empty { display: inline-block; }
+.switch-line { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; white-space: nowrap; }
+.campaign-logo-slot { padding: 12px; border: 1px dashed var(--border); border-radius: 14px; }
+.campaign-head { display: flex; align-items: center; gap: 12px; }
+.campaign-logo { width: 48px; height: 48px; border-radius: 12px; object-fit: contain; background: #fff; border: 1px solid var(--border); }
+.bonus-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.bonus-tiers { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.badge.incomplete { background: #fef3c7; color: #92400e; }
+.badge.missing { background: #ede9fe; color: #6d28d9; }
+.badge.already_existing { background: #e5e7eb; color: #374151; }
+
+/* checkbox rows in forms stay on one line, left aligned */
+label.check { display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; gap: 10px; text-align: left; color: var(--text); }
+label.check input[type='checkbox'] { width: auto; flex: none; margin: 0; }
+.rep-table td:nth-child(6), .rep-table th:nth-child(6) { min-width: 140px; }
+.rep-table td:nth-child(1) { min-width: 150px; }

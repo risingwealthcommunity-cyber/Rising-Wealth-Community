@@ -39,7 +39,7 @@ router.post('/purchases/:id/reject', async (req: Request, res: Response) => {
 /** One screen of numbers: how many members, and how much is waiting for an admin. */
 router.get('/overview', async (_req: Request, res: Response) => {
   const dayAgo = new Date(Date.now() - 86_400_000);
-  const [members, active, newToday, byPackage, purchases, funds, withdrawals, reports, wallets, activation, wdPending, wdPaid] = await Promise.all([
+  const [members, active, newToday, byPackage, purchases, funds, withdrawals, reports, wallets, activation, wdPending, wdPaid, fundPending] = await Promise.all([
     prisma.user.count({ where: { role: 'USER' } }),
     prisma.user.count({ where: { role: 'USER', isActive: true, isVerified: true } }),
     prisma.user.count({ where: { role: 'USER', createdAt: { gte: dayAgo } } }),
@@ -51,7 +51,8 @@ router.get('/overview', async (_req: Request, res: Response) => {
     prisma.user.aggregate({ _sum: { walletBalance: true } }),
     prisma.user.aggregate({ _sum: { activationBalance: true } }),
     prisma.withdrawalRequest.aggregate({ where: { status: 'PENDING' }, _sum: { amount: true } }),
-    prisma.withdrawalRequest.aggregate({ where: { status: 'APPROVED' }, _sum: { amount: true } })
+    prisma.withdrawalRequest.aggregate({ where: { status: 'APPROVED' }, _sum: { amount: true } }),
+    prisma.fundRequest.aggregate({ where: { status: 'PENDING' }, _sum: { amount: true } })
   ]);
   res.json({
     success: true,
@@ -63,6 +64,7 @@ router.get('/overview', async (_req: Request, res: Response) => {
       waiting: { purchases, funds, withdrawals, reports },
       withdrawalsPendingAmount: Number(wdPending._sum.amount ?? 0),
       withdrawalsPaidAmount: Number(wdPaid._sum.amount ?? 0),
+      fundsPendingAmount: Number(fundPending._sum.amount ?? 0),
       walletTotal: Number(wallets._sum.walletBalance ?? 0),
       activationTotal: Number(activation._sum.activationBalance ?? 0)
     }

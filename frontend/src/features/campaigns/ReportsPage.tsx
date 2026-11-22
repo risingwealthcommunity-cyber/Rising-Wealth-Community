@@ -11,7 +11,7 @@ interface Report {
   id: string;
   holderName: string;
   mobile: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'INCOMPLETE' | 'MISSING' | 'ALREADY_EXISTING';
   note: string | null;
   createdAt: string;
   campaign: { id: string; title: string; reward: number };
@@ -152,16 +152,19 @@ export default function ReportsPage() {
                 <div>
                   <b>{r.holderName}</b>
                   <small className="muted">
-                    {r.campaign.title} · {r.mobile} · {date(r.createdAt)}
+                    {r.campaign.title} · {r.mobile} · submitted {date(r.createdAt)}
                   </small>
-                  {r.status === 'REJECTED' && r.note && <small className="muted">Reason: {r.note}</small>}
+                  {r.status === 'INCOMPLETE' && <small className="muted">The team needs more: fix the report with Edit and it goes back for review.</small>}
+                  {r.status === 'MISSING' && <small className="muted">We could not find this account.</small>}
+                  {r.status === 'ALREADY_EXISTING' && <small className="muted">This account was already registered before.</small>}
+                  {r.note && r.status !== 'APPROVED' && r.status !== 'PENDING' && <small className="muted">Reason: {r.note}</small>}
                 </div>
                 <span className={`badge ${r.status.toLowerCase()}`}>{label(r.status)}</span>
                 <div className="report-actions">
                   <button className="btn ghost" type="button" onClick={() => void openProof(r.id)}>
                     View
                   </button>
-                  {r.status === 'PENDING' && (
+                  {(r.status === 'PENDING' || r.status === 'INCOMPLETE') && (
                     <>
                       <button className="btn ghost" type="button" onClick={() => edit(r)}>
                         Edit

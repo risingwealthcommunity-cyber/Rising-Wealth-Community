@@ -144,16 +144,10 @@ export default function AppLayout() {
               <span>Wallet</span>
             </NavLink>
             {isAdmin && (
-              <>
-                <NavLink to="/admin" end>
-                  {Icon.shield}
-                  <span>Admin</span>
-                </NavLink>
-                <NavLink to="/admin/withdrawals">
-                  {Icon.wallet}
-                  <span>Withdrawals</span>
-                </NavLink>
-              </>
+              <NavLink to="/admin">
+                {Icon.shield}
+                <span>Admin</span>
+              </NavLink>
             )}
           </nav>
 

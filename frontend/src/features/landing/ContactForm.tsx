@@ -23,12 +23,23 @@ export default function ContactForm({ accessKey, isAdmin }: { accessKey: string;
     e.preventDefault();
     if (status.kind === 'sending') return;
     if (bot) return setStatus({ kind: 'ok' }); // pretend success to bots
-    if (!accessKey) {
-      return setStatus({ kind: 'error', text: 'Messages are not switched on yet. Please reach us on WhatsApp or email for now.' });
-    }
-
     setStatus({ kind: 'sending' });
     try {
+      // our own inbox first: it is what the admin panel shows, and it works without any outside key
+      const saved = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: values.name.trim(), email: values.email.trim(), whatsapp: values.whatsapp.trim(), message: values.message.trim() })
+      });
+      const savedJson = (await saved.json().catch(() => ({}))) as { message?: string };
+      if (!saved.ok) throw new Error(savedJson.message || 'Could not send your message');
+      if (!accessKey) {
+        setValues({ name: '', email: '', whatsapp: '', message: '' });
+        setStatus({ kind: 'ok' });
+        return;
+      }
+
+      // optional email copy; the message is already saved, so a failure here is not shown
       const res = await fetch(ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -43,8 +54,7 @@ export default function ContactForm({ accessKey, isAdmin }: { accessKey: string;
           botcheck: false
         })
       });
-      const json = (await res.json().catch(() => ({}))) as { success?: boolean; message?: string };
-      if (!res.ok || !json.success) throw new Error(json.message || 'Could not send your message');
+      await res.json().catch(() => ({}));
       setValues({ name: '', email: '', whatsapp: '', message: '' });
       setStatus({ kind: 'ok' });
     } catch (err) {
