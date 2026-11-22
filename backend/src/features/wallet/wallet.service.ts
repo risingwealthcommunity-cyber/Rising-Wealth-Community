@@ -8,6 +8,12 @@ import { paiseToDecimal } from '../income/income.service';
 const ROUNDS = process.env.NODE_ENV === 'test' ? 4 : 12;
 const TX = { timeout: 30_000, maxWait: 10_000 };
 const MAX_TXN_ATTEMPTS = 5;
+const PAUSE_AFTER_PASSWORD_MS = 24 * 3_600_000;
+const MAX_WAITING_WITHDRAWALS = 5;
+
+/** Serialises work on one payment reference (a bank transaction ID) so it cannot be used twice by requests that race. */
+const lockReference = (tx: Prisma.TransactionClient, ref: string) =>
+  tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ref.trim().toLowerCase()}, 11))`;
 const TXN_LOCK_MS = 15 * 60_000;
 
 /** Smallest withdrawal, in rupees. */
@@ -81,7 +87,7 @@ export const walletService = {
     }
     await prisma.user.update({
       where: { id: userId },
-      data: { txnPasswordHash: await bcrypt.hash(input.newPassword, ROUNDS), txnFailedAttempts: 0, txnLockedUntil: null }
+      data: { txnPasswordHash: await bcrypt.hash(input.newPassword, ROUNDS), txnFailedAttempts: 0, txnLockedUntil: null, txnPasswordChangedAt: new Date() }
     });
   },
 
@@ -150,6 +156,7 @@ export const walletService = {
     const own = await prisma.fundRequest.findUnique({ where: { id }, select: { userId: true, reference: true } });
     if (own?.userId === adminId) throw new AppError('You cannot approve your own request. Ask another admin.', 403);
     await prisma.$transaction(async (tx) => {
+      if (own) await lockReference(tx, own.reference);
       if (own && (await tx.fundRequest.count({ where: { reference: { equals: own.reference, mode: 'insensitive' }, status: 'APPROVED' } })) > 0) {
         throw new AppError('This payment reference was already credited.', 409);
       }
@@ -171,12 +178,26 @@ export const walletService = {
 
   // ------------------------------------------------------------------ withdrawals
 
+  /** Withdrawals and bank changes wait 24 hours after the transaction password was set or changed. */
+  async assertNotJustChanged(userId: string) {
+    const u = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { txnPasswordChangedAt: true } });
+    if (u.txnPasswordChangedAt && Date.now() - u.txnPasswordChangedAt.getTime() < PAUSE_AFTER_PASSWORD_MS) {
+      throw new AppError('For your safety, withdrawals and bank changes are paused for 24 hours after the transaction password is set or changed.', 403);
+    }
+  },
+
   async createWithdrawal(userId: string, rupees: number, txnPassword: string) {
     if (rupees < MIN_WITHDRAWAL) throw new AppError(`The smallest withdrawal is Rs ${MIN_WITHDRAWAL}.`, 400);
+    await this.assertNotJustChanged(userId);
     const bank = await prisma.bankDetails.findUnique({ where: { userId } });
     if (!bank) throw new AppError('Add your bank details in My profile first, so we know where to pay.', 400);
     await this.verifyTxnPassword(userId, txnPassword);
     return prisma.$transaction(async (tx) => {
+      // one request at a time per member: the balance check and the insert cannot interleave
+      await tx.$executeRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+      if ((await tx.withdrawalRequest.count({ where: { userId, status: 'PENDING' } })) >= MAX_WAITING_WITHDRAWALS) {
+        throw new AppError(`You already have ${MAX_WAITING_WITHDRAWALS} withdrawals waiting. Please wait for them to be paid.`, 409);
+      }
       if ((await this.available(tx, userId)) < rupees) throw new AppError('That is more than your available balance.', 400);
       return tx.withdrawalRequest.create({ data: { userId, amount: dec(rupees) } });
     }, TX);
@@ -190,9 +211,10 @@ export const walletService = {
     const own = await prisma.withdrawalRequest.findUnique({ where: { id }, select: { userId: true } });
     if (own?.userId === adminId) throw new AppError('You cannot approve your own withdrawal. Ask another admin.', 403);
     const reference = payout.reference.trim();
-    const reused = await prisma.withdrawalRequest.findFirst({ where: { payoutRef: { equals: reference, mode: 'insensitive' }, status: 'APPROVED' }, select: { id: true } });
-    if (reused) throw new AppError('That transaction ID was already used for another withdrawal.', 409);
     await prisma.$transaction(async (tx) => {
+      await lockReference(tx, reference);
+      const reused = await tx.withdrawalRequest.findFirst({ where: { payoutRef: { equals: reference, mode: 'insensitive' }, status: 'APPROVED' }, select: { id: true } });
+      if (reused) throw new AppError('That transaction ID was already used for another withdrawal.', 409);
       const claimed = await tx.withdrawalRequest.updateMany({
         where: { id, status: 'PENDING' },
         data: {
@@ -231,9 +253,10 @@ export const walletService = {
   async payMember(memberId: string, adminId: string, rupees: number, payout: { reference: string; file: { data: Buffer; mime: string; name: string } }) {
     if (memberId === adminId) throw new AppError('You cannot pay out your own wallet. Ask another admin.', 403);
     const reference = payout.reference.trim();
-    const reused = await prisma.withdrawalRequest.findFirst({ where: { payoutRef: { equals: reference, mode: 'insensitive' }, status: 'APPROVED' }, select: { id: true } });
-    if (reused) throw new AppError('That transaction ID was already used for another payment.', 409);
     return prisma.$transaction(async (tx) => {
+      await lockReference(tx, reference);
+      const reused = await tx.withdrawalRequest.findFirst({ where: { payoutRef: { equals: reference, mode: 'insensitive' }, status: 'APPROVED' }, select: { id: true } });
+      if (reused) throw new AppError('That transaction ID was already used for another payment.', 409);
       const member = await tx.user.findFirst({ where: { id: memberId, role: 'USER' }, select: { id: true } });
       if (!member) throw new AppError('Member not found', 404);
       if ((await this.available(tx, memberId)) < rupees) throw new AppError('That is more than the member has available (money reserved for waiting withdrawals is not counted).', 400);
@@ -283,6 +306,7 @@ export const walletService = {
   },
 
   async saveBank(userId: string, input: { bankName: string; accountNumber: string; ifsc: string; upiId: string }, txnPassword: string) {
+    await this.assertNotJustChanged(userId);
     await this.verifyTxnPassword(userId, txnPassword);
     const data = { bankName: input.bankName, accountEnc: encryptField(input.accountNumber), ifsc: input.ifsc, upiId: input.upiId };
     await prisma.bankDetails.upsert({ where: { userId }, create: { userId, ...data }, update: data });

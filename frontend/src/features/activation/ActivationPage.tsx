@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
-import { date, inr } from '../../shared/format';
+import { date, inr, label } from '../../shared/format';
 import { toAmount, useRun } from '../../shared/useRun';
 import { useAuth } from '../auth';
 
@@ -13,10 +13,98 @@ interface Activation {
   entries: { id: string; kind: 'FUND_ADDED' | 'TRANSFER_IN' | 'SPEND'; amount: string; note: string | null; createdAt: string }[];
 }
 
+interface Purchase {
+  id: string;
+  package: 'PRO' | 'ELITE';
+  amount: string;
+  status: 'PENDING' | 'CONFIRMED' | 'REJECTED';
+  paidFromWallet: boolean;
+  createdAt: string;
+}
+
 const KIND: Record<string, string> = { FUND_ADDED: 'Fund added', TRANSFER_IN: 'Transfer in', SPEND: 'Activation' };
+const TIER = { TRAINEE: 0, PRO: 1, ELITE: 2 } as const;
+
+/** Ask to move up a package. The price is taken from the activation wallet only when an admin approves. */
+function UpgradeRequest({ activation, prices, onChanged }: { activation: number; prices: { PRO: number; ELITE: number } | null; onChanged: () => Promise<void> }) {
+  const { user, refreshUser } = useAuth();
+  const [mine, setMine] = useState<Purchase[]>([]);
+  const [pkg, setPkg] = useState('');
+  const act = useRun();
+
+  const load = useCallback(async () => {
+    const r = await api<{ purchases: Purchase[] }>('/packages/mine');
+    setMine(r.data?.purchases ?? []);
+  }, []);
+  useEffect(() => {
+    // the package may have been upgraded since the page was last loaded
+    void load().then(() => refreshUser());
+  }, [load, refreshUser]);
+
+  if (!user) return null;
+  const waiting = mine.find((p) => p.status === 'PENDING');
+  const last = mine.find((p) => p.status !== 'PENDING' && p.paidFromWallet);
+  const options = (['PRO', 'ELITE'] as const).filter((k) => TIER[k] > TIER[user.package]);
+  const price = pkg && prices ? prices[pkg as 'PRO' | 'ELITE'] : 0;
+
+  const send = (e: FormEvent) => {
+    e.preventDefault();
+    void act.run(async () => {
+      const r = await api('/packages/wallet-request', { method: 'POST', body: { package: pkg } });
+      setPkg('');
+      await Promise.all([load(), onChanged()]);
+      return r;
+    });
+  };
+
+  return (
+    <div className="card stack">
+      <h2>Upgrade your own ID</h2>
+      <p className="muted">
+        You are on <strong>{label(user.package)}</strong>. Your Affiliate ID: <b>{user.referralCode}</b>. Send a request: when an admin approves it, the price is taken from your activation wallet and your package is upgraded.
+      </p>
+
+      {waiting && (
+        <div className="alert">
+          Your request for <b>{waiting.package}</b> ({inr(waiting.amount)}) is waiting for an admin to approve it. Sent {date(waiting.createdAt)}. Keep at least {inr(waiting.amount)} in your activation wallet until then.
+        </div>
+      )}
+      {!waiting && last && (
+        <div className={`alert ${last.status === 'CONFIRMED' ? 'success' : 'error'}`}>
+          {last.status === 'CONFIRMED' ? `Your upgrade to ${last.package} was approved.` : `Your request for ${last.package} was not approved. Nothing was taken from your wallet.`}
+        </div>
+      )}
+
+      {!waiting && options.length === 0 && <p className="muted">You are on the highest package.</p>}
+      {!waiting && options.length > 0 && (
+        <form className="stack" onSubmit={send}>
+          <div className="form-row">
+            <select value={pkg} onChange={(e) => setPkg(e.target.value)} aria-label="Package">
+              <option value="">Select package</option>
+              {options.map((k) => (
+                <option key={k} value={k}>
+                  {k} {prices ? `(${inr(prices[k])})` : ''}
+                </option>
+              ))}
+            </select>
+            <button className="btn" disabled={act.busy || !pkg}>
+              Send upgrade request
+            </button>
+          </div>
+          {pkg && prices && activation < price && (
+            <div className="alert error">
+              Your activation wallet has {inr(activation)}, and {pkg} needs {inr(price)}. Add {inr(price - activation)} first: <Link to="/wallet">Wallet &gt; Add fund</Link>, or move money from your wallet above.
+            </div>
+          )}
+          {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
+        </form>
+      )}
+    </div>
+  );
+}
 
 export default function ActivationPage() {
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
   const [data, setData] = useState<Activation | null>(null);
   const [prices, setPrices] = useState<{ PRO: number; ELITE: number } | null>(null);
 
@@ -31,14 +119,11 @@ export default function ActivationPage() {
 
   const transfer = useRun();
   const downline = useRun();
-  const own = useRun();
   const [amount, setAmount] = useState('');
   const [tPass, setTPass] = useState('');
   const [memberId, setMemberId] = useState('');
   const [memberPkg, setMemberPkg] = useState('');
   const [dPass, setDPass] = useState('');
-  const [ownPkg, setOwnPkg] = useState('');
-  const [oPass, setOPass] = useState('');
 
   if (!user) return null;
   const noTxn = data && !data.hasTxnPassword;
@@ -67,16 +152,6 @@ export default function ActivationPage() {
       setMemberId('');
       setDPass('');
       await load();
-      return r;
-    });
-  };
-
-  const doUpgradeSelf = (e: FormEvent) => {
-    e.preventDefault();
-    void own.run(async () => {
-      const r = await api('/wallet/activate', { method: 'POST', body: { affiliateId: user.referralCode, package: ownPkg, txnPassword: oPass } });
-      setOPass('');
-      await Promise.all([load(), refreshUser()]);
       return r;
     });
   };
@@ -121,8 +196,11 @@ export default function ActivationPage() {
         {transfer.msg && <div className={`alert ${transfer.msg.type}`}>{transfer.msg.text}</div>}
       </form>
 
+      <UpgradeRequest activation={data?.activation ?? 0} prices={prices} onChanged={load} />
+
       <form className="card" onSubmit={doActivate}>
         <h2>Activate / upgrade a member of your team</h2>
+        <p className="muted">This is done at once from your activation wallet. Upgrading your own ID needs an admin to approve (above).</p>
         <div className="form-row">
           <input value={memberId} onChange={(e) => setMemberId(e.target.value)} placeholder="Their Affiliate ID" aria-label="Affiliate ID of the member" />
           <select value={memberPkg} onChange={(e) => setMemberPkg(e.target.value)} aria-label="Package">
@@ -137,24 +215,6 @@ export default function ActivationPage() {
         {downline.msg && <div className={`alert ${downline.msg.type}`}>{downline.msg.text}</div>}
       </form>
 
-      <form className="card" onSubmit={doUpgradeSelf}>
-        <h2>Upgrade your own ID</h2>
-        <p className="muted">
-          You are on <strong>{user.package}</strong>. Your Affiliate ID: <b>{user.referralCode}</b>
-        </p>
-        <div className="form-row">
-          <select value={ownPkg} onChange={(e) => setOwnPkg(e.target.value)} aria-label="Package">
-            <option value="">Select package</option>
-            {options}
-          </select>
-          <input type="password" value={oPass} onChange={(e) => setOPass(e.target.value)} placeholder="Transaction password" autoComplete="off" aria-label="Transaction password" />
-          <button className="btn" disabled={own.busy || !ownPkg || !oPass}>
-            Upgrade my ID
-          </button>
-        </div>
-        {own.msg && <div className={`alert ${own.msg.type}`}>{own.msg.text}</div>}
-      </form>
-
       <div className="card">
         <h2>Transaction history</h2>
         {data && data.entries.length === 0 && <p className="muted">No transactions yet.</p>}
@@ -164,7 +224,10 @@ export default function ActivationPage() {
               <tr key={e.id}>
                 <td>{KIND[e.kind]}</td>
                 <td className="muted">{e.note}</td>
-                <td className="amount">{Number(e.amount) > 0 ? '+' : '-'}{inr(Math.abs(Number(e.amount)))}</td>
+                <td className="amount">
+                  {Number(e.amount) > 0 ? '+' : '-'}
+                  {inr(Math.abs(Number(e.amount)))}
+                </td>
                 <td className="muted">{date(e.createdAt)}</td>
               </tr>
             ))}

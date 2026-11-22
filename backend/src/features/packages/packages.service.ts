@@ -83,6 +83,8 @@ export const packagesService = {
   /** Admin verified the payment: activate the package and run the whole income plan atomically. */
   async confirm(purchaseId: string, adminId: string) {
     return prisma.$transaction(async (tx) => {
+      // a sale in flight holds the weekly payout window open: closing it waits until this commits
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(7301002)`;
       // Atomic claim: only one request can move PENDING -> CONFIRMED.
       const claimed = await tx.packagePurchase.updateMany({
         where: { id: purchaseId, status: 'PENDING' },
@@ -148,6 +150,7 @@ export const packagesService = {
     const price = PACKAGE_PRICE_PAISE[pkg];
 
     return prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(7301002)`;
       const fresh = await tx.user.findUniqueOrThrow({ where: { id: buyer.id } });
       if (PACKAGE_TIER[pkg] <= PACKAGE_TIER[fresh.package]) throw new AppError(`${fresh.name} already has ${fresh.package} or higher.`, 409);
       if (await tx.packagePurchase.findFirst({ where: { userId: buyer.id, status: 'PENDING' } })) {
@@ -192,9 +195,20 @@ export const packagesService = {
    */
   async adminUpgrade(adminId: string, memberId: string, pkg: PaidPackage, mode: 'WALLET' | 'MANUAL', reference?: string) {
     const price = PACKAGE_PRICE_PAISE[pkg];
+    const ref = (reference ?? '').trim();
     return prisma.$transaction(async (tx) => {
-      const buyer = await tx.user.findFirst({ where: { id: memberId, role: 'USER' } });
-      if (!buyer) throw new AppError('Member not found', 404);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(7301002)`;
+      if (mode === 'MANUAL') {
+        // one outside payment can only be recorded once, so the same note cannot mint the same sale twice
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${ref.toLowerCase()}, 11))`;
+        const used = await tx.packagePurchase.findFirst({
+          where: { status: { in: ['PENDING', 'CONFIRMED'] }, OR: [{ reference: { equals: `ADMIN: ${ref}`, mode: 'insensitive' } }, { reference: { equals: ref, mode: 'insensitive' } }] },
+          select: { id: true }
+        });
+        if (used) throw new AppError('That payment reference was already used for another upgrade.', 409);
+      }
+      const buyer = await tx.user.findFirst({ where: { id: memberId, role: 'USER', isActive: true, isVerified: true } });
+      if (!buyer) throw new AppError('Member not found, or not an active verified member.', 404);
       if (PACKAGE_TIER[pkg] <= PACKAGE_TIER[buyer.package]) throw new AppError(`${buyer.name} already has ${buyer.package} or higher.`, 409);
       if (await tx.packagePurchase.findFirst({ where: { userId: buyer.id, status: 'PENDING' } })) {
         throw new AppError('This member has an upgrade waiting. Approve or reject it first.', 409);
@@ -212,7 +226,7 @@ export const packagesService = {
           package: pkg,
           amount: paiseToDecimal(price),
           status: 'CONFIRMED',
-          reference: mode === 'WALLET' ? 'ACTIVATION_WALLET (admin)' : `ADMIN: ${(reference ?? '').trim()}`,
+          reference: mode === 'WALLET' ? 'ACTIVATION_WALLET (admin)' : `ADMIN: ${ref}`,
           paidFromWallet: mode === 'WALLET',
           confirmedAt: new Date(),
           confirmedBy: adminId

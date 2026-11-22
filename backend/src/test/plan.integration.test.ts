@@ -1781,7 +1781,12 @@ const TXN = 'TxnPass#2026';
 const FUND_PROOF = { fileName: 'pay.png', fileData: '' }; // filled in below, once REPORT_PNG exists
 const REPORT_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 FUND_PROOF.fileData = REPORT_PNG;
-const setTxn = (c: Client, extra: object = { loginPassword: 'Password123' }) => c.call('POST', '/api/wallet/txn-password', { newPassword: TXN, ...extra });
+/** Sets the transaction password. The 24 hour pause after a change is moved into the past, so the other tests can move money; the pause has its own test. */
+const setTxn = async (c: Client, extra: object = { loginPassword: 'Password123' }) => {
+  const r = await c.call('POST', '/api/wallet/txn-password', { newPassword: TXN, ...extra });
+  if (r.status === 200) await prisma.user.updateMany({ where: { txnPasswordChangedAt: { not: null } }, data: { txnPasswordChangedAt: new Date(Date.now() - 2 * 86_400_000) } });
+  return r;
+};
 const walletOf = async (c: Client) => (await c.call('GET', '/api/wallet')).json.data;
 const actOf = async (c: Client) => (await c.call('GET', '/api/wallet/activation')).json.data;
 async function addFund(c: Client, amount: number, ref = 'UTR123456') {
@@ -2748,6 +2753,29 @@ test('ADMIN UPGRADE: the admin moves a member up from their activation wallet or
   // never an admin account
   const adminRow = await prisma.user.findFirstOrThrow({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } });
   assert.equal((await up(adminRow.id, { package: 'ELITE', mode: 'MANUAL', reference: 'cash 3' })).status, 404);
+});
+
+test('SECURITY: the contact form, reused references and the 24 hour pause after a new transaction password', async () => {
+  // contact form: the same text twice is stored once, and the limiter is its own
+  const msg = { name: 'Visitor', email: 'visitor_sec@example.com', whatsapp: '9876543210', message: 'Hello, I would like to know more about the plan.' };
+  const before = await prisma.contactMessage.count();
+  assert.equal((await new Client().call('POST', '/api/contact', msg)).status, 201);
+  assert.equal((await new Client().call('POST', '/api/contact', msg)).status, 201, 'the sender is not told off');
+  assert.equal((await prisma.contactMessage.count()) - before, 1, 'stored once');
+
+  // a new transaction password pauses withdrawals and bank changes for 24 hours
+  const sponsor = await paidMember('RWCROOT', 'LEFT', 'mny_sc_sp');
+  const m = await signup(sponsor.left, 'LEFT', 'mny_sc_m');
+  const row = await rowOf(m.email);
+  assert.equal((await m.c.call('POST', '/api/wallet/txn-password', { newPassword: TXN, loginPassword: 'Password123' })).status, 200);
+  const bank = { bankName: 'SBI', accountNumber: '123456789012', ifsc: 'SBIN0001234', upiId: 'visitor@upi' };
+  assert.equal((await m.c.call('PUT', '/api/wallet/bank', { ...bank, txnPassword: TXN })).status, 403, 'paused');
+  assert.equal((await m.c.call('POST', '/api/wallet/withdraw', { amount: 100, txnPassword: TXN })).status, 403, 'paused');
+  await prisma.user.update({ where: { id: row.id }, data: { txnPasswordChangedAt: new Date(Date.now() - 25 * 3_600_000) } });
+  assert.equal((await m.c.call('PUT', '/api/wallet/bank', { ...bank, txnPassword: TXN })).status, 200, 'the pause is over');
+
+  // the weekly minimum has a ceiling
+  assert.equal((await admin.call('PUT', '/api/site/content/weeklyBonus', { minPerShare: 5000 })).status, 400);
 });
 
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {

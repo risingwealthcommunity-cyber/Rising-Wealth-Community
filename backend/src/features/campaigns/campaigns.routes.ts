@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../../config/database';
 import { AppError } from '../../shared/errors/AppError';
@@ -17,6 +18,10 @@ export const campaignAdminRoutes = Router();
 const holder = z.string().trim().min(2, 'Enter the account holder name').max(80);
 const mobile = z.string().trim().regex(/^[6-9][0-9]{9}$/, 'Enter a valid 10 digit mobile number');
 const proof = z.object({ fileName: z.string().trim().max(120), fileData: z.string().min(20) });
+
+/** Serialises everything about one (campaign, mobile) pair for the length of a transaction, so checks and writes cannot interleave. */
+const lockPair = (tx: Prisma.TransactionClient, campaignId: string, mobile: string) =>
+  tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${campaignId}:${mobile}`}, 7))`;
 
 // ---------------------------------------------------------------- member side
 
@@ -83,22 +88,24 @@ campaignRoutes.post('/reports', requireAuth, validateBody(createSchema), async (
 
   const pending = await prisma.campaignReport.count({ where: { userId: req.user!.id, status: 'PENDING' } });
   if (pending >= 20) throw new AppError('You have 20 reports waiting. Please wait for them to be checked.', 409);
-  const dup = await prisma.campaignReport.findFirst({
-    where: { campaignId: campaign.id, mobile: body.mobile, status: { in: ['PENDING', 'APPROVED', 'INCOMPLETE'] } }
-  });
-  if (dup) throw new AppError('A report for this mobile number already exists for this campaign.', 409);
-
   const file = readProof(body.fileData);
-  const r = await prisma.campaignReport.create({
-    data: {
-      userId: req.user!.id,
-      campaignId: campaign.id,
-      holderName: body.holderName,
-      mobile: body.mobile,
-      fileName: body.fileName,
-      fileMime: file.mime,
-      fileData: file.data
-    }
+  const r = await prisma.$transaction(async (tx) => {
+    await lockPair(tx, campaign.id, body.mobile);
+    const dup = await tx.campaignReport.findFirst({
+      where: { campaignId: campaign.id, mobile: body.mobile, status: { in: ['PENDING', 'APPROVED', 'INCOMPLETE'] } }
+    });
+    if (dup) throw new AppError('A report for this mobile number already exists for this campaign.', 409);
+    return tx.campaignReport.create({
+      data: {
+        userId: req.user!.id,
+        campaignId: campaign.id,
+        holderName: body.holderName,
+        mobile: body.mobile,
+        fileName: body.fileName,
+        fileMime: file.mime,
+        fileData: file.data
+      }
+    });
   });
   res.status(201).json({ success: true, message: 'Report submitted. It is checked by our team.', data: { id: r.id } });
 });
@@ -244,6 +251,7 @@ campaignAdminRoutes.post('/reports/:id/approve', async (req: Request, res: Respo
     const r = await tx.campaignReport.findUnique({ where: { id }, include: { campaign: true } });
     if (!r) throw new AppError('Report not found', 404);
     if (r.userId === req.user!.id) throw new AppError('You cannot approve your own report. Ask another admin.', 403);
+    await lockPair(tx, r.campaignId, r.mobile); // two approvals of the same mobile can never both pass the check below
     const rewarded = await tx.campaignReport.findFirst({ where: { campaignId: r.campaignId, mobile: r.mobile, status: 'APPROVED', id: { not: id } } });
     if (rewarded) throw new AppError('This mobile number was already rewarded for this campaign.', 409);
 

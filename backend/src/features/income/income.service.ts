@@ -258,6 +258,7 @@ export async function closePayoutPeriod(tx: Tx, adminId: string) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(7301002)`;
   const last = await tx.payoutPeriod.findFirst({ orderBy: { endsAt: 'desc' } });
   const startsAt = last?.endsAt ?? new Date(0);
+  // sales take a shared lock on the same key, so none is still committing while the window closes
   const endsAt = new Date();
 
   if (endsAt <= startsAt) throw new AppError('Nothing to close yet', 400);

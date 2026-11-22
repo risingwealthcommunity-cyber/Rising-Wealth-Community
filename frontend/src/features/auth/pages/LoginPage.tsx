@@ -31,7 +31,9 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [params] = useSearchParams();
-  const from = (location.state as { from?: string } | null)?.from ?? '/dashboard';
+  const wanted = (location.state as { from?: string } | null)?.from;
+  // only a path inside this app: never "//other-site" or a full address
+  const from = typeof wanted === 'string' && /^\/(?![/\\])/.test(wanted) ? wanted : '/dashboard';
 
   const urlMsg = params.get('verified')
     ? URL_MESSAGES.verified

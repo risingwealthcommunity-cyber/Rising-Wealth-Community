@@ -42,7 +42,7 @@ const stamp = (iso: string) => new Date(iso).toLocaleString('en-IN', { day: 'num
 const csvCell = (v: string | number) => {
   const text = String(v);
   // a cell that starts with = + - @ would run as a formula in a spreadsheet
-  const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  const safe = /^[\t\r =+\-@]/.test(text) ? `'${text}` : text;
   return `"${safe.replace(/"/g, '""')}"`;
 };
 

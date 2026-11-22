@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../config/database';
 import { AppError } from '../../shared/errors/AppError';
-import { strictAuthLimiter } from '../../shared/middleware/rateLimit.middleware';
+import { contactLimiter } from '../../shared/middleware/rateLimit.middleware';
 import { validateBody } from '../../shared/middleware/validate.middleware';
 import { requireAuth, requireRole } from '../auth';
 
@@ -20,12 +20,20 @@ const messageSchema = z.object({
   website: z.string().max(200).optional()
 });
 
-contactRoutes.post('/', strictAuthLimiter, validateBody(messageSchema), async (req: Request, res: Response) => {
+contactRoutes.post('/', contactLimiter, validateBody(messageSchema), async (req: Request, res: Response) => {
   const b = req.body as z.infer<typeof messageSchema>;
   // a bot gets the same "thank you" and nothing is stored
   if (!b.website) {
-    // one open inbox must not become a dumping ground: at most 500 unread messages are kept
-    if ((await prisma.contactMessage.count({ where: { handled: false } })) < 500) {
+    const dayAgo = new Date(Date.now() - 86_400_000);
+    const [sameText, fromEmail, unread] = await Promise.all([
+      prisma.contactMessage.count({ where: { email: b.email, message: b.message, createdAt: { gte: dayAgo } } }),
+      prisma.contactMessage.count({ where: { email: b.email, createdAt: { gte: dayAgo } } }),
+      prisma.contactMessage.count({ where: { handled: false } })
+    ]);
+    // the same text twice, or more than 5 a day from one email, is not stored again (a person who double-clicked is not told off)
+    if (sameText === 0 && fromEmail < 5) {
+      // a full inbox says so, instead of pretending to accept the message
+      if (unread >= 2000) throw new AppError('Our inbox is full right now. Please reach us on WhatsApp.', 503);
       await prisma.contactMessage.create({ data: { name: b.name, email: b.email, whatsapp: b.whatsapp, message: b.message } });
     }
   }

@@ -10,6 +10,8 @@ interface PendingPurchase {
   package: string;
   amount: string;
   reference: string | null;
+  paidFromWallet?: boolean;
+  hasProof?: boolean;
   createdAt: string;
   user: { name: string; email: string; package: string };
 }
@@ -179,9 +181,13 @@ export default function AdminPage() {
                 <td className="muted">{p.reference ?? 'no reference'}</td>
                 <td className="muted">{date(p.createdAt)}</td>
                 <td className="actions">
-                  <button className="btn ghost" onClick={() => void openProofAt(`/admin/purchases/${p.id}/proof`).catch((e) => setMsg({ type: 'error', text: (e as Error).message }))}>
-                    View screenshot
-                  </button>
+                  {p.hasProof ? (
+                    <button className="btn ghost" onClick={() => void openProofAt(`/admin/purchases/${p.id}/proof`).catch((e) => setMsg({ type: 'error', text: (e as Error).message }))}>
+                      View screenshot
+                    </button>
+                  ) : (
+                    <small className="muted">{p.paidFromWallet ? 'Pays from activation wallet' : 'No screenshot'}</small>
+                  )}
                   <button
                     className="btn"
                     onClick={() => run(() => api(`/admin/purchases/${p.id}/confirm`, { method: 'POST' }))}

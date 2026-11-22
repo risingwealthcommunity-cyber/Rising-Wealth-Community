@@ -64,7 +64,7 @@ export const rankPerksSchema = z.object({
 
 export const weeklyBonusSchema = z.object({
   /** Rupees paid for each weight-1 share at least (3 PRO sales = 1 share = this amount; an ELITE share counts double). */
-  minPerShare: z.number().min(0).max(100_000)
+  minPerShare: z.number().min(0).max(1000)
 });
 
 export const contactSchema = z.object({

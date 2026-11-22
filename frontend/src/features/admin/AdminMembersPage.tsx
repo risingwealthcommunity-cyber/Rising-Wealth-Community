@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api } from '../../shared/api/apiClient';
 import { compressImage } from '../../shared/compressImage';
 import { inr, label } from '../../shared/format';
+import { openProofAt } from '../../shared/openProof';
 import { toAmount, useRun } from '../../shared/useRun';
 
 interface Member {
@@ -29,6 +30,17 @@ interface Page {
   total: number;
   totals: { earned: number; paid: number; pending: number };
   items: Member[];
+}
+
+interface Request {
+  id: string;
+  package: 'PRO' | 'ELITE';
+  amount: string;
+  reference: string | null;
+  paidFromWallet: boolean;
+  hasProof: boolean;
+  createdAt: string;
+  user: { id: string; name: string; email: string; package: string; referralCode: string; activationBalance: string };
 }
 
 const when = (iso: string) => new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -76,6 +88,146 @@ function PayPanel({ m, onClose, onDone }: { m: Member; onClose: () => void; onDo
   );
 }
 
+/** Upgrade a member from their activation wallet, or for a payment received outside the app. */
+function UpgradePanel({ m, onClose, onDone }: { m: Member; onClose: () => void; onDone: () => void }) {
+  const higher = m.package === 'TRAINEE' ? ['PRO', 'ELITE'] : m.package === 'PRO' ? ['ELITE'] : [];
+  const [pkg, setPkg] = useState(higher[0] ?? '');
+  const [mode, setMode] = useState<'WALLET' | 'MANUAL'>('MANUAL');
+  const [ref, setRef] = useState('');
+  const act = useRun();
+
+  const submit = () => {
+    if (!window.confirm(`Upgrade ${m.name} to ${pkg}? ${mode === 'WALLET' ? 'The price is taken from their activation wallet.' : 'This records a payment you received outside the app.'} It cannot be undone.`)) return;
+    void act.run(async () => {
+      const r = await api(`/admin/members/${m.id}/upgrade`, { method: 'POST', body: { package: pkg, mode, ...(mode === 'MANUAL' ? { reference: ref.trim() } : {}) } });
+      onDone();
+      onClose();
+      return r;
+    });
+  };
+
+  if (higher.length === 0) return <div className="wd-panel"><p className="muted">{m.name} is already on the highest package.</p></div>;
+  return (
+    <div className="wd-panel">
+      <p className="muted">
+        Upgrade <b>{m.name}</b> (now {label(m.package)}). Activation wallet: <b>{inr(Number(m.activationBalance))}</b>. The sponsor and team income run exactly as for a normal purchase.
+      </p>
+      <div className="wd-pay">
+        <select value={pkg} onChange={(e) => setPkg(e.target.value)} aria-label="Package">
+          {higher.map((k) => (
+            <option key={k} value={k}>
+              {k}
+            </option>
+          ))}
+        </select>
+        <select value={mode} onChange={(e) => setMode(e.target.value as 'WALLET' | 'MANUAL')} aria-label="How it is paid">
+          <option value="MANUAL">Payment received outside the app</option>
+          <option value="WALLET">Take from their activation wallet</option>
+        </select>
+        {mode === 'MANUAL' && <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Payment reference / note (unique)" aria-label="Payment reference" maxLength={100} />}
+      </div>
+      {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
+      <div className="wd-panel-actions">
+        <button className="btn ok" type="button" disabled={act.busy || !pkg || (mode === 'MANUAL' && ref.trim().length < 4)} onClick={submit}>
+          {act.busy ? 'Upgrading...' : `Upgrade to ${pkg}`}
+        </button>
+        <button className="btn ghost" type="button" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Members who asked to move up a package, with what they will pay from and what their activation wallet holds. */
+function UpgradeRequests({ onChanged }: { onChanged: () => void }) {
+  const [items, setItems] = useState<Request[] | null>(null);
+  const act = useRun();
+  const load = useCallback(() => {
+    api<{ purchases: Request[] }>('/admin/purchases?status=PENDING')
+      .then((r) => setItems(r.data?.purchases ?? []))
+      .catch(() => setItems([]));
+  }, []);
+  useEffect(load, [load]);
+
+  const decide = (id: string, what: 'confirm' | 'reject') =>
+    void act.run(async () => {
+      const r = await api(`/admin/purchases/${id}/${what}`, { method: 'POST' });
+      load();
+      onChanged();
+      return r;
+    }, what === 'confirm' ? 'Approved. The package is upgraded.' : 'Request rejected. Nothing was taken.');
+
+  return (
+    <div className="card">
+      <h2>Membership upgrade requests {items && items.length > 0 ? `(${items.length})` : ''}</h2>
+      <p className="muted">Approving a wallet request takes the price from the member's activation wallet and upgrades them at once.</p>
+      {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
+      {items && items.length === 0 && <p className="muted">No upgrade request is waiting.</p>}
+      {items && items.length > 0 && (
+        <div className="table-wrap">
+          <table className="rep-table">
+            <thead>
+              <tr>
+                <th>Member</th>
+                <th>Upgrade</th>
+                <th>Pays by</th>
+                <th>Asked</th>
+                <th className="center">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((p) => {
+                const short = p.paidFromWallet && Number(p.user.activationBalance) < Number(p.amount);
+                return (
+                  <tr key={p.id}>
+                    <td>
+                      <b>{p.user.name}</b>
+                      <small className="muted">{p.user.email}</small>
+                      <small className="muted">ID {p.user.referralCode}</small>
+                    </td>
+                    <td>
+                      {label(p.user.package)} → <b>{p.package}</b>
+                      <small className="muted">{inr(Number(p.amount))}</small>
+                    </td>
+                    <td>
+                      {p.paidFromWallet ? (
+                        <>
+                          Activation wallet
+                          <small className={short ? 'orange' : 'green'}>has {inr(Number(p.user.activationBalance))}{short ? ' (not enough)' : ''}</small>
+                        </>
+                      ) : (
+                        <>
+                          Bank payment
+                          <small className="muted">{p.reference ?? 'no reference'}</small>
+                        </>
+                      )}
+                    </td>
+                    <td>{when(p.createdAt)}</td>
+                    <td className="rep-actions center">
+                      {p.hasProof && (
+                        <button className="btn ghost" type="button" onClick={() => void openProofAt(`/admin/purchases/${p.id}/proof`).catch(() => undefined)}>
+                          View screenshot
+                        </button>
+                      )}
+                      <button className="btn ok" type="button" disabled={act.busy || short} onClick={() => decide(p.id, 'confirm')}>
+                        Approve
+                      </button>
+                      <button className="btn bad" type="button" disabled={act.busy} onClick={() => decide(p.id, 'reject')}>
+                        Reject
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** User income management: what every member earned, was paid and has pending, with Pay, Block and Delete. */
 export default function AdminMembersPage() {
   const [q, setQ] = useState('');
@@ -83,6 +235,7 @@ export default function AdminMembersPage() {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Page | null>(null);
   const [paying, setPaying] = useState<string | null>(null);
+  const [upgrading, setUpgrading] = useState<string | null>(null);
   const act = useRun();
 
   const load = useCallback(() => {
@@ -133,6 +286,8 @@ export default function AdminMembersPage() {
           <em>already paid to members</em>
         </div>
       </div>
+
+      <UpgradeRequests onChanged={load} />
 
       <div className="card">
         <div className="team-head">
@@ -195,6 +350,9 @@ export default function AdminMembersPage() {
                         <button className="btn solid" type="button" disabled={m.pending <= 0 || act.busy} onClick={() => setPaying(paying === m.id ? null : m.id)}>
                           Pay
                         </button>
+                        <button className="btn ghost" type="button" disabled={act.busy} onClick={() => setUpgrading(upgrading === m.id ? null : m.id)}>
+                          Upgrade
+                        </button>
                         <button className="btn ghost" type="button" disabled={act.busy} onClick={() => block(m)} title={m.isActive ? 'Block this member' : 'Unblock this member'} aria-label={m.isActive ? `Block ${m.name}` : `Unblock ${m.name}`}>
                           {m.isActive ? '⊘' : '↺'}
                         </button>
@@ -207,6 +365,13 @@ export default function AdminMembersPage() {
                       <tr className="wd-panel-row">
                         <td colSpan={7}>
                           <PayPanel m={m} onClose={() => setPaying(null)} onDone={load} />
+                        </td>
+                      </tr>
+                    )}
+                    {upgrading === m.id && (
+                      <tr className="wd-panel-row">
+                        <td colSpan={7}>
+                          <UpgradePanel m={m} onClose={() => setUpgrading(null)} onDone={load} />
                         </td>
                       </tr>
                     )}
