@@ -33,7 +33,7 @@ import { DashboardPage, LeaderboardPage, ProfilePage, TrainingPage } from '../fe
 import { LandingPage } from '../features/landing';
 import { PackagesPage } from '../features/packages';
 import { LivePage } from '../features/live';
-import { BonusesPage, RanksPage, TeamPage } from '../features/team';
+import { BonusesPage, TeamPage } from '../features/team';
 import { WalletPage, WeeklyBonusPage } from '../features/wallet';
 
 function AdminOnly({ children }: { children: ReactNode }) {
@@ -72,7 +72,7 @@ export default function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/activation" element={<ActivationPage />} />
           <Route path="/campaigns" element={<CampaignsPage />} />
-          <Route path="/ranks" element={<RanksPage />} />
+          <Route path="/ranks" element={<Navigate to="/bonuses/team" replace />} />
           <Route path="/live" element={<LivePage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />

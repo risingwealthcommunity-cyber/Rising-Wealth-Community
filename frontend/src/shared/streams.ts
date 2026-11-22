@@ -6,7 +6,7 @@ export const STREAMS: { key: string; label: string; types: string[]; color: stri
   { key: 'weekly', label: 'Weekly Bonus', types: ['WEEKLY_BONUS'], color: '#22c55e' },
   { key: 'leadership', label: 'Leadership Bonus', types: ['LEADERSHIP_TARGET_BONUS', 'LEADERSHIP_BONUS'], color: '#f59e0b' },
   { key: 'team', label: 'Team Performance Bonus', types: ['TEAM_PERFORMANCE_BONUS'], color: '#f43f5e' },
-  { key: 'campaign', label: 'Campaign Reward', types: ['CAMPAIGN_REWARD'], color: '#0ea5e9' }
+  { key: 'campaign', label: 'Monthly Royalty', types: ['CAMPAIGN_REWARD'], color: '#0ea5e9' }
 ];
 
 export interface Stream {

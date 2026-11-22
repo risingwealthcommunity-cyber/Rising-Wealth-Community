@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
-import { date, inr } from '../../shared/format';
+import { date, inr, label } from '../../shared/format';
 
 type Status = 'DONE' | 'CURRENT' | 'LOCKED';
 
 interface Bonuses {
   eligible: boolean;
   team: {
-    targets: { target: number; members: number; reward: number; status: Status; completedAt: string | null }[];
+    targets: { target: number; rank?: string | null; extraReward?: string | null; claim?: { status: 'PENDING' | 'APPROVED' | 'REJECTED'; note: string | null } | null; members: number; reward: number; status: Status; completedAt: string | null }[];
     current: { target: number; members: number; reward: number } | null;
     pendingLeft: number;
     pendingRight: number;
@@ -32,11 +32,31 @@ export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
   const [data, setData] = useState<Bonuses | null>(null);
   const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
+  const [claimBusy, setClaimBusy] = useState(false);
+  const [claimMsg, setClaimMsg] = useState<string | null>(null);
+
+  const load = () =>
     api<Bonuses>('/team/bonuses')
       .then((r) => setData(r.data ?? null))
       .catch(() => setFailed(true));
+  useEffect(() => {
+    void load();
   }, []);
+
+  /** Ask for the extra reward (a perk) of a rank that has been reached. An admin approves it. */
+  const claimPerk = async (rank: string) => {
+    setClaimBusy(true);
+    setClaimMsg(null);
+    try {
+      const r = await api(`/team/perks/${rank}/claim`, { method: 'POST' });
+      setClaimMsg(r.message ?? 'Claim sent.');
+      await load();
+    } catch (e) {
+      setClaimMsg((e as Error).message);
+    } finally {
+      setClaimBusy(false);
+    }
+  };
 
   if (failed) return <p className="muted">Could not load your bonuses. Please try again.</p>;
   if (!data) return <p className="muted">Loading...</p>;
@@ -131,23 +151,34 @@ export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
           Whole team so far: {team.totalLeft} left, {team.totalRight} right.
         </p>
 
+        {claimMsg && <div className="alert">{claimMsg}</div>}
         <table className="ladder">
           <thead>
             <tr>
-              <th>Target</th>
+              <th>Rank</th>
               <th>New members</th>
               <th>Bonus</th>
+              <th>Extra reward</th>
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {team.targets.map((t) => (
               <tr key={t.target} className={`st-${t.status.toLowerCase()}`}>
-                <td>{t.target}</td>
+                <td>{t.rank ? label(t.rank) : t.target}</td>
                 <td>
                   {t.members} : {t.members}
                 </td>
                 <td>{inr(t.reward)}</td>
+                <td>
+                  {t.extraReward ?? <span className="muted">–</span>}
+                  {t.extraReward && t.status === 'DONE' && !t.claim && t.rank && (
+                    <button className="btn ghost" type="button" disabled={claimBusy} onClick={() => void claimPerk(t.rank as string)}>
+                      Claim
+                    </button>
+                  )}
+                  {t.claim && <small className="muted"> {t.claim.status === 'PENDING' ? 'Claim sent' : t.claim.status === 'APPROVED' ? 'Claimed' : 'Not approved'}</small>}
+                </td>
                 <td>
                   <span className={`badge ${t.status === 'DONE' ? 'confirmed' : ''}`}>{statusText[t.status]}</span>
                   {t.completedAt && <small className="muted"> {date(t.completedAt)}</small>}

@@ -98,10 +98,6 @@ export default function AppLayout() {
               {Icon.users}
               <span>My Team</span>
             </NavLink>
-            <NavLink to="/ranks">
-              {Icon.medal}
-              <span>Ranks &amp; Rewards</span>
-            </NavLink>
             <NavLink to="/live">
               {Icon.video}
               <span>Live Trainings</span>

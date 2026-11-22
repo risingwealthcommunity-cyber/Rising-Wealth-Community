@@ -11,7 +11,7 @@ const router = Router();
 router.get('/summary', requireAuth, async (req: Request, res: Response) => {
   const userId = req.user!.id;
 
-  const [me, referrals] = await Promise.all([
+  const [me, referrals, passiveByLevel] = await Promise.all([
     prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { package: true, rank: true, rankLeftHalf: true, rankRightHalf: true, matchLeftHalf: true, matchRightHalf: true }
@@ -20,8 +20,10 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
       where: { sponsorId: userId },
       orderBy: { createdAt: 'desc' },
       select: { id: true, name: true, avatar: true, package: true, leg: true, createdAt: true }
-    })
+    }),
+    prisma.ledgerEntry.groupBy({ by: ['level'], where: { userId, type: 'PASSIVE_INCOME' }, _sum: { amount: true } })
   ]);
+  const earnedAt = new Map(passiveByLevel.map((r) => [r.level, Number(r._sum.amount ?? 0)]));
 
   const idx = me.rank === 'NONE' ? -1 : RANKS.findIndex((r) => r.rank === me.rank);
   const next = RANKS[idx + 1] ?? null;
@@ -32,7 +34,7 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
       rank: me.rank,
       package: me.package,
       // passive income from team levels: % of every package sale in your downline, per level
-      passiveLevels: PASSIVE_PCT.map((pct, i) => ({ level: i + 1, pct, unlocked: PASSIVE_LEVELS_UNLOCKED[me.package] >= i + 1 })),
+      passiveLevels: PASSIVE_PCT.map((pct, i) => ({ level: i + 1, pct, earned: earnedAt.get(i + 1) ?? 0, unlocked: PASSIVE_LEVELS_UNLOCKED[me.package] >= i + 1 })),
       points: {
         left: me.rankLeftHalf / 2,
         right: me.rankRightHalf / 2,
@@ -43,6 +45,22 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
       directReferrals: referrals
     }
   });
+});
+
+/**
+ * How many direct sales of each package the member has made in the current weekly window (since the admin last closed it).
+ * 3 sales of one package make 1 share (Single Weekly Bonus), 6 make 2 shares (Double Weekly Bonus).
+ */
+router.get('/weekly-progress', requireAuth, async (req: Request, res: Response) => {
+  const last = await prisma.payoutPeriod.findFirst({ orderBy: { endsAt: 'desc' }, select: { endsAt: true } });
+  const since = last?.endsAt ?? new Date(0);
+  const rows = await prisma.packagePurchase.groupBy({
+    by: ['package'],
+    where: { status: 'CONFIRMED', confirmedAt: { gte: since }, user: { sponsorId: req.user!.id } },
+    _count: { _all: true }
+  });
+  const count = (p: string) => rows.find((r) => r.package === p)?._count._all ?? 0;
+  res.json({ success: true, data: { since, perShare: 3, maxShares: 2, PRO: count('PRO'), ELITE: count('ELITE') } });
 });
 
 /** Team Performance (binary targets) and Leadership Bonus: where the member stands, plus the bonus history. */
@@ -72,8 +90,17 @@ router.get('/bonuses', requireAuth, async (req: Request, res: Response) => {
 
   const doneAt = (type: string, n: number) => history.find((h) => h.type === type && h.level === n)?.createdAt ?? null;
 
+  const [perkRow, perkClaims] = await Promise.all([
+    prisma.siteSetting.findUnique({ where: { key: 'rankPerks' } }),
+    prisma.perkClaim.findMany({ where: { userId }, select: { rank: true, status: true, note: true } })
+  ]);
+  const perks = ((perkRow?.value as { items?: { rank: string; title: string; description: string }[] } | null)?.items ?? []);
   const team = TEAM_TARGETS.map((t, i) => ({
     target: i + 1,
+    // each target is a rank: its name, and the extra reward (a perk) the admin set for that rank
+    rank: RANKS[i]?.rank ?? null,
+    extraReward: perks.find((p) => p.rank === RANKS[i]?.rank)?.title ?? null,
+    claim: perkClaims.find((c) => c.rank === RANKS[i]?.rank) ?? null,
     members: t.members,
     reward: t.reward,
     status: i < me.teamTargetsDone ? 'DONE' : i === me.teamTargetsDone ? 'CURRENT' : 'LOCKED',

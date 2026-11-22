@@ -3,12 +3,12 @@ import { Link } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
 import { Avatar } from '../../shared/components/Avatar';
 import { useAuth } from '../auth';
-import { date, label } from '../../shared/format';
+import { date, inr, label } from '../../shared/format';
 
 interface Team {
   rank: string;
   package: string;
-  passiveLevels: { level: number; pct: number; unlocked: boolean }[];
+  passiveLevels: { level: number; pct: number; earned: number; unlocked: boolean }[];
   points: { left: number; right: number; unmatchedLeft: number; unmatchedRight: number };
   nextRank: { rank: string; requiredEachLeg: number; reward: number } | null;
   directReferrals: { id: string; name: string; avatar: string | null; package: string; leg: string | null; createdAt: string }[];
@@ -94,11 +94,9 @@ export default function TeamPage() {
   const [tree, setTree] = useState<TreeData | null>(null);
   const [treeFailed, setTreeFailed] = useState(false);
   const [q, setQ] = useState('');
-  const [prices, setPrices] = useState<{ PRO: number; ELITE: number } | null>(null);
 
   useEffect(() => {
     api<Team>('/team/summary').then((r) => setTeam(r.data ?? null)).catch(() => undefined);
-    api<{ PRO: number; ELITE: number }>('/packages/prices').then((r) => setPrices(r.data ?? null)).catch(() => undefined);
     loadTree();
   }, []);
 
@@ -187,22 +185,17 @@ export default function TeamPage() {
 
       <div className="card">
         <h2>Passive income from team levels</h2>
-        <p className="muted">You earn this share of every package sold by members in your downline, level by level.</p>
+        <p className="muted">What you have earned from each level of your team, from the package sales of the members below you.</p>
         <div className="levels">
           {team.passiveLevels.map((l) => {
-            const rs = (price: number) => Math.round((price * l.pct) / 100).toLocaleString('en-IN');
             return (
               <div className={`level${l.unlocked ? '' : ' locked'}`} key={l.level}>
                 <small>
                   Level {l.level}
                   {!l.unlocked && <span className="level-lock" aria-label="Locked"> 🔒</span>}
                 </small>
-                <strong>{l.pct}%</strong>
-                {prices && (
-                  <em>
-                    ₹{rs(prices.PRO)} on PRO · ₹{rs(prices.ELITE)} on ELITE
-                  </em>
-                )}
+                <strong>{inr(l.earned)}</strong>
+                <em>earned from level {l.level}</em>
                 {!l.unlocked && <span className="level-need">Unlocks with ELITE</span>}
               </div>
             );
