@@ -171,20 +171,15 @@ export async function distributeDematReferral(
   await postLedger(tx, { ...dist, sourceUserId: referral.referrerId, note: referral.note });
 }
 
-/**
- * Closes the current payout window and distributes the three pools:
- *  - Weekly bonus 5%, Performance bonus 5%, Leadership (binary) 12% of confirmed package revenue.
- * Nothing is ever paid beyond a pool; anything unclaimed stays with the company.
- */
-export async function closePayoutPeriod(tx: Tx, adminId: string) {
-  // the same lock the weekly scheduler takes: a window can only be closed once
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(7301002)`;
-  const last = await tx.payoutPeriod.findFirst({ orderBy: { endsAt: 'desc' } });
-  const startsAt = last?.endsAt ?? new Date(0);
-  const endsAt = new Date();
+/** The weekly bonus minimum per share, in paise: the admin's setting, or the plan default. */
+export async function weeklyMinPaise(tx: Tx): Promise<number> {
+  const row = await tx.siteSetting.findUnique({ where: { key: 'weeklyBonus' } });
+  const v = (row?.value as { minPerShare?: unknown } | null)?.minPerShare;
+  return typeof v === 'number' && v >= 0 ? Math.round(v * 100) : WEEKLY_MIN_PER_SHARE_PAISE;
+}
 
-  if (endsAt <= startsAt) throw new AppError('Nothing to close yet', 400);
-
+/** What a payout window holds: the revenue, the three pools, and who is in line for each. Read-only. */
+async function computeWindow(tx: Tx, startsAt: Date, endsAt: Date) {
   const sales = await tx.packagePurchase.findMany({
     where: { status: 'CONFIRMED', confirmedAt: { gte: startsAt, lt: endsAt } },
     select: { amount: true, package: true, user: { select: { sponsorId: true } } }
@@ -228,6 +223,47 @@ export async function closePayoutPeriod(tx: Tx, adminId: string) {
     .map((l) => ({ id: l.id, weight: Math.min(l.matchLeftHalf, l.matchRightHalf) }))
     .filter((l) => l.weight > 0);
 
+  const minPerSharePaise = await weeklyMinPaise(tx);
+  return { revenue, weeklyPool, performancePool, leadershipPool, weeklyWeights, perfWeights, matched, minPerSharePaise };
+}
+
+/** The window that is open right now (since the last close): pools so far and the members who would be paid, with estimates. */
+export async function previewPayoutWindow(tx: Tx) {
+  const last = await tx.payoutPeriod.findFirst({ orderBy: { endsAt: 'desc' } });
+  const startsAt = last?.endsAt ?? new Date(0);
+  const w = await computeWindow(tx, startsAt, new Date());
+  const weekly = splitWeeklyPool(w.weeklyPool, w.weeklyWeights, w.minPerSharePaise);
+  const performance = splitPool(w.performancePool, w.perfWeights);
+  const leadership = splitPool(w.leadershipPool, w.matched);
+  const rows = (paid: { id: string; paise: number }[], weights: { id: string; weight: number }[]) =>
+    paid.map((p) => ({ userId: p.id, weight: weights.find((x) => x.id === p.id)?.weight ?? 0, paise: p.paise }));
+  return {
+    startsAt,
+    revenue: w.revenue,
+    pools: { weekly: w.weeklyPool, performance: w.performancePool, leadership: w.leadershipPool },
+    minPerSharePaise: w.minPerSharePaise,
+    weekly: rows(weekly.payouts, w.weeklyWeights),
+    performance: rows(performance.payouts, w.perfWeights),
+    leadership: rows(leadership.payouts, w.matched)
+  };
+}
+
+/**
+ * Closes the current payout window and distributes the three pools:
+ *  - Weekly bonus 5%, Performance bonus 5%, Leadership (binary) 12% of confirmed package revenue.
+ * Nothing is ever paid beyond a pool; anything unclaimed stays with the company.
+ */
+export async function closePayoutPeriod(tx: Tx, adminId: string) {
+  // the same lock the weekly scheduler takes: a window can only be closed once
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(7301002)`;
+  const last = await tx.payoutPeriod.findFirst({ orderBy: { endsAt: 'desc' } });
+  const startsAt = last?.endsAt ?? new Date(0);
+  const endsAt = new Date();
+
+  if (endsAt <= startsAt) throw new AppError('Nothing to close yet', 400);
+
+  const { revenue, weeklyPool, performancePool, leadershipPool, weeklyWeights, perfWeights, matched, minPerSharePaise } = await computeWindow(tx, startsAt, endsAt);
+
   const period = await tx.payoutPeriod.create({
     data: {
       startsAt,
@@ -259,7 +295,7 @@ export async function closePayoutPeriod(tx: Tx, adminId: string) {
   };
 
   // Weekly bonus: the pool, but never less than the plan's minimum per share (the company fund covers any gap)
-  const weekly = splitWeeklyPool(weeklyPool, weeklyWeights, WEEKLY_MIN_PER_SHARE_PAISE);
+  const weekly = splitWeeklyPool(weeklyPool, weeklyWeights, minPerSharePaise);
   await postLedger(tx, {
     payouts: weekly.payouts.map((p) => ({ userId: p.id, type: 'WEEKLY_BONUS' as const, paise: p.paise })),
     company: [{ reason: 'WEEKLY_POOL_UNCLAIMED', paise: weekly.unclaimed }],

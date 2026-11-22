@@ -8,6 +8,7 @@ import { siteRoutes } from './features/site';
 import dashboardRoutes from './features/dashboard/dashboard.routes';
 import { campaignRoutes, campaignAdminRoutes } from './features/campaigns/campaigns.routes';
 import { liveRoutes, liveAdminRoutes } from './features/live/live.routes';
+import { contactRoutes, contactAdminRoutes } from './features/contact/contact.routes';
 
 const router = Router();
 
@@ -22,9 +23,11 @@ router.use('/wallet', walletRoutes);
 router.use('/team', teamRoutes);
 router.use('/admin', campaignAdminRoutes);
 router.use('/admin', liveAdminRoutes);
+router.use('/admin', contactAdminRoutes);
 router.use('/admin', adminRoutes);
 router.use('/campaigns', campaignRoutes);
 router.use('/live', liveRoutes);
+router.use('/contact', contactRoutes);
 router.use('/site', siteRoutes);
 router.use('/dashboard', dashboardRoutes);
 

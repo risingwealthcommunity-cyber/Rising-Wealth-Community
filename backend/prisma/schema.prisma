@@ -260,6 +260,12 @@ enum RequestStatus {
   PENDING
   APPROVED
   REJECTED
+  /// Campaign reports only: the proof is not enough, the member can fix and resend it.
+  INCOMPLETE
+  /// Campaign reports only: the account could not be found.
+  MISSING
+  /// Campaign reports only: that account was already registered before.
+  ALREADY_EXISTING
 }
 
 enum ActivationKind {
@@ -406,4 +412,17 @@ model LiveSession {
   createdAt   DateTime @default(now())
 
   @@index([startsAt])
+}
+
+/// A message from the contact form on the landing page.
+model ContactMessage {
+  id        String   @id @default(uuid())
+  name      String
+  email     String
+  whatsapp  String
+  message   String
+  handled   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }

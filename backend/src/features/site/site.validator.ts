@@ -62,6 +62,11 @@ export const rankPerksSchema = z.object({
     .max(RANKS.length, 'One perk per rank')
 });
 
+export const weeklyBonusSchema = z.object({
+  /** Rupees paid for each weight-1 share at least (3 PRO sales = 1 share = this amount; an ELITE share counts double). */
+  minPerShare: z.number().min(0).max(100_000)
+});
+
 export const contactSchema = z.object({
   phone,
   whatsapp: phone,
@@ -80,7 +85,8 @@ export const SETTING_SCHEMAS = {
   contact: contactSchema,
   training: trainingSchema,
   payment: paymentSchema,
-  rankPerks: rankPerksSchema
+  rankPerks: rankPerksSchema,
+  weeklyBonus: weeklyBonusSchema
 } as const;
 
 export type SettingName = keyof typeof SETTING_SCHEMAS;

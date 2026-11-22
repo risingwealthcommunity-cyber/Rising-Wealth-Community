@@ -2363,6 +2363,158 @@ test('LIVE TRAININGS: members see the schedule, but the join link only comes wit
   assert.equal((await admin.call('DELETE', `/api/admin/live/${proOnly.json.data.id}`)).status, 200);
 });
 
+// ---------------------------------------------------------------- ADMIN PANEL: report actions, campaign logo, bonus achievers, contact inbox
+
+test('REPORT ACTIONS: reject, incomplete, missing and already-existing; incomplete can be fixed; filters, search and submission date', async () => {
+  const m = await signup('RWCROOT', 'RIGHT', 'mny_ra_one');
+  const camp = (await admin.call('POST', '/api/admin/campaigns', { title: 'Actions test', description: '', reward: 100, url: 'https://example.com/a', videoUrl: '', needsProof: true, isDemat: false, isActive: true })).json.data;
+  const send = async (mobile: string, holder: string) => {
+    const r = await m.c.call('POST', '/api/campaigns/reports', { campaignId: camp.id, holderName: holder, mobile, fileName: 'p.png', fileData: REPORT_PNG });
+    assert.equal(r.status, 201, JSON.stringify(r.json));
+    return r.json.data.id as string;
+  };
+  const [a, b, c, d, e] = [await send('9300000001', 'Holder One'), await send('9300000002', 'Holder Two'), await send('9300000003', 'Holder Three'), await send('9300000004', 'Holder Four'), await send('9300000005', 'Holder Five')];
+
+  const mark = (id: string, status: string, note?: string) => admin.call('POST', `/api/admin/reports/${id}/mark`, { status, ...(note ? { note } : {}) });
+  assert.equal((await m.c.call('POST', `/api/admin/reports/${a}/mark`, { status: 'MISSING' })).status, 403);
+  assert.equal((await mark(a, 'APPROVED')).status, 400, 'approving goes through Approve, which pays');
+  assert.equal((await mark(a, 'WHATEVER')).status, 400);
+  assert.equal((await mark(a, 'MISSING', 'Not found on the partner site')).status, 200);
+  assert.equal((await mark(b, 'ALREADY_EXISTING')).status, 200);
+  assert.equal((await mark(c, 'INCOMPLETE', 'Screenshot is blurry')).status, 200);
+  assert.equal((await mark(d, 'REJECTED', 'Fake')).status, 200);
+  assert.equal((await mark(a, 'REJECTED')).status, 409, 'a decided report cannot be re-marked');
+
+  // none of these paid anything; the member sees each state and the reason
+  const mine = (await m.c.call('GET', '/api/campaigns/reports')).json.data.items as any[];
+  const byId = Object.fromEntries(mine.map((r) => [r.id, r]));
+  assert.deepEqual([byId[a].status, byId[a].note], ['MISSING', 'Not found on the partner site']);
+  assert.equal(byId[b].status, 'ALREADY_EXISTING');
+  assert.equal((await walletOf(m.c)).totalEarned, 0);
+
+  // a missing or already-existing report cannot be edited; an incomplete one can, and it goes back in the queue
+  assert.equal((await m.c.call('PUT', `/api/campaigns/reports/${a}`, { holderName: 'Holder One', mobile: '9300000001' })).status, 409);
+  assert.equal((await m.c.call('PUT', `/api/campaigns/reports/${b}`, { holderName: 'Holder Two', mobile: '9300000002' })).status, 409);
+  const stranger = await signup('RWCROOT', 'RIGHT', 'mny_ra_three');
+  assert.equal((await stranger.c.call('PUT', `/api/campaigns/reports/${c}`, { holderName: 'Xy', mobile: '9300000003' })).status, 404, 'another member report');
+  assert.equal((await m.c.call('PUT', `/api/campaigns/reports/${c}`, { holderName: 'Holder Three Fixed', mobile: '9300000003', fileName: 'again.png', fileData: REPORT_PNG })).status, 200);
+  const fixed = ((await m.c.call('GET', '/api/campaigns/reports')).json.data.items as any[]).find((r) => r.id === c);
+  assert.deepEqual([fixed.status, fixed.note, fixed.holderName], ['PENDING', null, 'Holder Three Fixed']);
+  // an incomplete report still holds its mobile number
+  assert.equal((await mark(c, 'INCOMPLETE')).status, 200);
+  const rival = await signup('RWCROOT', 'RIGHT', 'mny_ra_two');
+  assert.equal((await rival.c.call('POST', '/api/campaigns/reports', { campaignId: camp.id, holderName: 'Rival', mobile: '9300000003', fileName: 'p.png', fileData: REPORT_PNG })).status, 409);
+  assert.equal((await m.c.call('DELETE', `/api/campaigns/reports/${c}`)).status, 200, 'an incomplete report can be withdrawn');
+
+  // admin list: states, ALL, campaign filter, search, submission date
+  const list = async (qs: string) => (await admin.call('GET', `/api/admin/reports?${qs}`)).json.data.items as any[];
+  assert.deepEqual((await list(`status=MISSING&campaignId=${camp.id}`)).map((r) => r.id), [a]);
+  assert.deepEqual((await list(`status=ALREADY_EXISTING&campaignId=${camp.id}`)).map((r) => r.id), [b]);
+  assert.deepEqual((await list(`status=PENDING&campaignId=${camp.id}`)).map((r) => r.id), [e]);
+  assert.equal((await list(`status=ALL&campaignId=${camp.id}`)).length, 4, 'ALL: missing, already existing, rejected, waiting (the deleted one is gone)');
+  assert.deepEqual((await list(`status=ALL&campaignId=${camp.id}&q=Holder%20Five`)).map((r) => r.id), [e], 'search by account holder');
+  assert.deepEqual((await list(`status=ALL&campaignId=${camp.id}&q=9300000002`)).map((r) => r.id), [b], 'search by mobile');
+  const row = (await list(`status=ALL&campaignId=${camp.id}&q=9300000001`))[0];
+  assert.ok(!Number.isNaN(Date.parse(row.createdAt)), 'the date the report was submitted');
+  assert.ok(row.processedAt, 'and when it was decided');
+  assert.equal(row.user.email, m.email);
+});
+
+test('CAMPAIGN LOGO: the admin uploads a logo for a campaign; it shows to members and goes away with the campaign', async () => {
+  const camp = (await admin.call('POST', '/api/admin/campaigns', { title: 'Logo campaign', description: '', reward: 10, url: 'https://example.com/l', videoUrl: '', needsProof: false, isDemat: false, isActive: true })).json.data;
+  assert.equal(camp.logoUrl, null);
+  const m = await signup('RWCROOT', 'LEFT', 'mny_lg_one');
+
+  assert.equal((await putImage(m.c, `campaign-${camp.id}`, PNG, 'image/png')).status, 403, 'only an admin');
+  assert.equal((await putImage(admin, 'campaign-not-an-id', PNG, 'image/png')).status, 404);
+  assert.equal((await putImage(admin, `campaign-${camp.id}`, Buffer.from('<svg/>'), 'image/png')).status, 415, 'must be a real raster image');
+  assert.equal((await putImage(admin, `campaign-${camp.id}`, PNG, 'image/png')).status, 200);
+
+  const adminSees = ((await admin.call('GET', '/api/admin/campaigns')).json.data.items as any[]).find((c) => c.id === camp.id);
+  assert.match(adminSees.logoUrl, new RegExp(`^/api/site/assets/campaign-${camp.id}\\?v=\\d+$`));
+  const memberSees = ((await m.c.call('GET', '/api/campaigns')).json.data.items as any[]).find((c) => c.id === camp.id);
+  assert.equal(memberSees.logoUrl, adminSees.logoUrl);
+  assert.equal((await new Client().call('GET', `/api/site/assets/campaign-${camp.id}`)).status, 200, 'the picture itself is public like the other site images');
+
+  assert.equal((await admin.call('DELETE', `/api/admin/campaigns/${camp.id}`)).status, 200);
+  assert.equal((await new Client().call('GET', `/api/site/assets/campaign-${camp.id}`)).status, 404, 'the logo is removed with the campaign');
+});
+
+test('BONUS ACHIEVERS: admin sees who got weekly, performance and leadership bonuses, plus who is in line now; the weekly minimum is a setting', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_bn_one');
+  assert.equal((await m.c.call('GET', '/api/admin/bonuses')).status, 403);
+  assert.equal((await new Client().call('GET', '/api/admin/bonuses')).status, 401);
+
+  const top = await paidMember('RWCROOT', 'RIGHT', 'mny_bn_top');
+  for (const n of ['mny_bn_a', 'mny_bn_b', 'mny_bn_c']) {
+    const buyer = await signup(top.left, 'LEFT', n);
+    await buy(buyer.c, 'PRO');
+  }
+
+  // before closing: the open window lists top as a weekly and performance achiever, with an estimate
+  const before = (await admin.call('GET', '/api/admin/bonuses')).json.data;
+  const wk = before.open.weekly.find((x: any) => x.email === top.email);
+  assert.ok(wk, 'top has 3 PRO direct sales => in line for the weekly bonus');
+  assert.ok(wk.amount >= 375, 'at least the minimum for one PRO share');
+  assert.ok(before.open.performance.some((x: any) => x.email === top.email));
+  assert.ok(before.open.pools.weekly > 0 && before.open.revenue > 0);
+  assert.equal(before.settings.minPerShare, 375);
+
+  // the minimum is an admin setting
+  assert.equal((await m.c.call('PUT', '/api/site/content/weeklyBonus', { minPerShare: 500 })).status, 403);
+  assert.equal((await admin.call('PUT', '/api/site/content/weeklyBonus', { minPerShare: -1 })).status, 400);
+  assert.equal((await admin.call('PUT', '/api/site/content/weeklyBonus', { minPerShare: 500 })).status, 200);
+  const raised = (await admin.call('GET', '/api/admin/bonuses')).json.data;
+  assert.equal(raised.settings.minPerShare, 500);
+  assert.ok(raised.open.weekly.find((x: any) => x.email === top.email).amount >= 500);
+
+  // after closing the period the same people show as paid achievers
+  assert.equal((await admin.call('POST', '/api/admin/periods/close')).status, 201);
+  const after = (await admin.call('GET', '/api/admin/bonuses')).json.data;
+  assert.ok(after.period && after.periods.length >= 1);
+  const paid = after.paid.weekly.find((x: any) => x.email === top.email);
+  assert.ok(paid && paid.amount >= 500, 'paid at least the new minimum');
+  assert.ok(after.paid.performance.some((x: any) => x.email === top.email));
+  assert.ok(Array.isArray(after.paid.leadership));
+  assert.equal(after.open.weekly.some((x: any) => x.email === top.email), false, 'the new open window starts empty');
+  assert.equal((await admin.call('GET', `/api/admin/bonuses?periodId=${after.period.id}`)).json.data.period.id, after.period.id);
+  assert.equal(JSON.stringify(after).includes('Hash'), false);
+  await admin.call('PUT', '/api/site/content/weeklyBonus', { minPerShare: 375 });
+});
+
+test('CONTACT INBOX: the landing form stores messages, admins read and tidy them, spam is dropped', async () => {
+  const visitor = new Client();
+  const ok = { name: 'Riya Sharma', email: 'Riya@Example.com', whatsapp: '+91 98765 43210', message: 'Please send me the details.' };
+  assert.equal((await visitor.call('POST', '/api/contact', { ...ok, name: 'R' })).status, 400);
+  assert.equal((await visitor.call('POST', '/api/contact', { ...ok, email: 'nope' })).status, 400);
+  assert.equal((await visitor.call('POST', '/api/contact', { ...ok, message: 'hi' })).status, 400);
+  assert.equal((await visitor.call('POST', '/api/contact', { ...ok, whatsapp: 'call me!!' })).status, 400);
+  assert.equal((await visitor.call('POST', '/api/contact', { ...ok, message: 'x'.repeat(1600) })).status, 400);
+  assert.equal((await visitor.call('POST', '/api/contact', ok)).status, 201);
+  assert.equal((await visitor.call('POST', '/api/contact', { ...ok, name: 'Spam Bot', website: 'http://spam.example' })).status, 201, 'a bot is told thank you');
+
+  const m = await signup('RWCROOT', 'LEFT', 'mny_ct_one');
+  assert.equal((await m.c.call('GET', '/api/admin/messages')).status, 403);
+  assert.equal((await new Client().call('GET', '/api/admin/messages')).status, 401);
+
+  const all = (await admin.call('GET', '/api/admin/messages')).json.data;
+  assert.equal(all.items.some((x: any) => x.name === 'Spam Bot'), false, 'the spam was not stored');
+  const mine = all.items.find((x: any) => x.name === 'Riya Sharma');
+  assert.ok(mine);
+  assert.deepEqual([mine.email, mine.handled, mine.whatsapp], ['riya@example.com', false, '+91 98765 43210']);
+  assert.ok(all.unread >= 1 && !Number.isNaN(Date.parse(mine.createdAt)));
+
+  assert.ok((await admin.call('GET', '/api/admin/messages?q=details')).json.data.items.some((x: any) => x.id === mine.id), 'search the text');
+  assert.equal((await admin.call('GET', '/api/admin/messages?q=zzz-nothing')).json.data.total, 0);
+  assert.equal((await m.c.call('POST', `/api/admin/messages/${mine.id}/handled`, { handled: true })).status, 403);
+  assert.equal((await admin.call('POST', `/api/admin/messages/${mine.id}/handled`, { handled: 'yes' })).status, 400);
+  assert.equal((await admin.call('POST', `/api/admin/messages/${mine.id}/handled`, { handled: true })).status, 200);
+  assert.equal((await admin.call('GET', '/api/admin/messages?handled=false')).json.data.items.some((x: any) => x.id === mine.id), false);
+  assert.equal((await admin.call('GET', '/api/admin/messages?handled=true')).json.data.items.some((x: any) => x.id === mine.id), true);
+  assert.equal((await admin.call('DELETE', `/api/admin/messages/${mine.id}`)).status, 200);
+  assert.equal((await admin.call('GET', '/api/admin/messages')).json.data.items.some((x: any) => x.id === mine.id), false);
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

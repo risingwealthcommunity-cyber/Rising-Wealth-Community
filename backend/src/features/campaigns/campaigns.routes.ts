@@ -20,7 +20,14 @@ const proof = z.object({ fileName: z.string().trim().max(120), fileData: z.strin
 
 // ---------------------------------------------------------------- member side
 
-const publicCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean }) => ({
+/** Logos are admin uploads kept as site images named campaign-<id>. */
+async function logoMap(): Promise<Map<string, string>> {
+  const rows = await prisma.siteAsset.findMany({ where: { key: { startsWith: 'campaign-' } }, select: { key: true, updatedAt: true } });
+  return new Map(rows.map((r) => [r.key.slice('campaign-'.length), `/api/site/assets/${r.key}?v=${r.updatedAt.getTime()}`]));
+}
+
+const publicCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean }, logo?: string) => ({
+  logoUrl: logo ?? null,
   id: c.id,
   title: c.title,
   description: c.description,
@@ -31,8 +38,8 @@ const publicCampaign = (c: { id: string; title: string; description: string; rew
 });
 
 campaignRoutes.get('/', requireAuth, async (_req: Request, res: Response) => {
-  const items = await prisma.campaign.findMany({ where: { isActive: true }, orderBy: { createdAt: 'desc' } });
-  res.json({ success: true, data: { items: items.map(publicCampaign) } });
+  const [items, logos] = await Promise.all([prisma.campaign.findMany({ where: { isActive: true }, orderBy: { createdAt: 'desc' } }), logoMap()]);
+  res.json({ success: true, data: { items: items.map((c) => publicCampaign(c, logos.get(c.id))) } });
 });
 
 campaignRoutes.get('/stats', requireAuth, async (req: Request, res: Response) => {
@@ -75,7 +82,7 @@ campaignRoutes.post('/reports', requireAuth, validateBody(createSchema), async (
   const pending = await prisma.campaignReport.count({ where: { userId: req.user!.id, status: 'PENDING' } });
   if (pending >= 20) throw new AppError('You have 20 reports waiting. Please wait for them to be checked.', 409);
   const dup = await prisma.campaignReport.findFirst({
-    where: { campaignId: campaign.id, mobile: body.mobile, status: { in: ['PENDING', 'APPROVED'] } }
+    where: { campaignId: campaign.id, mobile: body.mobile, status: { in: ['PENDING', 'APPROVED', 'INCOMPLETE'] } }
   });
   if (dup) throw new AppError('A report for this mobile number already exists for this campaign.', 409);
 
@@ -104,14 +111,16 @@ campaignRoutes.put('/reports/:id', requireAuth, validateBody(editSchema), async 
 
   const file = body.fileData ? readProof(body.fileData) : null;
   const dup = await prisma.campaignReport.findFirst({
-    where: { id: { not: id }, campaignId: existing.campaignId, mobile: body.mobile, status: { in: ['PENDING', 'APPROVED'] } }
+    where: { id: { not: id }, campaignId: existing.campaignId, mobile: body.mobile, status: { in: ['PENDING', 'APPROVED', 'INCOMPLETE'] } }
   });
   if (dup) throw new AppError('A report for this mobile number already exists for this campaign.', 409);
 
-  // only while it is still waiting: an approved or rejected report is a record
+  // only while it is waiting or was sent back as incomplete (fixing it puts it back in the queue); the rest is a record
   const done = await prisma.campaignReport.updateMany({
-    where: { id, userId: req.user!.id, status: 'PENDING' },
+    where: { id, userId: req.user!.id, status: { in: ['PENDING', 'INCOMPLETE'] } },
     data: {
+      status: 'PENDING',
+      note: null,
       holderName: body.holderName,
       mobile: body.mobile,
       ...(file ? { fileData: file.data, fileMime: file.mime, fileName: body.fileName || existing.fileName } : {})
@@ -122,7 +131,7 @@ campaignRoutes.put('/reports/:id', requireAuth, validateBody(editSchema), async 
 });
 
 campaignRoutes.delete('/reports/:id', requireAuth, async (req: Request, res: Response) => {
-  const done = await prisma.campaignReport.deleteMany({ where: { id: String(req.params.id), userId: req.user!.id, status: 'PENDING' } });
+  const done = await prisma.campaignReport.deleteMany({ where: { id: String(req.params.id), userId: req.user!.id, status: { in: ['PENDING', 'INCOMPLETE'] } } });
   if (done.count !== 1) throw new AppError('Only a report that is still waiting can be deleted.', 409);
   res.json({ success: true, message: 'Report deleted.' });
 });
@@ -154,15 +163,15 @@ const campaignSchema = z.object({
   isActive: z.boolean().default(true)
 });
 
-const adminCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; isActive: boolean; isDemat: boolean }) => ({
-  ...publicCampaign(c),
+const adminCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; isActive: boolean; isDemat: boolean }, logo?: string) => ({
+  ...publicCampaign(c, logo),
   isActive: c.isActive,
   isDemat: c.isDemat
 });
 
 campaignAdminRoutes.get('/campaigns', async (_req: Request, res: Response) => {
-  const items = await prisma.campaign.findMany({ orderBy: { createdAt: 'desc' } });
-  res.json({ success: true, data: { items: items.map(adminCampaign) } });
+  const [items, logos] = await Promise.all([prisma.campaign.findMany({ orderBy: { createdAt: 'desc' } }), logoMap()]);
+  res.json({ success: true, data: { items: items.map((c) => adminCampaign(c, logos.get(c.id))) } });
 });
 
 campaignAdminRoutes.post('/campaigns', validateBody(campaignSchema), async (req: Request, res: Response) => {
@@ -187,23 +196,42 @@ campaignAdminRoutes.delete('/campaigns/:id', async (req: Request, res: Response)
     return;
   }
   await prisma.campaign.deleteMany({ where: { id } });
+  await prisma.siteAsset.deleteMany({ where: { key: `campaign-${id}` } }); // its logo
   res.json({ success: true, message: 'Campaign deleted' });
 });
 
-const statusOf = (v: unknown) => z.enum(['PENDING', 'APPROVED', 'REJECTED']).catch('PENDING').parse(v);
+const STATES = ['PENDING', 'APPROVED', 'REJECTED', 'INCOMPLETE', 'MISSING', 'ALREADY_EXISTING'] as const;
+const statusOf = (v: unknown) => z.enum(STATES).catch('PENDING').parse(v);
 
+/** ?status= a state or ALL, ?campaignId=, ?q= (member, account holder, mobile or Affiliate ID). Newest first. */
 campaignAdminRoutes.get('/reports', async (req: Request, res: Response) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 80) : '';
+  const campaignId = typeof req.query.campaignId === 'string' && /^[0-9a-f-]{36}$/i.test(req.query.campaignId) ? req.query.campaignId : undefined;
   const items = await prisma.campaignReport.findMany({
-    where: { status: statusOf(req.query.status) },
+    where: {
+      ...(req.query.status === 'ALL' ? {} : { status: statusOf(req.query.status) }),
+      ...(campaignId ? { campaignId } : {}),
+      ...(q
+        ? {
+            OR: [
+              { holderName: { contains: q, mode: 'insensitive' } },
+              { mobile: { contains: q } },
+              { user: { name: { contains: q, mode: 'insensitive' } } },
+              { user: { email: { contains: q, mode: 'insensitive' } } },
+              { user: { referralCode: { equals: q.toUpperCase() } } }
+            ]
+          }
+        : {})
+    },
     orderBy: { createdAt: 'desc' },
-    take: 200,
+    take: 500,
     select: {
-      id: true, holderName: true, mobile: true, status: true, note: true, createdAt: true, fileName: true,
+      id: true, holderName: true, mobile: true, status: true, note: true, createdAt: true, processedAt: true, fileName: true,
       campaign: { select: { id: true, title: true, reward: true } },
       user: { select: { id: true, name: true, email: true, referralCode: true } }
     }
   });
-  res.json({ success: true, data: { items: items.map((r) => ({ ...reportView(r), fileName: r.fileName, user: r.user })) } });
+  res.json({ success: true, data: { items: items.map((r) => ({ ...reportView(r), fileName: r.fileName, processedAt: r.processedAt, user: r.user })) } });
 });
 
 campaignAdminRoutes.post('/reports/:id/approve', async (req: Request, res: Response) => {
@@ -238,6 +266,22 @@ campaignAdminRoutes.post('/reports/:id/approve', async (req: Request, res: Respo
     }
   });
   res.json({ success: true, message: 'Approved and the reward was added to the wallet.' });
+});
+
+const markSchema = z.object({ status: z.enum(['REJECTED', 'INCOMPLETE', 'MISSING', 'ALREADY_EXISTING']), note: z.string().trim().max(200).optional() });
+
+/**
+ * The review decisions that pay nothing: Reject, Incomplete (the member can fix and resend), Missing (account not found),
+ * Already existing (that account was registered before). Only for a report that is waiting.
+ */
+campaignAdminRoutes.post('/reports/:id/mark', validateBody(markSchema), async (req: Request, res: Response) => {
+  const { status, note } = req.body as z.infer<typeof markSchema>;
+  const done = await prisma.campaignReport.updateMany({
+    where: { id: String(req.params.id), status: 'PENDING' },
+    data: { status, processedAt: new Date(), processedBy: req.user!.id, note: note || null }
+  });
+  if (done.count !== 1) throw new AppError('Report not found or already processed', 409);
+  res.json({ success: true, message: 'Saved' });
 });
 
 campaignAdminRoutes.post('/reports/:id/reject', async (req: Request, res: Response) => {

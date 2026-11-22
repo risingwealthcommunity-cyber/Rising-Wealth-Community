@@ -8,7 +8,7 @@ import { requireAuth, requireRole } from '../auth';
 import { packagesService } from '../packages';
 import { walletService } from '../wallet/wallet.service';
 import { readProof } from '../../shared/proof';
-import { closePayoutPeriod, distributeDematReferral, paiseToDecimal } from '../income/income.service';
+import { closePayoutPeriod, distributeDematReferral, paiseToDecimal, previewPayoutWindow, weeklyMinPaise } from '../income/income.service';
 
 const dematSchema = z.object({
   referrerEmail: z.string().trim().toLowerCase().email(),
@@ -251,6 +251,54 @@ router.post('/withdrawals/:id/approve', validateBody(payoutSchema), async (req: 
 router.post('/withdrawals/:id/reject', async (req: Request, res: Response) => {
   await walletService.rejectWithdrawal(String(req.params.id), req.user!.id, noteOf(req.body));
   res.json({ success: true, message: 'Request rejected' });
+});
+
+/**
+ * Who earned the weekly, performance and leadership bonuses: for a closed period (the latest by default), and for the
+ * window that is open now with an estimate of what each member would get if it closed this moment.
+ */
+router.get('/bonuses', async (req: Request, res: Response) => {
+  const periods = await prisma.payoutPeriod.findMany({ orderBy: { endsAt: 'desc' }, take: 30 });
+  const wanted = typeof req.query.periodId === 'string' ? req.query.periodId : '';
+  const period = (wanted && periods.find((p) => p.id === wanted)) || periods[0] || null;
+
+  const types = ['WEEKLY_BONUS', 'PERFORMANCE_BONUS', 'LEADERSHIP_BONUS'] as const;
+  const paidRows = period
+    ? await prisma.ledgerEntry.findMany({
+        where: { periodId: period.id, type: { in: [...types] }, userId: { not: null } },
+        orderBy: { amount: 'desc' },
+        select: { type: true, amount: true, user: { select: { id: true, name: true, email: true, referralCode: true } } }
+      })
+    : [];
+  const paid = (type: (typeof types)[number]) =>
+    paidRows.filter((r) => r.type === type && r.user).map((r) => ({ ...r.user!, amount: Number(r.amount) }));
+
+  const open = await prisma.$transaction((tx) => previewPayoutWindow(tx));
+  const ids = [...new Set([...open.weekly, ...open.performance, ...open.leadership].map((x) => x.userId))];
+  const people = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true, referralCode: true } });
+  const withUser = (list: { userId: string; weight: number; paise: number }[]) =>
+    list.flatMap((x) => {
+      const u = people.find((p) => p.id === x.userId);
+      return u ? [{ ...u, weight: x.weight, amount: x.paise / 100 }] : [];
+    });
+
+  res.json({
+    success: true,
+    data: {
+      periods: periods.map((p) => ({ id: p.id, startsAt: p.startsAt, endsAt: p.endsAt, revenue: Number(p.revenue) })),
+      period: period && { id: period.id, startsAt: period.startsAt, endsAt: period.endsAt, revenue: Number(period.revenue) },
+      paid: { weekly: paid('WEEKLY_BONUS'), performance: paid('PERFORMANCE_BONUS'), leadership: paid('LEADERSHIP_BONUS') },
+      open: {
+        startsAt: open.startsAt,
+        revenue: open.revenue / 100,
+        pools: { weekly: open.pools.weekly / 100, performance: open.pools.performance / 100, leadership: open.pools.leadership / 100 },
+        weekly: withUser(open.weekly),
+        performance: withUser(open.performance),
+        leadership: withUser(open.leadership)
+      },
+      settings: { minPerShare: (await weeklyMinPaise(prisma)) / 100 }
+    }
+  });
 });
 
 router.post('/demat', validateBody(dematSchema), async (req: Request, res: Response) => {
