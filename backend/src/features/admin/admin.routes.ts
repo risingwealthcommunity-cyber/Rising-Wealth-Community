@@ -9,13 +9,18 @@ import { requireAuth, requireRole } from '../auth';
 import { packagesService } from '../packages';
 import { parseRupees, walletService } from '../wallet/wallet.service';
 import { proofFrom } from '../../shared/proof';
-import { bonusRewards, closePayoutPeriod, distributeDematReferral, paiseToDecimal, previewPayoutWindow, weeklyMinPaise } from '../income/income.service';
+import { bonusRewards, closePayoutPeriod, paiseToDecimal, postLedger, previewPayoutWindow, weeklyMinPaise } from '../income/income.service';
+
+/** The incomes an admin can credit to a member by hand. */
+const CREDIT_TYPES = ['DEMAT_DIRECT', 'DIRECT_INCOME', 'PASSIVE_INCOME', 'WEEKLY_BONUS', 'LEADERSHIP_TARGET_BONUS', 'TEAM_PERFORMANCE_BONUS', 'MONTHLY_ROYALTY'] as const;
 
 const dematSchema = z.object({
   referrerEmail: z.string().trim().toLowerCase().email(),
   clientName: z.string().trim().max(100).optional(),
-  /** Rupees payable to the referrer for this Demat account. */
+  /** Rupees credited to the member. */
   amount: z.number().positive().max(1_000_000),
+  /** Which income it is added under. Only this member is paid, nobody above them gets a passive share. */
+  incomeType: z.enum(CREDIT_TYPES).default('DEMAT_DIRECT'),
   note: z.string().trim().max(200).optional()
 });
 
@@ -489,32 +494,28 @@ router.get('/income', async (req: Request, res: Response) => {
 });
 
 router.post('/demat', validateBody(dematSchema), async (req: Request, res: Response) => {
-  const { referrerEmail, clientName, amount, note } = req.body as z.infer<typeof dematSchema>;
-  const directPaise = Math.round(amount * 100);
+  const { referrerEmail, clientName, amount, incomeType, note } = req.body as z.infer<typeof dematSchema>;
+  const paise = Math.round(amount * 100);
 
   await prisma.$transaction(async (tx) => {
-    const referrer = await tx.user.findUnique({ where: { email: referrerEmail } });
-    if (!referrer) throw new AppError('Referrer not found', 404);
+    const member = await tx.user.findUnique({ where: { email: referrerEmail } });
+    if (!member) throw new AppError('Member not found', 404);
+    if (member.id === req.user!.id) throw new AppError('You cannot add income to your own account. Ask another admin.', 403);
 
-    await tx.dematReferral.create({
-      data: {
-        referrerId: referrer.id,
-        clientName,
-        directAmount: paiseToDecimal(directPaise),
-        note,
-        createdBy: req.user!.id
-      }
-    });
-
-    await distributeDematReferral(tx, {
-      referrerId: referrer.id,
-      sponsorId: referrer.sponsorId,
-      directPaise,
-      note: clientName ? `Demat: ${clientName}` : 'Demat referral'
+    if (incomeType === 'DEMAT_DIRECT') {
+      await tx.dematReferral.create({
+        data: { referrerId: member.id, clientName, directAmount: paiseToDecimal(paise), note, createdBy: req.user!.id }
+      });
+    }
+    // only the chosen member is paid, under the income chosen: nobody above them earns a passive share of it
+    await postLedger(tx, {
+      payouts: [{ userId: member.id, type: incomeType, paise }],
+      sourceUserId: member.id,
+      note: clientName ? `${clientName} (added by admin)` : note ?? 'Added by admin'
     });
   });
 
-  res.status(201).json({ success: true, message: 'Demat referral recorded and income distributed' });
+  res.status(201).json({ success: true, message: 'Income added to the member.' });
 });
 
 router.post('/periods/close', async (req: Request, res: Response) => {

@@ -172,6 +172,8 @@ enum LedgerType {
   LEADERSHIP_TARGET_BONUS
   RANK_REWARD
   CAMPAIGN_REWARD
+  /// A monthly royalty an admin credits to a member.
+  MONTHLY_ROYALTY
   /// Negative rows: money leaving the wallet.
   WITHDRAWAL
   WALLET_TRANSFER

@@ -44,7 +44,7 @@ export default function AdminPage() {
   const [fund, setFund] = useState('0');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [msg, setMsg] = useState<Msg>(null);
-  const [demat, setDemat] = useState({ referrerEmail: '', clientName: '', amount: '' });
+  const [demat, setDemat] = useState({ referrerEmail: '', clientName: '', amount: '', incomeType: 'DEMAT_DIRECT' });
 
   const load = useCallback(async () => {
     api<Overview>('/admin/overview').then((r) => setOverview(r.data ?? null)).catch(() => undefined);
@@ -81,10 +81,11 @@ export default function AdminPage() {
         body: {
           referrerEmail: demat.referrerEmail,
           clientName: demat.clientName || undefined,
-          amount: Number(demat.amount)
+          amount: Number(demat.amount),
+          incomeType: demat.incomeType
         }
       });
-      setDemat({ referrerEmail: '', clientName: '', amount: '' });
+      setDemat({ referrerEmail: '', clientName: '', amount: '', incomeType: demat.incomeType });
       return res;
     });
   };
@@ -208,9 +209,10 @@ export default function AdminPage() {
       </div>
 
       <form className="card" onSubmit={submitDemat}>
-        <h2>Record Demat referral</h2>
+        <h2>Add income to a member</h2>
+        <p className="muted">The amount goes to this member only, under the income you choose. Nobody above them gets a passive share of it.</p>
         <label>
-          Referrer email
+          Member email
           <input
             type="email"
             required
@@ -219,11 +221,23 @@ export default function AdminPage() {
           />
         </label>
         <label>
-          Client name
+          Add it under which income
+          <select value={demat.incomeType} onChange={(e) => setDemat({ ...demat, incomeType: e.target.value })}>
+            <option value="DEMAT_DIRECT">Demat referral income</option>
+            <option value="DIRECT_INCOME">Direct package income</option>
+            <option value="PASSIVE_INCOME">Passive income</option>
+            <option value="WEEKLY_BONUS">Weekly bonus</option>
+            <option value="LEADERSHIP_TARGET_BONUS">Leadership bonus</option>
+            <option value="TEAM_PERFORMANCE_BONUS">Team performance bonus</option>
+            <option value="MONTHLY_ROYALTY">Monthly royalty</option>
+          </select>
+        </label>
+        <label>
+          Client name or note (optional)
           <input value={demat.clientName} onChange={(e) => setDemat({ ...demat, clientName: e.target.value })} />
         </label>
         <label>
-          Amount payable to referrer (₹)
+          Amount to add (₹)
           <input
             type="number"
             min="1"
@@ -233,7 +247,7 @@ export default function AdminPage() {
             onChange={(e) => setDemat({ ...demat, amount: e.target.value })}
           />
         </label>
-        <button className="btn">Record and pay</button>
+        <button className="btn">Add income</button>
       </form>
     </>
   );

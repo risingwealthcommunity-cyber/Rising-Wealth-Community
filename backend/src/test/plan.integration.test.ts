@@ -1261,19 +1261,30 @@ test('rank: a rank reward is never paid twice for the same points', async () => 
 
 // ---------------------------------------------------------------- DEMAT
 
-test('demat: referrer + up to 5 passive levels (Trainees earn too)', async () => {
+test('ADD INCOME: the admin credits one member under the income chosen, and nobody above them earns a passive share', async () => {
   const u1 = await signup('RWCROOT', 'LEFT', 'dm1');
   const u2 = await signup(u1.user.referralCode, 'LEFT', 'dm2');
-  const u3 = await signup(u2.user.referralCode, 'LEFT', 'dm3'); // referrer
-  const r = await admin.call('POST', '/api/admin/demat', {
-    referrerEmail: u3.email,
-    clientName: 'Client A',
-    amount: 200
-  });
+  const u3 = await signup(u2.user.referralCode, 'LEFT', 'dm3'); // the member who is paid
+  const add = (body: object, c: Client = admin) => c.call('POST', '/api/admin/demat', { referrerEmail: u3.email, amount: 200, ...body });
+
+  assert.equal((await add({}, u3.c)).status, 403, 'members cannot');
+  assert.equal((await add({ incomeType: 'WITHDRAWAL' })).status, 400, 'only real incomes are allowed');
+  assert.equal((await add({ amount: -5 })).status, 400);
+  assert.equal((await add({ referrerEmail: 'nobody@test.com' })).status, 404);
+
+  const r = await add({ clientName: 'Client A' });
   assert.equal(r.status, 201, JSON.stringify(r.json));
   assert.equal(await balance(u3.c), 200);
-  assert.equal(await balance(u2.c), 18); // L1 9%
-  assert.equal(await balance(u1.c), 10); // L2 5%
+  assert.equal(await balance(u2.c), 0, 'the sponsor gets no passive share');
+  assert.equal(await balance(u1.c), 0);
+  assert.equal(await prisma.dematReferral.count({ where: { clientName: 'Client A' } }), 1, 'a Demat referral is still recorded');
+
+  // another income: it lands under that type, with no Demat record
+  assert.equal((await add({ incomeType: 'MONTHLY_ROYALTY', amount: 50 })).status, 201);
+  assert.equal(await balance(u3.c), 250);
+  const types = ((await u3.c.call('GET', '/api/wallet/transactions')).json.data.items as any[]).map((e) => e.type);
+  assert.ok(types.includes('DEMAT_DIRECT') && types.includes('MONTHLY_ROYALTY'));
+  assert.equal(await balance(u2.c), 0);
 });
 
 // ---------------------------------------------------------------- POOLS
@@ -2902,6 +2913,49 @@ test('BONUS LEVELS: the admin edits and adds Team Performance and Leadership tar
   const back = (await m.c.call('GET', '/api/team/bonuses')).json.data;
   assert.deepEqual(back.team.targets.map((t: any) => t.reward), [750, 1500, 3000, 6000, 12000], 'back to the plan amounts');
   assert.equal(back.leadership.targets.length, 8);
+});
+
+test('ADMIN DEDUCT AND HOLD: a hold keeps money in the wallet but out of reach; a deduction takes it out, with a reason', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_dh_m');
+  const row = await rowOf(m.email);
+  await prisma.ledgerEntry.create({ data: { userId: row.id, type: 'DIRECT_INCOME', amount: 1000 } });
+  await prisma.user.update({ where: { id: row.id }, data: { walletBalance: 1000 } });
+  const call = (path: string, body?: object, c: Client = admin) => c.call('POST', `/api/admin/members/${row.id}/${path}`, body);
+
+  assert.equal((await call('hold', { amount: 100, reason: 'checking' }, m.c)).status, 403, 'members cannot');
+  assert.equal((await call('hold', { amount: 100, reason: 'ab' })).status, 400, 'a reason is needed');
+  assert.equal((await call('hold', { amount: 0, reason: 'zero amount' })).status, 400);
+  assert.equal((await call('hold', { amount: -50, reason: 'negative' })).status, 400);
+  assert.equal((await call('hold', { amount: 5000, reason: 'more than there is' })).status, 400);
+  const me = (await prisma.user.findFirstOrThrow({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } })).id;
+  assert.equal((await admin.call('POST', `/api/admin/members/${me}/hold`, { amount: 10, reason: 'my own wallet' })).status, 403, 'not your own wallet');
+
+  assert.equal((await call('hold', { amount: 400, reason: 'verifying a payment' })).status, 200);
+  let w = await walletOf(m.c);
+  assert.deepEqual([w.balance, w.held, w.available], ['1000.00', 400, 600]);
+  const info = (await admin.call('GET', `/api/admin/members/${row.id}/holds`)).json.data;
+  assert.deepEqual([info.balance, info.held, info.available, info.holds.length], [1000, 400, 600, 1]);
+
+  // money on hold cannot be moved or deducted
+  await setTxn(m.c);
+  assert.equal((await m.c.call('POST', '/api/wallet/transfer', { amount: 700, txnPassword: TXN })).status, 400, 'the held part cannot be moved');
+  assert.equal((await call('deduct', { amount: 700, reason: 'too much' })).status, 400, 'nor deducted');
+  assert.equal((await call('deduct', { amount: 200, reason: 'Wrong credit corrected' })).status, 200);
+  w = await walletOf(m.c);
+  assert.deepEqual([w.balance, w.held, w.available], ['800.00', 400, 400]);
+  const ledger = (await m.c.call('GET', '/api/wallet/transactions')).json.data.items as any[];
+  const cut = ledger.find((e) => e.type === 'ADMIN_DEDUCTION');
+  assert.equal(Number(cut.amount), -200);
+  assert.ok(cut.note.includes('Wrong credit corrected'), 'the member sees why');
+  assert.equal(w.totalEarned, 800, 'a deduction also comes off the total earned');
+  assert.equal(Number(((await admin.call('GET', '/api/admin/members?q=mny_dh_m')).json.data.items as any[])[0].earned), 800, 'and off the admin list');
+
+  // release: the money is free again, and only once
+  assert.equal((await admin.call('POST', `/api/admin/holds/${info.holds[0].id}/release`)).status, 200);
+  assert.equal((await admin.call('POST', `/api/admin/holds/${info.holds[0].id}/release`)).status, 409);
+  assert.equal((await m.c.call('POST', `/api/admin/holds/${info.holds[0].id}/release`)).status, 403);
+  w = await walletOf(m.c);
+  assert.deepEqual([w.held, w.available], [0, 800]);
 });
 
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
