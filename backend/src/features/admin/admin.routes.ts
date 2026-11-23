@@ -106,13 +106,13 @@ router.get('/members', async (req: Request, res: Response) => {
       }
     }),
     prisma.user.count({ where }),
-    prisma.ledgerEntry.aggregate({ where: { amount: { gt: 0 }, type: { not: 'COMPANY_FUND' }, user: { role: 'USER' } }, _sum: { amount: true } }),
+    prisma.ledgerEntry.aggregate({ where: { OR: [{ amount: { gt: 0 } }, { type: 'ADMIN_DEDUCTION' }], type: { not: 'COMPANY_FUND' }, user: { role: 'USER' } }, _sum: { amount: true } }),
     prisma.ledgerEntry.aggregate({ where: { type: 'WITHDRAWAL', user: { role: 'USER' } }, _sum: { amount: true } }),
     prisma.user.aggregate({ where: { role: 'USER' }, _sum: { walletBalance: true } })
   ]);
   const ids = items.map((i) => i.id);
   const [earnedRows, paidRows] = await Promise.all([
-    prisma.ledgerEntry.groupBy({ by: ['userId'], where: { userId: { in: ids }, amount: { gt: 0 }, type: { not: 'COMPANY_FUND' } }, _sum: { amount: true } }),
+    prisma.ledgerEntry.groupBy({ by: ['userId'], where: { userId: { in: ids }, OR: [{ amount: { gt: 0 } }, { type: 'ADMIN_DEDUCTION' }], type: { not: 'COMPANY_FUND' } }, _sum: { amount: true } }),
     prisma.ledgerEntry.groupBy({ by: ['userId'], where: { userId: { in: ids }, type: 'WITHDRAWAL' }, _sum: { amount: true } })
   ]);
   const earned = new Map(earnedRows.map((r) => [r.userId, Number(r._sum.amount ?? 0)]));
@@ -438,7 +438,7 @@ router.get('/income', async (req: Request, res: Response) => {
       FROM "PackagePurchase" WHERE status = 'CONFIRMED' AND "confirmedAt" >= ${from} GROUP BY 1`,
     prisma.$queryRaw<{ day: string; type: string; total: unknown }[]>`
       SELECT to_char("createdAt" + interval '330 minutes', 'YYYY-MM-DD') AS day, type::text AS type, SUM(amount) AS total
-      FROM "LedgerEntry" WHERE "userId" IS NOT NULL AND amount > 0 AND type <> 'COMPANY_FUND' AND "createdAt" >= ${from} GROUP BY 1, 2`,
+      FROM "LedgerEntry" WHERE "userId" IS NOT NULL AND (amount > 0 OR type = 'ADMIN_DEDUCTION') AND type <> 'COMPANY_FUND' AND "createdAt" >= ${from} GROUP BY 1, 2`,
     prisma.$queryRaw<{ day: string; total: unknown }[]>`
       SELECT to_char("createdAt" + interval '330 minutes', 'YYYY-MM-DD') AS day, SUM(amount) AS total
       FROM "LedgerEntry" WHERE "userId" IS NULL AND type = 'COMPANY_FUND' AND "createdAt" >= ${from} GROUP BY 1`,

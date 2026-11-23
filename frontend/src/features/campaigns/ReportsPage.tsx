@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
-import { compressImage } from '../../shared/compressImage';
+import { prepareProof, VIDEO_TYPES } from '../../shared/compressImage';
 import { date, inr, label } from '../../shared/format';
 import { useRun } from '../../shared/useRun';
 import type { Campaign } from './CampaignsPage';
@@ -20,8 +20,13 @@ interface Report {
 
 /** Opens a proof picture in a new tab (it is fetched with the session, so only its owner can see it). */
 export async function openProof(id: string) {
-  const r = await api<{ mime: string; data: string }>(`/campaigns/reports/${id}/file`);
+  const r = await api<{ mime: string; data?: string; url?: string }>(`/campaigns/reports/${id}/file`);
   if (!r.data) return;
+  if (r.data.url) {
+    window.open(r.data.url, '_blank', 'noopener');
+    return;
+  }
+  if (!r.data.data) return;
   const bytes = Uint8Array.from(atob(r.data.data), (c) => c.charCodeAt(0));
   window.open(URL.createObjectURL(new Blob([bytes], { type: r.data.mime })), '_blank', 'noopener');
 }
@@ -37,6 +42,14 @@ export default function ReportsPage() {
   const [file, setFile] = useState<File | null>(null);
   const [editing, setEditing] = useState<Report | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // a preview of the chosen photo or video, shown under the file box
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file) return setPreviewUrl(null);
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
   const form = useRun();
   const list = useRun();
 
@@ -70,7 +83,7 @@ export default function ReportsPage() {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     void form.run(async () => {
-      const picture = file ? await compressImage(file) : null;
+      const picture = file ? await prepareProof(file) : null;
       if (editing) {
         const r = await api(`/campaigns/reports/${editing.id}`, { method: 'PUT', body: { holderName: holder, mobile, ...(picture ?? {}) } });
         reset();
@@ -136,10 +149,16 @@ export default function ReportsPage() {
             <input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="Registered mobile number" inputMode="numeric" maxLength={10} required />
           </label>
           <label>
-            Screenshot {editing && <span className="muted">(leave empty to keep the old one)</span>}
+            Proof (photo or video) {editing && <span className="muted">(leave empty to keep the old one)</span>}
             {!editing && selected && !selected.needsProof && <span className="muted"> (optional for this campaign)</span>}
-            <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <input ref={fileRef} type="file" accept={`image/png,image/jpeg,image/webp,${VIDEO_TYPES.join(',')}`} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </label>
+          {previewUrl && file && (
+            <div className="proof-preview">
+              {file.type.startsWith('video/') ? <video src={previewUrl} controls preload="metadata" /> : <img src={previewUrl} alt="Your proof" />}
+              <small className="muted">{file.name}</small>
+            </div>
+          )}
           {form.msg && <div className={`alert ${form.msg.type}`}>{form.msg.text}</div>}
           <div className="campaign-actions">
             <button className="btn" disabled={form.busy || !campaignId || !holder || !mobile}>

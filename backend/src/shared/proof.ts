@@ -21,9 +21,18 @@ export function readProof(base64: string): { data: Buffer; mime: string } {
   return { data, mime };
 }
 
+/** Also knows video: mp4 and mov start with "ftyp" at byte 4, webm with the EBML header. */
+export function sniffMedia(buf: Buffer): string | null {
+  const img = sniffImage(buf);
+  if (img) return img;
+  if (buf.length > 12 && buf.subarray(4, 8).toString() === 'ftyp') return buf.subarray(8, 12).toString() === 'qt  ' ? 'video/quicktime' : 'video/mp4';
+  if (buf.length > 12 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) return 'video/webm';
+  return null;
+}
+
 /** A proof picture from a request body: uploaded straight to storage (fileKey) or sent as base64 (fileData). */
-export async function proofFrom(userId: string, body: { fileData?: string; fileKey?: string }): Promise<{ data: Buffer; mime: string }> {
-  if (body.fileKey) return claimUpload(userId, body.fileKey, sniffImage);
+export async function proofFrom(userId: string, body: { fileData?: string; fileKey?: string }, allowVideo = false): Promise<{ data: Buffer; mime: string }> {
+  if (body.fileKey) return claimUpload(userId, body.fileKey, allowVideo ? sniffMedia : sniffImage);
   if (body.fileData) return readProof(body.fileData);
   throw new AppError('Add the screenshot of the payment.', 400);
 }

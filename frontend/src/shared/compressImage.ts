@@ -26,6 +26,26 @@ async function uploadDirect(blob: Blob): Promise<string | null> {
   }
 }
 
+/** Videos go straight to storage (they are too big for a normal request). Needs storage to be set up on the server. */
+export const VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
+const MAX_VIDEO = 50_000_000;
+
+async function uploadVideo(file: File): Promise<string> {
+  if (!VIDEO_TYPES.includes(file.type)) throw new Error('Choose an MP4, WebM or MOV video.');
+  if (file.size > MAX_VIDEO) throw new Error('That video is too large. The most is 50 MB.');
+  const r = await api<{ direct: boolean; url?: string; key?: string }>('/uploads/sign', { method: 'POST', body: { mime: file.type, size: file.size } });
+  if (!r.data?.direct || !r.data.url || !r.data.key) throw new Error('Video upload is not available right now. Send a photo instead.');
+  const put = await fetch(r.data.url, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+  if (!put.ok) throw new Error('The video could not be uploaded. Check your connection and try again.');
+  return r.data.key;
+}
+
+/** A photo is shrunk and sent; a video is uploaded straight to storage. Either way the result goes into the request. */
+export async function prepareProof(file: File): Promise<{ fileName: string; fileData?: string; fileKey?: string }> {
+  if (file.type.startsWith('video/')) return { fileName: file.name.slice(0, 120), fileKey: await uploadVideo(file) };
+  return compressImage(file);
+}
+
 export async function compressImage(file: File): Promise<{ fileName: string; fileData?: string; fileKey?: string }> {
   if (!file.type.startsWith('image/')) throw new Error('Upload a screenshot (PNG, JPG or WebP).');
   const url = URL.createObjectURL(file);

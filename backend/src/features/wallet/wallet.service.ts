@@ -120,7 +120,7 @@ export const walletService = {
   async summary(userId: string) {
     const [user, earned, paid, pending] = await Promise.all([
       prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { walletBalance: true, activationBalance: true, txnPasswordHash: true } }),
-      prisma.ledgerEntry.aggregate({ where: { userId, amount: { gt: 0 } }, _sum: { amount: true } }),
+      prisma.ledgerEntry.aggregate({ where: { userId, OR: [{ amount: { gt: 0 } }, { type: 'ADMIN_DEDUCTION' }] }, _sum: { amount: true } }), // credits, less what an admin deducted
       prisma.ledgerEntry.aggregate({ where: { userId, type: 'WITHDRAWAL' }, _sum: { amount: true } }),
       prisma.withdrawalRequest.aggregate({ where: { userId, status: 'PENDING' }, _sum: { amount: true } })
     ]);

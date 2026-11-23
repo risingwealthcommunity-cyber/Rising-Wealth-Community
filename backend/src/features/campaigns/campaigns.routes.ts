@@ -7,7 +7,7 @@ import { validateBody } from '../../shared/middleware/validate.middleware';
 import { requireAuth, requireRole } from '../auth';
 import { distributeDematReferral, paiseToDecimal } from '../income/income.service';
 import { proofFrom } from '../../shared/proof';
-import { loadFile, storeFile } from '../../shared/storage';
+import { loadFile, signDownload, storeFile } from '../../shared/storage';
 
 /** Members: see the campaigns, send proof reports and watch them get approved. */
 export const campaignRoutes = Router();
@@ -92,7 +92,7 @@ campaignRoutes.post('/reports', requireAuth, validateBody(createSchema), async (
 
   const pending = await prisma.campaignReport.count({ where: { userId: req.user!.id, status: 'PENDING' } });
   if (pending >= 20) throw new AppError('You have 20 reports waiting. Please wait for them to be checked.', 409);
-  const file = body.fileData || body.fileKey ? await proofFrom(req.user!.id, body) : null;
+  const file = body.fileData || body.fileKey ? await proofFrom(req.user!.id, body, true) : null;
   if (campaign.needsProof && !file) throw new AppError('Add the screenshot that proves the account was opened.', 400);
   const stored = file ? await storeFile(file.data, file.mime, 'reports') : null;
   const r = await prisma.$transaction(async (tx) => {
@@ -124,7 +124,7 @@ campaignRoutes.put('/reports/:id', requireAuth, validateBody(editSchema), async 
   const existing = await prisma.campaignReport.findFirst({ where: { id, userId: req.user!.id } });
   if (!existing) throw new AppError('Report not found', 404);
 
-  const file = body.fileData || body.fileKey ? await proofFrom(req.user!.id, body) : null;
+  const file = body.fileData || body.fileKey ? await proofFrom(req.user!.id, body, true) : null;
   const storedEdit = file ? await storeFile(file.data, file.mime, 'reports') : null;
   const dup = await prisma.campaignReport.findFirst({
     where: { id: { not: id }, campaignId: existing.campaignId, mobile: body.mobile, status: { in: ['PENDING', 'APPROVED', 'INCOMPLETE'] } }
@@ -161,6 +161,12 @@ campaignRoutes.get('/reports/:id/file', requireAuth, async (req: Request, res: R
   });
   if (!r) throw new AppError('Report not found', 404);
   if (!r.fileData || !r.fileMime) throw new AppError('This report has no screenshot.', 404);
+  if (r.fileMime.startsWith('video/')) {
+    const url = await signDownload(r.fileData);
+    if (!url) throw new AppError('This video is not available.', 404);
+    res.json({ success: true, data: { mime: r.fileMime, url } });
+    return;
+  }
   res.json({ success: true, data: { mime: r.fileMime, data: (await loadFile(r.fileData)).toString('base64') } });
 });
 

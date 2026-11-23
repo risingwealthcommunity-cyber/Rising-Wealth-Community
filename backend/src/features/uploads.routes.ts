@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from './auth';
 import { validateBody } from '../shared/middleware/validate.middleware';
 import { uploadLimiter } from '../shared/middleware/rateLimit.middleware';
-import { MAX_UPLOAD_BYTES, isR2On, signUpload } from '../shared/storage';
+import { MAX_UPLOAD_BYTES, MAX_VIDEO_BYTES, isR2On, isVideoMime, signUpload } from '../shared/storage';
 
 const router = Router();
 
@@ -15,7 +15,11 @@ router.post(
   '/sign',
   requireAuth,
   uploadLimiter,
-  validateBody(z.object({ mime: z.enum(['image/jpeg', 'image/png', 'image/webp']), size: z.number().int().min(100).max(MAX_UPLOAD_BYTES) })),
+  validateBody(
+    z
+      .object({ mime: z.enum(['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'video/quicktime']), size: z.number().int().min(100).max(MAX_VIDEO_BYTES) })
+      .refine((v) => isVideoMime(v.mime) || v.size <= MAX_UPLOAD_BYTES, { message: 'That picture is too large.', path: ['size'] })
+  ),
   async (req: Request, res: Response) => {
     if (!isR2On()) {
       res.json({ success: true, data: { direct: false } });

@@ -2916,7 +2916,8 @@ test('ADMIN DEDUCT AND HOLD: a hold keeps money in the wallet but out of reach; 
   const cut = ledger.find((e) => e.type === 'ADMIN_DEDUCTION');
   assert.equal(Number(cut.amount), -200);
   assert.ok(cut.note.includes('Wrong credit corrected'), 'the member sees why');
-  assert.equal(w.totalEarned, 1000, 'a deduction is not negative income');
+  assert.equal(w.totalEarned, 800, 'a deduction also comes off the total earned');
+  assert.equal(Number(((await admin.call('GET', '/api/admin/members?q=mny_dh_m')).json.data.items as any[])[0].earned), 800, 'and off the admin list');
 
   // release: the money is free again, and only once
   assert.equal((await admin.call('POST', `/api/admin/holds/${info.holds[0].id}/release`)).status, 200);

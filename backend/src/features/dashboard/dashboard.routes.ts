@@ -94,7 +94,8 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
         last7: sum(todayStart - 6 * DAY_MS),
         last30: sum(monthStart),
         passive: rupees(typeSum(['PASSIVE_INCOME', 'DEMAT_PASSIVE'])),
-        total: rupees(breakdown.reduce((s, b) => s + b.amount, 0)),
+        // everything earned, less what an admin deducted
+        total: rupees(breakdown.reduce((s, b) => s + b.amount, 0) + typeSum(['ADMIN_DEDUCTION'])),
         wallet: rupees(Number(me.walletBalance)),
         team: Number(teamRows[0]?.c ?? 0)
       },
@@ -180,9 +181,10 @@ router.get('/leaderboard', requireAuth, async (req: Request, res: Response) => {
       SELECT u.id, u.name, u.avatar, u.rank::text AS rank, u.package::text AS package, u."createdAt",
              SUM(l.amount) AS total
       FROM "User" u
-      JOIN "LedgerEntry" l ON l."userId" = u.id AND l.amount > 0 AND l.type <> 'COMPANY_FUND' ${sinceSql}
+      JOIN "LedgerEntry" l ON l."userId" = u.id AND (l.amount > 0 OR l.type = 'ADMIN_DEDUCTION') AND l.type <> 'COMPANY_FUND' ${sinceSql}
       WHERE u."isActive" AND u."isVerified" AND u.role = 'USER'
       GROUP BY u.id
+      HAVING SUM(l.amount) > 0
     ), ordered AS (
       SELECT *, ROW_NUMBER() OVER (ORDER BY total DESC, "createdAt" ASC, id ASC) AS pos FROM earned
     )
