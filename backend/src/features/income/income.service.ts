@@ -14,7 +14,7 @@ import {
   type Payout,
   type UplineMember
 } from './income.engine';
-import { LEADERSHIP_TARGET_SIZES, PACKAGE_HALF_POINTS, POOL_PCT, TEAM_TARGETS, WEEKLY_MIN_PER_SHARE_PAISE, type PaidPackage } from './plan.config';
+import { PACKAGE_HALF_POINTS, POOL_PCT, TEAM_TARGETS, WEEKLY_MIN_PER_SHARE_PAISE, type PaidPackage } from './plan.config';
 
 type Tx = Prisma.TransactionClient;
 
@@ -183,15 +183,24 @@ export async function weeklyMinPaise(tx: Tx): Promise<number> {
  * The rupee reward of every Team Performance target and Leadership target: the admin's setting, or the plan default.
  * Changing it affects only targets completed afterwards.
  */
-export async function bonusRewards(tx: Tx): Promise<{ team: number[]; leadership: number[] }> {
+export type BonusLevels = { team: { members: number; reward: number }[]; leadership: { size: number; reward: number }[] };
+
+export async function bonusRewards(tx: Tx): Promise<BonusLevels> {
   const row = await tx.siteSetting.findUnique({ where: { key: 'bonusRewards' } });
   const v = row?.value as { team?: unknown; leadership?: unknown } | null;
-  const ok = (a: unknown, n: number): a is number[] => Array.isArray(a) && a.length === n && a.every((x) => typeof x === 'number' && x >= 0);
+  const okRow = (x: unknown, key: 'members' | 'size'): x is Record<string, number> =>
+    typeof x === 'object' && x !== null && typeof (x as Record<string, unknown>)[key] === 'number' && typeof (x as Record<string, unknown>).reward === 'number';
+  const team = Array.isArray(v?.team) && v.team.length > 0 && v.team.every((x) => okRow(x, 'members')) ? (v.team as { members: number; reward: number }[]) : null;
+  const leadership = Array.isArray(v?.leadership) && v.leadership.length > 0 && v.leadership.every((x) => okRow(x, 'size')) ? (v.leadership as { size: number; reward: number }[]) : null;
   return {
-    team: ok(v?.team, TEAM_TARGETS.length) ? v.team : TEAM_TARGETS.map((t) => t.reward),
-    leadership: ok(v?.leadership, LEADERSHIP_TARGET_SIZES.length) ? v.leadership : leadershipTargets().map((t) => t.paise / 100)
+    team: team ?? TEAM_TARGETS.map((t) => ({ members: t.members, reward: t.reward })),
+    leadership: leadership ?? leadershipTargets().map((t) => ({ size: t.size, reward: t.paise / 100 }))
   };
 }
+
+/** The leadership targets (thresholds are cumulative) with the admin's rewards in paise. */
+export const leadershipLevels = (levels: BonusLevels) =>
+  leadershipTargets(levels.leadership.map((t) => t.size)).map((t, i) => ({ ...t, paise: Math.round(levels.leadership[i].reward * 100) }));
 
 /** What a payout window holds: the revenue, the three pools, and who is in line for each. Read-only. */
 async function computeWindow(tx: Tx, startsAt: Date, endsAt: Date) {

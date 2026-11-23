@@ -3,9 +3,8 @@ import type { Rank } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { AppError } from '../../shared/errors/AppError';
 import { requireAuth } from '../auth';
-import { PASSIVE_LEVELS_UNLOCKED, PASSIVE_PCT, RANKS, TEAM_TARGETS } from '../income/plan.config';
-import { leadershipTargets } from '../income/income.engine';
-import { bonusRewards } from '../income/income.service';
+import { PASSIVE_LEVELS_UNLOCKED, PASSIVE_PCT, RANKS } from '../income/plan.config';
+import { bonusRewards, leadershipLevels } from '../income/income.service';
 
 const router = Router();
 
@@ -97,24 +96,24 @@ router.get('/bonuses', requireAuth, async (req: Request, res: Response) => {
   ]);
   const perks = ((perkRow?.value as { items?: { rank: string; title: string; description: string }[] } | null)?.items ?? []);
   const rewards = await bonusRewards(prisma);
-  const team = TEAM_TARGETS.map((t, i) => ({
+  const team = rewards.team.map((t, i) => ({
     target: i + 1,
     // each target is a rank: its name, and the extra reward (a perk) the admin set for that rank
     rank: RANKS[i]?.rank ?? null,
     extraReward: perks.find((p) => p.rank === RANKS[i]?.rank)?.title ?? null,
     claim: perkClaims.find((c) => c.rank === RANKS[i]?.rank) ?? null,
     members: t.members,
-    reward: rewards.team[i] ?? t.reward,
+    reward: t.reward,
     status: i < me.teamTargetsDone ? 'DONE' : i === me.teamTargetsDone ? 'CURRENT' : 'LOCKED',
     completedAt: i < me.teamTargetsDone ? doneAt('TEAM_PERFORMANCE_BONUS', i + 1) : null
   }));
   const current = team.find((t) => t.status === 'CURRENT') ?? null;
 
-  const lead = leadershipTargets().map((t) => ({
+  const lead = leadershipLevels(rewards).map((t) => ({
     target: t.index,
     size: t.size,
     threshold: t.threshold,
-    reward: rewards.leadership[t.index - 1] ?? t.paise / 100,
+    reward: t.paise / 100,
     status: t.index <= me.leadershipTargetsDone ? 'DONE' : t.index === me.leadershipTargetsDone + 1 ? 'CURRENT' : 'LOCKED',
     completedAt: t.index <= me.leadershipTargetsDone ? doneAt('LEADERSHIP_TARGET_BONUS', t.index) : null
   }));

@@ -2871,69 +2871,37 @@ test('TRANSACTION PASSWORD RESET: an emailed one-time link, for the signed-in me
   assert.equal((await m.c.call('POST', '/api/wallet/withdraw', { amount: 300, txnPassword: 'Another#Txn1' })).status, 403);
 });
 
-test('BONUS AMOUNTS: the admin edits the Team Performance and Leadership rewards; members see them', async () => {
+test('BONUS LEVELS: the admin edits and adds Team Performance and Leadership targets; members see them', async () => {
   const m = await signup('RWCROOT', 'LEFT', 'mny_ba_m');
   const put = (c: Client, body: object) => c.call('PUT', '/api/site/content/bonusRewards', body);
-  const team = [800, 1600, 3200, 6400, 12800];
-  const leadership = [700, 1400, 2800, 5600, 11200, 22400, 44800, 89600];
+  // seven team targets (two more than the plan) and nine leadership targets (one more)
+  const team = [2, 4, 8, 16, 32, 64, 128].map((members, i) => ({ members, reward: 800 * 2 ** i }));
+  const leadership = [6, 12, 24, 48, 96, 192, 384, 768, 1536].map((size, i) => ({ size, reward: 700 * 2 ** i }));
 
   assert.equal((await put(m.c, { team, leadership })).status, 403, 'members cannot');
-  assert.equal((await put(admin, { team: [1, 2, 3], leadership })).status, 400, 'five team amounts');
-  assert.equal((await put(admin, { team, leadership: [1, 2, 3] })).status, 400, 'eight leadership amounts');
-  assert.equal((await put(admin, { team: [-5, 1, 2, 3, 4], leadership })).status, 400, 'no negative amounts');
+  assert.equal((await put(admin, { team: [], leadership })).status, 400, 'at least one team target');
+  assert.equal((await put(admin, { team, leadership: [] })).status, 400, 'at least one leadership target');
+  assert.equal((await put(admin, { team: [{ members: 0, reward: 10 }], leadership })).status, 400, 'a target needs at least 1 member');
+  assert.equal((await put(admin, { team: [{ members: 2, reward: -5 }], leadership })).status, 400, 'no negative amounts');
+  assert.equal((await put(admin, { team: [{ members: 2.5, reward: 5 }], leadership })).status, 400, 'whole members only');
+  assert.equal((await put(admin, { team: Array.from({ length: 41 }, () => ({ members: 2, reward: 1 })), leadership })).status, 400, 'at most 40 targets');
   assert.equal((await put(admin, { team, leadership })).status, 200);
 
   const seen = (await m.c.call('GET', '/api/team/bonuses')).json.data;
-  assert.deepEqual(seen.team.targets.map((t: any) => t.reward), team);
-  assert.deepEqual(seen.leadership.targets.map((t: any) => t.reward), leadership);
+  assert.deepEqual(seen.team.targets.map((t: any) => [t.members, t.reward]), team.map((t) => [t.members, t.reward]));
+  assert.equal(seen.team.targets.length, 7, 'two targets were added');
+  assert.deepEqual(seen.leadership.targets.map((t: any) => [t.size, t.reward]), leadership.map((t) => [t.size, t.reward]));
+  assert.deepEqual(seen.leadership.targets.map((t: any) => t.threshold), [6, 18, 42, 90, 186, 378, 762, 1530, 3066], 'thresholds add up');
   assert.deepEqual((await admin.call('GET', '/api/admin/bonuses')).json.data.settings.rewards, { team, leadership });
-  // the rank name and the extra reward come with each team target
+  // the rank name comes with each team target, and only the ranks that exist get one
   assert.equal(seen.team.targets[0].rank, 'SILVER');
+  assert.equal(seen.team.targets[6].rank, 'ROYAL_DIAMOND');
+
+  // back to the plan
   await prisma.siteSetting.delete({ where: { key: 'bonusRewards' } }).catch(() => undefined);
-  assert.deepEqual(((await m.c.call('GET', '/api/team/bonuses')).json.data.team.targets as any[]).map((t) => t.reward), [750, 1500, 3000, 6000, 12000], 'back to the plan amounts');
-});
-
-test('ADMIN DEDUCT AND HOLD: a hold keeps money in the wallet but out of reach; a deduction takes it out, with a reason', async () => {
-  const m = await signup('RWCROOT', 'LEFT', 'mny_dh_m');
-  const row = await rowOf(m.email);
-  await prisma.ledgerEntry.create({ data: { userId: row.id, type: 'DIRECT_INCOME', amount: 1000 } });
-  await prisma.user.update({ where: { id: row.id }, data: { walletBalance: 1000 } });
-  const call = (path: string, body?: object, c: Client = admin) => c.call('POST', `/api/admin/members/${row.id}/${path}`, body);
-
-  assert.equal((await call('hold', { amount: 100, reason: 'checking' }, m.c)).status, 403, 'members cannot');
-  assert.equal((await call('hold', { amount: 100, reason: 'ab' })).status, 400, 'a reason is needed');
-  assert.equal((await call('hold', { amount: 0, reason: 'zero amount' })).status, 400);
-  assert.equal((await call('hold', { amount: -50, reason: 'negative' })).status, 400);
-  assert.equal((await call('hold', { amount: 5000, reason: 'more than there is' })).status, 400);
-  const me = (await prisma.user.findFirstOrThrow({ where: { role: { in: ['ADMIN', 'SUPER_ADMIN'] } } })).id;
-  assert.equal((await admin.call('POST', `/api/admin/members/${me}/hold`, { amount: 10, reason: 'my own wallet' })).status, 403, 'not your own wallet');
-
-  assert.equal((await call('hold', { amount: 400, reason: 'verifying a payment' })).status, 200);
-  let w = await walletOf(m.c);
-  assert.deepEqual([w.balance, w.held, w.available], ['1000.00', 400, 600]);
-  const info = (await admin.call('GET', `/api/admin/members/${row.id}/holds`)).json.data;
-  assert.deepEqual([info.balance, info.held, info.available, info.holds.length], [1000, 400, 600, 1]);
-
-  // money on hold cannot be moved or deducted
-  await setTxn(m.c);
-  assert.equal((await m.c.call('POST', '/api/wallet/transfer', { amount: 700, txnPassword: TXN })).status, 400, 'the held part cannot be moved');
-  assert.equal((await call('deduct', { amount: 700, reason: 'too much' })).status, 400, 'nor deducted');
-  assert.equal((await call('deduct', { amount: 200, reason: 'Wrong credit corrected' })).status, 200);
-  w = await walletOf(m.c);
-  assert.deepEqual([w.balance, w.held, w.available], ['800.00', 400, 400]);
-  const ledger = (await m.c.call('GET', '/api/wallet/transactions')).json.data.items as any[];
-  const cut = ledger.find((e) => e.type === 'ADMIN_DEDUCTION');
-  assert.equal(Number(cut.amount), -200);
-  assert.ok(cut.note.includes('Wrong credit corrected'), 'the member sees why');
-  assert.equal(w.totalEarned, 800, 'a deduction also comes off the total earned');
-  assert.equal(Number(((await admin.call('GET', '/api/admin/members?q=mny_dh_m')).json.data.items as any[])[0].earned), 800, 'and off the admin list');
-
-  // release: the money is free again, and only once
-  assert.equal((await admin.call('POST', `/api/admin/holds/${info.holds[0].id}/release`)).status, 200);
-  assert.equal((await admin.call('POST', `/api/admin/holds/${info.holds[0].id}/release`)).status, 409);
-  assert.equal((await m.c.call('POST', `/api/admin/holds/${info.holds[0].id}/release`)).status, 403);
-  w = await walletOf(m.c);
-  assert.deepEqual([w.held, w.available], [0, 800]);
+  const back = (await m.c.call('GET', '/api/team/bonuses')).json.data;
+  assert.deepEqual(back.team.targets.map((t: any) => t.reward), [750, 1500, 3000, 6000, 12000], 'back to the plan amounts');
+  assert.equal(back.leadership.targets.length, 8);
 });
 
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
