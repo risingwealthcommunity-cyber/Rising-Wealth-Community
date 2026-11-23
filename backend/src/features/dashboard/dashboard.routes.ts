@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { requireAuth } from '../auth';
 import { istWeekStart } from '../income/payout.scheduler';
+import { applyCuts, incomeCuts } from '../income/income.service';
 
 const router = Router();
 
@@ -71,10 +72,11 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
 
   const typeSum = (types: string[]) =>
     byType.filter((b) => types.includes(b.type)).reduce((s, b) => s + Number(b._sum.amount ?? 0), 0);
-  const breakdown = byType
-    .map((b) => ({ type: b.type, amount: rupees(Number(b._sum.amount ?? 0)) }))
-    .filter((b) => b.amount > 0 && b.type !== 'COMPANY_FUND')
-    .sort((a, b) => b.amount - a.amount);
+  // what an admin deducted or is holding comes off the Demat referral income, so the parts always add up to the total
+  const breakdown = applyCuts(
+    byType.map((b) => ({ type: b.type, amount: rupees(Number(b._sum.amount ?? 0)) })).filter((b) => b.amount > 0 && b.type !== 'COMPANY_FUND'),
+    await incomeCuts(prisma, userId)
+  ).sort((a, b) => b.amount - a.amount);
 
   res.json({
     success: true,
@@ -94,8 +96,7 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
         last7: sum(todayStart - 6 * DAY_MS),
         last30: sum(monthStart),
         passive: rupees(typeSum(['PASSIVE_INCOME', 'DEMAT_PASSIVE'])),
-        // everything earned, less what an admin deducted
-        total: rupees(breakdown.reduce((s, b) => s + b.amount, 0) + typeSum(['ADMIN_DEDUCTION'])),
+        total: rupees(breakdown.reduce((s, b) => s + b.amount, 0)),
         wallet: rupees(Number(me.walletBalance)),
         team: Number(teamRows[0]?.c ?? 0)
       },

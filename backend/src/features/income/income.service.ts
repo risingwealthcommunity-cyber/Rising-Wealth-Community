@@ -202,6 +202,32 @@ export async function bonusRewards(tx: Tx): Promise<BonusLevels> {
 export const leadershipLevels = (levels: BonusLevels) =>
   leadershipTargets(levels.leadership.map((t) => t.size)).map((t, i) => ({ ...t, paise: Math.round(levels.leadership[i].reward * 100) }));
 
+/**
+ * What an admin took out (deducted) or is holding in a member's wallet, in rupees. It comes off the Demat referral income the
+ * member sees (first the Demat direct income, then the campaign rewards), and never takes that below zero.
+ */
+export async function incomeCuts(tx: Tx, userId: string): Promise<number> {
+  const [deducted, held] = await Promise.all([
+    tx.ledgerEntry.aggregate({ where: { userId, type: 'ADMIN_DEDUCTION' }, _sum: { amount: true } }),
+    tx.walletHold.aggregate({ where: { userId, releasedAt: null }, _sum: { amount: true } })
+  ]);
+  return Math.round((Math.abs(Number(deducted._sum.amount ?? 0)) + Number(held._sum.amount ?? 0)) * 100) / 100;
+}
+
+/** Takes `cut` rupees off the Demat referral income (DEMAT_DIRECT, then CAMPAIGN_REWARD) in a list of income by type. */
+export function applyCuts<T extends { type: string; amount: number }>(rows: T[], cut: number): T[] {
+  let left = cut;
+  const out = rows.map((r) => ({ ...r }));
+  for (const type of ['DEMAT_DIRECT', 'CAMPAIGN_REWARD']) {
+    const row = out.find((r) => r.type === type);
+    if (!row || left <= 0) continue;
+    const take = Math.min(left, row.amount);
+    row.amount = Math.round((row.amount - take) * 100) / 100;
+    left = Math.round((left - take) * 100) / 100;
+  }
+  return out.filter((r) => r.amount > 0);
+}
+
 /** What a payout window holds: the revenue, the three pools, and who is in line for each. Read-only. */
 async function computeWindow(tx: Tx, startsAt: Date, endsAt: Date) {
   const sales = await tx.packagePurchase.findMany({

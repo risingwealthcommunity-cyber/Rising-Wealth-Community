@@ -5,7 +5,7 @@ import { prisma } from '../../config/database';
 import { AppError } from '../../shared/errors/AppError';
 import { validateBody } from '../../shared/middleware/validate.middleware';
 import { requireAuth, requireRole } from '../auth';
-import { distributeDematReferral, paiseToDecimal } from '../income/income.service';
+import { distributeDematReferral, incomeCuts, paiseToDecimal } from '../income/income.service';
 import { proofFrom } from '../../shared/proof';
 import { loadFile, signDownload, storeFile } from '../../shared/storage';
 
@@ -55,12 +55,14 @@ campaignRoutes.get('/', requireAuth, async (_req: Request, res: Response) => {
 
 campaignRoutes.get('/stats', requireAuth, async (req: Request, res: Response) => {
   const userId = req.user!.id;
-  const [total, approved, earned] = await Promise.all([
+  const [total, approved, earned, cuts] = await Promise.all([
     prisma.campaignReport.count({ where: { userId } }),
     prisma.campaignReport.count({ where: { userId, status: 'APPROVED' } }),
-    prisma.ledgerEntry.aggregate({ where: { userId, type: { in: ['CAMPAIGN_REWARD', 'DEMAT_DIRECT'] } }, _sum: { amount: true } })
+    prisma.ledgerEntry.aggregate({ where: { userId, type: { in: ['CAMPAIGN_REWARD', 'DEMAT_DIRECT'] } }, _sum: { amount: true } }),
+    incomeCuts(prisma, userId)
   ]);
-  res.json({ success: true, data: { total, approved, earnings: Number(earned._sum.amount ?? 0) } });
+  // less what an admin deducted or is holding, never below zero
+  res.json({ success: true, data: { total, approved, earnings: Math.max(0, Math.round((Number(earned._sum.amount ?? 0) - cuts) * 100) / 100) } });
 });
 
 const reportView = (r: { id: string; holderName: string; mobile: string; status: string; note: string | null; createdAt: Date; fileMime?: string | null; campaign: { id: string; title: string; reward: unknown } }) => ({

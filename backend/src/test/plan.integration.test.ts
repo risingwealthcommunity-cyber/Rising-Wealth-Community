@@ -3051,6 +3051,41 @@ test('PROOF CLEANUP: the proof of a report approved more than 2 months ago is re
   assert.equal(await left(fresh.id), false);
 });
 
+test('INCOME ADDS UP: deducted and held money come off the Demat referral income, so the parts match the total and never go below zero', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_ia_m');
+  const row = await rowOf(m.email);
+  const credit = async (type: 'DEMAT_DIRECT' | 'CAMPAIGN_REWARD' | 'DIRECT_INCOME', amount: number) => {
+    await prisma.ledgerEntry.create({ data: { userId: row.id, type, amount } });
+    await prisma.user.update({ where: { id: row.id }, data: { walletBalance: { increment: amount } } });
+  };
+  await credit('DEMAT_DIRECT', 500);
+  await credit('CAMPAIGN_REWARD', 100);
+  await credit('DIRECT_INCOME', 40);
+  const board = async () => (await m.c.call('GET', '/api/dashboard/summary')).json.data;
+  const parts = (d: any) => Object.fromEntries((d.breakdown as any[]).map((b) => [b.type, b.amount]));
+
+  let d = await board();
+  assert.equal(d.stats.total, 640);
+  assert.deepEqual(parts(d), { DEMAT_DIRECT: 500, CAMPAIGN_REWARD: 100, DIRECT_INCOME: 40 });
+  assert.equal((await m.c.call('GET', '/api/campaigns/stats')).json.data.earnings, 600);
+
+  // deduct 100 and hold 150: both come off the Demat referral income, and the parts still add up to the total
+  assert.equal((await admin.call('POST', `/api/admin/members/${row.id}/deduct`, { amount: 100, reason: 'Wrong credit corrected' })).status, 200);
+  assert.equal((await admin.call('POST', `/api/admin/members/${row.id}/hold`, { amount: 150, reason: 'Checking a payment' })).status, 200);
+  d = await board();
+  assert.deepEqual(parts(d), { DEMAT_DIRECT: 250, CAMPAIGN_REWARD: 100, DIRECT_INCOME: 40 });
+  assert.equal(d.stats.total, 390, 'the total is the sum of the parts');
+  assert.equal((await m.c.call('GET', '/api/campaigns/stats')).json.data.earnings, 350, 'the profile agrees');
+
+  // more is held than the Demat income there is: it takes the campaign rewards next, and stops at zero
+  assert.equal((await admin.call('POST', `/api/admin/members/${row.id}/hold`, { amount: 390, reason: 'More to check' })).status, 200);
+  d = await board();
+  assert.deepEqual(parts(d), { DIRECT_INCOME: 40 });
+  assert.equal(d.stats.total, 40);
+  assert.ok(d.stats.today >= 0 && d.stats.last7 >= 0 && d.stats.last30 >= 0, 'never below zero');
+  assert.ok((d.chart?.today ?? d.charts?.today ?? []).every?.((x: any) => x.amount >= 0) ?? true);
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {
