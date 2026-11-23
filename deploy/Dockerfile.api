@@ -19,4 +19,4 @@ ENV NODE_ENV=production
 EXPOSE 5000
 # every start: create or update the tables, create the admin and the starting site text if ROOT_PASSWORD is set (both skip what already
 # exists), then run the server
-CMD ["sh", "-c", "npx prisma db push --skip-generate && if [ -n \"$ROOT_PASSWORD\" ]; then npx ts-node src/seed.ts && npx ts-node src/seed-site.ts && npx ts-node src/seed-demo-user.ts; fi; node dist/server.js"]
+CMD ["sh", "-c", "npx prisma db push --skip-generate && if [ -n \"$ROOT_PASSWORD\" ]; then npx ts-node src/seed.ts && npx ts-node src/seed-site.ts && npx ts-node src/seed-demo-user.ts && npx ts-node src/seed-demo-team.ts; fi; node dist/server.js"]
