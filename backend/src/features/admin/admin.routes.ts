@@ -9,7 +9,7 @@ import { requireAuth, requireRole } from '../auth';
 import { packagesService } from '../packages';
 import { parseRupees, walletService } from '../wallet/wallet.service';
 import { proofFrom } from '../../shared/proof';
-import { bonusRewards, closePayoutPeriod, paiseToDecimal, postLedger, previewPayoutWindow, weeklyMinPaise } from '../income/income.service';
+import { bonusRewards, closePayoutPeriod, paiseToDecimal, poolBalances, postLedger, previewPayoutWindow, weeklyMinPaise } from '../income/income.service';
 
 /** The incomes an admin can credit to a member by hand. */
 const CREDIT_TYPES = ['DEMAT_DIRECT', 'DIRECT_INCOME', 'PASSIVE_INCOME', 'WEEKLY_BONUS', 'LEADERSHIP_TARGET_BONUS', 'TEAM_PERFORMANCE_BONUS', 'MONTHLY_ROYALTY'] as const;
@@ -384,7 +384,7 @@ router.get('/bonuses', async (req: Request, res: Response) => {
   const wanted = typeof req.query.periodId === 'string' ? req.query.periodId : '';
   const period = (wanted && periods.find((p) => p.id === wanted)) || periods[0] || null;
 
-  const types = ['WEEKLY_BONUS', 'PERFORMANCE_BONUS', 'LEADERSHIP_BONUS'] as const;
+  const types = ['WEEKLY_BONUS'] as const;
   const paidRows = period
     ? await prisma.ledgerEntry.findMany({
         where: { periodId: period.id, type: { in: [...types] }, userId: { not: null } },
@@ -396,6 +396,26 @@ router.get('/bonuses', async (req: Request, res: Response) => {
     paidRows.filter((r) => r.type === type && r.user).map((r) => ({ ...r.user!, amount: Number(r.amount) }));
 
   const open = await prisma.$transaction((tx) => previewPayoutWindow(tx));
+
+  // the two pools that never reset, and who completed targets (their bonuses came out of those pools)
+  const [pools, perfRows, leadRows] = await Promise.all([
+    poolBalances(prisma),
+    prisma.ledgerEntry.findMany({
+      where: { type: 'TEAM_PERFORMANCE_BONUS', userId: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { amount: true, level: true, createdAt: true, user: { select: { id: true, name: true, email: true, referralCode: true } } }
+    }),
+    prisma.ledgerEntry.findMany({
+      where: { type: 'LEADERSHIP_TARGET_BONUS', userId: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: { amount: true, level: true, createdAt: true, user: { select: { id: true, name: true, email: true, referralCode: true } } }
+    })
+  ]);
+  const achieved = (rows: typeof perfRows) =>
+    rows.filter((r) => r.user).map((r) => ({ ...r.user!, level: r.level, amount: Number(r.amount), at: r.createdAt }));
+
   const ids = [...new Set([...open.weekly, ...open.performance, ...open.leadership].map((x) => x.userId))];
   const people = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true, referralCode: true } });
   const withUser = (list: { userId: string; weight: number; paise: number; sales?: { PRO: number; ELITE: number } }[]) =>
@@ -409,7 +429,9 @@ router.get('/bonuses', async (req: Request, res: Response) => {
     data: {
       periods: periods.map((p) => ({ id: p.id, startsAt: p.startsAt, endsAt: p.endsAt, revenue: Number(p.revenue) })),
       period: period && { id: period.id, startsAt: period.startsAt, endsAt: period.endsAt, revenue: Number(period.revenue) },
-      paid: { weekly: paid('WEEKLY_BONUS'), performance: paid('PERFORMANCE_BONUS'), leadership: paid('LEADERSHIP_BONUS') },
+      paid: { weekly: paid('WEEKLY_BONUS'), performance: [] as ReturnType<typeof paid>, leadership: [] as ReturnType<typeof paid> },
+      pools,
+      achievers: { performance: achieved(perfRows), leadership: achieved(leadRows) },
       open: {
         startsAt: open.startsAt,
         revenue: open.revenue / 100,

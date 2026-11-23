@@ -18,6 +18,11 @@ interface Line extends Person {
   amount: number;
   sales?: { PRO: number; ELITE: number };
 }
+interface Achiever extends Person {
+  level: number | null;
+  amount: number;
+  at: string;
+}
 interface Bonuses {
   periods: { id: string; startsAt: string; endsAt: string; revenue: number }[];
   period: { id: string; startsAt: string; endsAt: string; revenue: number } | null;
@@ -30,29 +35,21 @@ interface Bonuses {
     performance: Line[];
     leadership: Line[];
   };
+  pools: {
+    revenue: number;
+    performance: { pct: number; total: number; paid: number; balance: number };
+    leadership: { pct: number; total: number; paid: number; balance: number };
+    company: { pct: number; total: number };
+  };
+  achievers: { performance: Achiever[]; leadership: Achiever[] };
   settings: { minPerShare: number; rewards: { team: { members: number; reward: number }[]; leadership: { size: number; reward: number }[] } };
 }
 
-const SECTIONS = [
-  {
-    key: 'weekly' as const,
-    title: 'Weekly bonus achievers',
-    blurb: 'Members with 3 or 6 direct sales of a package in the week. The pool is shared by their shares, never below the minimum set above.',
-    unit: 'Shares'
-  },
-  {
-    key: 'performance' as const,
-    title: 'Performance bonus achievers',
-    blurb: 'Shared by the points of each member\'s direct sales (PRO 0.5, ELITE 1).',
-    unit: 'Half-points'
-  },
-  {
-    key: 'leadership' as const,
-    title: 'Leadership bonus achievers',
-    blurb: 'Silver and above, shared by matched binary points. Matched points are used up when paid.',
-    unit: 'Half-points matched'
-  }
-];
+const WEEKLY = {
+  title: 'Weekly bonus achievers',
+  blurb: 'Members with 3 or 6 direct sales of a package in the week. The weekly pool is shared by their shares, never below the minimum set above.',
+  unit: 'Shares'
+};
 
 /** "Single" for 3 direct sales of a package, "Double" for 6, in the weekly bonus. Other bonuses have no levels. */
 const levelOf = (r: Paid | Line) => {
@@ -244,12 +241,27 @@ export default function AdminBonusesPage() {
 
       <div className="bonus-top">
         <form className="card stack" onSubmit={saveMin}>
-          <h2>Weekly bonus settings</h2>
-          <p className="muted">The least a member gets for each share. If the pool is smaller, the company fund tops it up.</p>
+          <h2>Weekly bonus pool and settings</h2>
+          {data ? (
+            <>
+              <p className="muted">
+                {new Date(data.open.startsAt).getTime() < 86_400_000 ? 'So far' : `Since ${date(data.open.startsAt)}`}: sales of <b>{inr(data.open.revenue)}</b>
+              </p>
+              <p>
+                Weekly pool (5% of this week&rsquo;s sales): <b>{inr(data.open.pools.weekly)}</b>
+              </p>
+            </>
+          ) : (
+            <p className="muted">Loading...</p>
+          )}
+          <p className="muted">
+            This is the only pool that starts again: it is shared out and restarts every Sunday at midnight (IST). You can also close the week now.
+          </p>
           <label>
             Minimum for one share (₹)
             <input value={min} inputMode="decimal" onChange={(e) => setMin(e.target.value)} aria-label="Minimum for one share" />
           </label>
+          <p className="muted">The least a member gets for each share. If the pool is smaller, the company fund tops it up.</p>
           <ul className="bonus-tiers">
             <li>3 PRO sales (single weekly): <b>{inr(shown)}</b></li>
             <li>6 PRO sales (double weekly): <b>{inr(shown * 2)}</b></li>
@@ -257,58 +269,114 @@ export default function AdminBonusesPage() {
             <li>6 ELITE sales (double weekly): <b>{inr(shown * 4)}</b></li>
           </ul>
           {save.msg && <div className={`alert ${save.msg.type}`}>{save.msg.text}</div>}
-          <button className="btn" disabled={save.busy}>
-            Save bonus amounts
-          </button>
-        </form>
-
-        <div className="card stack">
-          <h2>This week</h2>
-          {data ? (
-            <>
-              <p className="muted">
-                {new Date(data.open.startsAt).getTime() < 86_400_000 ? 'So far' : `Since ${date(data.open.startsAt)}`}: sales of <b>{inr(data.open.revenue)}</b>
-              </p>
-              <ul className="bonus-tiers">
-                <li>Weekly pool (5%): <b>{inr(data.open.pools.weekly)}</b></li>
-                <li>Performance pool (5%): <b>{inr(data.open.pools.performance)}</b></li>
-                <li>Leadership pool (12%): <b>{inr(data.open.pools.leadership)}</b></li>
-              </ul>
-            </>
-          ) : (
-            <p className="muted">Loading...</p>
-          )}
-          <p className="muted">The period closes by itself every Monday (IST). You can also close it now.</p>
           {close.msg && <div className={`alert ${close.msg.type}`}>{close.msg.text}</div>}
-          <button className="btn ghost" type="button" disabled={close.busy} onClick={closeNow}>
-            Close period now
-          </button>
-        </div>
+          <div className="profile-actions">
+            <button className="btn" disabled={save.busy}>
+              Save bonus amounts
+            </button>
+            <button className="btn ghost" type="button" disabled={close.busy} onClick={closeNow}>
+              Close the week now
+            </button>
+          </div>
+        </form>
       </div>
 
-      {SECTIONS.map((s) => (
-        <div className="card" key={s.key}>
-          <h2>{s.title}</h2>
-          <p className="muted">{s.blurb}</p>
+      <div className="card">
+        <h2>{WEEKLY.title}</h2>
+        <p className="muted">{WEEKLY.blurb}</p>
 
-          <h3>In line this week (estimate)</h3>
-          <Table rows={data?.open[s.key] ?? []} unit={s.unit} estimate />
+        <h3>In line this week (estimate)</h3>
+        <Table rows={data?.open.weekly ?? []} unit={WEEKLY.unit} estimate />
 
-          <div className="team-head">
-            <h3>Paid</h3>
-            {data && data.periods.length > 0 && (
-              <select value={data.period?.id ?? ''} onChange={(e) => setPeriodId(e.target.value)} aria-label="Period">
-                {data.periods.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {date(p.startsAt)} to {date(p.endsAt)}
-                  </option>
-                ))}
-              </select>
+        <div className="team-head">
+          <h3>Paid</h3>
+          {data && data.periods.length > 0 && (
+            <select value={data.period?.id ?? ''} onChange={(e) => setPeriodId(e.target.value)} aria-label="Period">
+              {data.periods.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {date(p.startsAt)} to {date(p.endsAt)}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        {data && !data.period ? <p className="muted">No week has been closed yet.</p> : <Table rows={data?.paid.weekly ?? []} unit={WEEKLY.unit} />}
+      </div>
+
+      {(
+        [
+          { key: 'performance' as const, title: 'Team Performance bonus pool and achievers', blurb: 'Every package sale adds 20% to this pool. It never resets. Each Team Performance bonus paid to a member is taken out of it.' },
+          { key: 'leadership' as const, title: 'Leadership bonus pool and achievers', blurb: 'Every package sale adds 5% to this pool. It never resets. Each Leadership bonus paid to a member is taken out of it.' }
+        ]
+      ).map((sec) => {
+        const pool = data?.pools[sec.key];
+        const rows = data?.achievers[sec.key] ?? [];
+        return (
+          <div className="card" key={sec.key}>
+            <h2>{sec.title}</h2>
+            <p className="muted">{sec.blurb}</p>
+            {pool ? (
+              <div className="levels admin-overview">
+                <div className="level">
+                  <small>Pool so far ({pool.pct}% of all sales)</small>
+                  <strong>{inr(pool.total)}</strong>
+                </div>
+                <div className="level">
+                  <small>Paid out as bonuses</small>
+                  <strong>{inr(pool.paid)}</strong>
+                </div>
+                <div className="level">
+                  <small>Left in the pool</small>
+                  <strong className={pool.balance < 0 ? 'orange' : undefined}>{inr(pool.balance)}</strong>
+                </div>
+              </div>
+            ) : (
+              <p className="muted">Loading...</p>
+            )}
+            <h3>Achievers (latest first)</h3>
+            {rows.length === 0 ? (
+              <p className="muted">Nobody has completed a target yet.</p>
+            ) : (
+              <div className="table-wrap">
+                <table className="rep-table">
+                  <thead>
+                    <tr>
+                      <th>User</th>
+                      <th>Level</th>
+                      <th>Bonus</th>
+                      <th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={`${r.email}-${i}`}>
+                        <td>
+                          <b>{r.name}</b>
+                          <small className="muted">
+                            {r.email} · {r.referralCode}
+                          </small>
+                        </td>
+                        <td>{r.level ?? '-'}</td>
+                        <td>
+                          <b>{inr(r.amount)}</b>
+                        </td>
+                        <td>{date(r.at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
-          {data && !data.period ? <p className="muted">No period has been closed yet.</p> : <Table rows={data?.paid[s.key] ?? []} unit={s.unit} />}
-        </div>
-      ))}
+        );
+      })}
+
+      <div className="card">
+        <h2>Company fund</h2>
+        <p className="muted">The company keeps {data?.pools.company.pct ?? 20}% of every package sale.</p>
+        <strong className="price">{data ? inr(data.pools.company.total) : '...'}</strong>
+        <small className="muted">of {data ? inr(data.pools.revenue) : '...'} in package sales so far</small>
+      </div>
     </>
   );
 }

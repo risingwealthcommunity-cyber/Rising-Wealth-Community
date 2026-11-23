@@ -14,7 +14,7 @@ import {
   type Payout,
   type UplineMember
 } from './income.engine';
-import { PACKAGE_HALF_POINTS, POOL_PCT, TEAM_TARGETS, WEEKLY_MIN_PER_SHARE_PAISE, type PaidPackage } from './plan.config';
+import { COMPANY_FUND_PCT, PACKAGE_HALF_POINTS, POOL_PCT, TEAM_TARGETS, WEEKLY_MIN_PER_SHARE_PAISE, type PaidPackage } from './plan.config';
 
 type Tx = Prisma.TransactionClient;
 
@@ -257,8 +257,6 @@ export async function previewPayoutWindow(tx: Tx) {
   const startsAt = last?.endsAt ?? new Date(0);
   const w = await computeWindow(tx, startsAt, new Date());
   const weekly = splitWeeklyPool(w.weeklyPool, w.weeklyWeights, w.minPerSharePaise);
-  const performance = splitPool(w.performancePool, w.perfWeights);
-  const leadership = splitPool(w.leadershipPool, w.matched);
   const rows = (paid: { id: string; paise: number }[], weights: { id: string; weight: number }[]) =>
     paid.map((p) => ({ userId: p.id, weight: weights.find((x) => x.id === p.id)?.weight ?? 0, paise: p.paise }));
   return {
@@ -267,15 +265,39 @@ export async function previewPayoutWindow(tx: Tx) {
     pools: { weekly: w.weeklyPool, performance: w.performancePool, leadership: w.leadershipPool },
     minPerSharePaise: w.minPerSharePaise,
     weekly: rows(weekly.payouts, w.weeklyWeights).map((r) => ({ ...r, sales: w.direct.get(r.userId) ?? { PRO: 0, ELITE: 0 } })),
-    performance: rows(performance.payouts, w.perfWeights),
-    leadership: rows(leadership.payouts, w.matched)
+    // the Performance and Leadership pools are not shared out at the close: their bonuses are paid as targets are completed
+    performance: [] as { userId: string; weight: number; paise: number }[],
+    leadership: [] as { userId: string; weight: number; paise: number }[]
   };
 }
 
 /**
- * Closes the current payout window and distributes the three pools:
- *  - Weekly bonus 5%, Performance bonus 5%, Leadership (binary) 12% of confirmed package revenue.
- * Nothing is ever paid beyond a pool; anything unclaimed stays with the company.
+ * The two pools that never reset and the company fund, in rupees. Every confirmed package sale adds its percentage; every bonus
+ * paid to a member (Team Performance targets, Leadership targets) is taken out of its pool.
+ */
+export async function poolBalances(tx: Tx) {
+  const [sales, perf, lead] = await Promise.all([
+    tx.packagePurchase.aggregate({ where: { status: 'CONFIRMED' }, _sum: { amount: true } }),
+    tx.ledgerEntry.aggregate({ where: { type: 'TEAM_PERFORMANCE_BONUS', amount: { gt: 0 } }, _sum: { amount: true } }),
+    tx.ledgerEntry.aggregate({ where: { type: 'LEADERSHIP_TARGET_BONUS', amount: { gt: 0 } }, _sum: { amount: true } })
+  ]);
+  const revenue = decimalToPaise(sales._sum.amount ?? 0);
+  const part = (pct: number, paidDecimal: Prisma.Decimal | null) => {
+    const total = pctOf(revenue, pct);
+    const paid = decimalToPaise(paidDecimal ?? 0);
+    return { pct, total: total / 100, paid: paid / 100, balance: (total - paid) / 100 };
+  };
+  return {
+    revenue: revenue / 100,
+    performance: part(POOL_PCT.PERFORMANCE, perf._sum.amount),
+    leadership: part(POOL_PCT.LEADERSHIP, lead._sum.amount),
+    company: { pct: COMPANY_FUND_PCT, total: pctOf(revenue, COMPANY_FUND_PCT) / 100 }
+  };
+}
+
+/**
+ * Closes the current payout window (every Sunday midnight, IST) and shares out the WEEKLY pool: 5% of that week's confirmed package
+ * revenue. The Performance and Leadership pools are not shared out here: they keep growing with every sale and pay as targets are done.
  */
 export async function closePayoutPeriod(tx: Tx, adminId: string) {
   // the same lock the weekly scheduler takes: a window can only be closed once
@@ -287,7 +309,7 @@ export async function closePayoutPeriod(tx: Tx, adminId: string) {
 
   if (endsAt <= startsAt) throw new AppError('Nothing to close yet', 400);
 
-  const { revenue, weeklyPool, performancePool, leadershipPool, weeklyWeights, perfWeights, matched, minPerSharePaise } = await computeWindow(tx, startsAt, endsAt);
+  const { revenue, weeklyPool, performancePool, leadershipPool, weeklyWeights, minPerSharePaise } = await computeWindow(tx, startsAt, endsAt);
 
   const period = await tx.payoutPeriod.create({
     data: {
@@ -304,21 +326,6 @@ export async function closePayoutPeriod(tx: Tx, adminId: string) {
     }
   });
 
-  const pay = async (
-    type: LedgerType,
-    pool: number,
-    weights: { id: string; weight: number }[],
-    label: string
-  ) => {
-    const { payouts, unclaimed } = splitPool(pool, weights);
-    await postLedger(tx, {
-      payouts: payouts.map((p) => ({ userId: p.id, type, paise: p.paise })),
-      company: [{ reason: `${label}_UNCLAIMED`, paise: unclaimed }],
-      periodId: period.id
-    });
-    return pool - unclaimed;
-  };
-
   // Weekly bonus: the pool, but never less than the plan's minimum per share (the company fund covers any gap)
   const weekly = splitWeeklyPool(weeklyPool, weeklyWeights, minPerSharePaise);
   await postLedger(tx, {
@@ -332,25 +339,12 @@ export async function closePayoutPeriod(tx: Tx, adminId: string) {
     });
   }
   const weeklyPaid = weekly.payouts.reduce((sum, p) => sum + p.paise, 0);
-  const performancePaid = await pay('PERFORMANCE_BONUS', performancePool, perfWeights, 'PERFORMANCE_POOL');
-  const leadershipPaid = await pay('LEADERSHIP_BONUS', leadershipPool, matched, 'LEADERSHIP_POOL');
-
-  // Points that were matched are consumed: no reuse. Only when there was a pool to pay from.
-  if (leadershipPool > 0) {
-    for (const l of matched) {
-      await tx.user.update({
-        where: { id: l.id },
-        data: { matchLeftHalf: { decrement: l.weight }, matchRightHalf: { decrement: l.weight } }
-      });
-    }
-  }
-
   return tx.payoutPeriod.update({
     where: { id: period.id },
     data: {
       weeklyPaid: paiseToDecimal(weeklyPaid),
-      performancePaid: paiseToDecimal(performancePaid),
-      leadershipPaid: paiseToDecimal(leadershipPaid)
+      performancePaid: 0,
+      leadershipPaid: 0
     }
   });
 }

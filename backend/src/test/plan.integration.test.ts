@@ -1289,7 +1289,7 @@ test('ADD INCOME: the admin credits one member under the income chosen, and nobo
 
 // ---------------------------------------------------------------- POOLS
 
-test('pools: close period pays within pools only, consumes matched points, second close pays nothing', async () => {
+test('pools: closing the week shares out only the weekly pool; Performance and Leadership never reset; a second close pays nothing', async () => {
   const revRow = await prisma.packagePurchase.aggregate({
     where: { status: 'CONFIRMED' },
     _sum: { amount: true }
@@ -1303,46 +1303,59 @@ test('pools: close period pays within pools only, consumes matched points, secon
 
   assert.equal(rupees(p.revenue), revenue);
   assert.equal(rupees(p.weeklyPool), rupees(revenue * 0.05));
-  assert.equal(rupees(p.performancePool), rupees(revenue * 0.05));
-  assert.equal(rupees(p.leadershipPool), rupees(revenue * 0.12));
-  // never exceed pools
+  assert.equal(rupees(p.performancePool), rupees(revenue * 0.2), 'Performance pool is 20% of sales');
+  assert.equal(rupees(p.leadershipPool), rupees(revenue * 0.05), 'Leadership pool is 5% of sales');
+  // only the weekly pool is paid at the close
   assert.ok(Number(p.weeklyPaid) <= Number(p.weeklyPool));
-  assert.ok(Number(p.performancePaid) <= Number(p.performancePool));
-  assert.ok(Number(p.leadershipPaid) <= Number(p.leadershipPool));
-  assert.ok(Number(p.leadershipPaid) > 0, 'SILVER leader with matched points should be paid');
   assert.ok(Number(p.weeklyPaid) > 0, 'root has >= 3 direct PRO sales');
+  assert.equal(Number(p.performancePaid), 0);
+  assert.equal(Number(p.leadershipPaid), 0);
+  assert.equal(await prisma.ledgerEntry.count({ where: { type: { in: ['PERFORMANCE_BONUS', 'LEADERSHIP_BONUS'] } } }), 0, 'no pool shares are paid out');
 
-  // wallet growth == total paid out
+  // wallet growth == the weekly bonus paid out
   const sumAfter = await prisma.user.aggregate({ _sum: { walletBalance: true } });
   const grown = Number(sumAfter._sum.walletBalance) - Number(sumBefore._sum.walletBalance);
-  assert.equal(
-    rupees(grown),
-    rupees(Number(p.weeklyPaid) + Number(p.performancePaid) + Number(p.leadershipPaid))
-  );
-
-  // leader's matched points consumed (no reuse)
-  const lead = await prisma.user.findUniqueOrThrow({ where: { email: 'leader@test.com' } });
-  assert.equal(Math.min(lead.matchLeftHalf, lead.matchRightHalf), 0);
+  assert.equal(rupees(grown), rupees(Number(p.weeklyPaid)));
 
   // closing again immediately: new empty window, nothing paid
   const again = await admin.call('POST', '/api/admin/periods/close');
   assert.equal(again.status, 201);
   const p2 = again.json.data.period;
   assert.equal(Number(p2.revenue), 0);
-  assert.equal(Number(p2.leadershipPaid) + Number(p2.weeklyPaid) + Number(p2.performancePaid), 0);
+  assert.equal(Number(p2.weeklyPaid), 0);
 });
 
-test('pools: Trainees and non-Silver users never receive leadership bonus', async () => {
-  const rows = await prisma.ledgerEntry.findMany({
-    where: { type: 'LEADERSHIP_BONUS' },
-    include: { user: { select: { rank: true } } }
-  });
-  assert.ok(rows.length > 0);
-  assert.ok(rows.every((r) => r.user!.rank !== 'NONE'));
-  const trainees = await prisma.ledgerEntry.count({
-    where: { type: { in: ['WEEKLY_BONUS', 'PERFORMANCE_BONUS', 'LEADERSHIP_BONUS'] }, user: { package: 'TRAINEE' } }
-  });
-  assert.equal(trainees, 0);
+test('pools: Trainees never receive a weekly bonus', async () => {
+  const rows = await prisma.ledgerEntry.count({ where: { type: 'WEEKLY_BONUS', user: { package: 'TRAINEE' } } });
+  assert.equal(rows, 0);
+});
+
+test('pools: Performance and Leadership pools grow with every sale and every bonus paid comes out of them', async () => {
+  const pools = (await admin.call('GET', '/api/admin/bonuses')).json.data.pools;
+  const revenue = Number((await prisma.packagePurchase.aggregate({ where: { status: 'CONFIRMED' }, _sum: { amount: true } }))._sum.amount);
+  const perfPaid = Number((await prisma.ledgerEntry.aggregate({ where: { type: 'TEAM_PERFORMANCE_BONUS', amount: { gt: 0 } }, _sum: { amount: true } }))._sum.amount ?? 0);
+  const leadPaid = Number((await prisma.ledgerEntry.aggregate({ where: { type: 'LEADERSHIP_TARGET_BONUS', amount: { gt: 0 } }, _sum: { amount: true } }))._sum.amount ?? 0);
+
+  assert.equal(rupees(pools.revenue), rupees(revenue));
+  assert.deepEqual([pools.performance.pct, pools.leadership.pct, pools.company.pct], [20, 5, 20]);
+  assert.equal(rupees(pools.performance.total), rupees(revenue * 0.2));
+  assert.equal(rupees(pools.performance.paid), rupees(perfPaid));
+  assert.equal(rupees(pools.performance.balance), rupees(revenue * 0.2 - perfPaid), 'bonuses paid are taken out of the pool');
+  assert.equal(rupees(pools.leadership.total), rupees(revenue * 0.05));
+  assert.equal(rupees(pools.leadership.paid), rupees(leadPaid));
+  assert.equal(rupees(pools.leadership.balance), rupees(revenue * 0.05 - leadPaid));
+  assert.equal(rupees(pools.company.total), rupees(revenue * 0.2), 'the company keeps 20% of every sale');
+
+  // it does not reset when a week is closed
+  assert.equal((await admin.call('POST', '/api/admin/periods/close')).status, 201);
+  const after = (await admin.call('GET', '/api/admin/bonuses')).json.data.pools;
+  assert.deepEqual(after.performance, pools.performance);
+  assert.deepEqual(after.leadership, pools.leadership);
+
+  // the achievers are whoever completed targets
+  const ach = (await admin.call('GET', '/api/admin/bonuses')).json.data.achievers;
+  assert.equal(ach.performance.length > 0, perfPaid > 0);
+  assert.ok(ach.performance.every((a: any) => a.amount > 0 && a.email));
 });
 
 // ---------------------------------------------------------------- TEAM PERFORMANCE + LEADERSHIP BONUS
@@ -2506,7 +2519,7 @@ test('LIVE POSTER: the admin adds a poster to a live training; members see it, a
   assert.equal((await new Client().call('GET', `/api/site/assets/live-${sid}`)).status, 404, 'the poster is removed with the training');
 });
 
-test('BONUS ACHIEVERS: admin sees who got weekly, performance and leadership bonuses, plus who is in line now; the weekly minimum is a setting', async () => {
+test('BONUS ACHIEVERS: admin sees who is in line for the weekly bonus and who was paid; the weekly minimum is a setting', async () => {
   const m = await signup('RWCROOT', 'LEFT', 'mny_bn_one');
   assert.equal((await m.c.call('GET', '/api/admin/bonuses')).status, 403);
   assert.equal((await new Client().call('GET', '/api/admin/bonuses')).status, 401);
@@ -2517,13 +2530,13 @@ test('BONUS ACHIEVERS: admin sees who got weekly, performance and leadership bon
     await buy(buyer.c, 'PRO');
   }
 
-  // before closing: the open window lists top as a weekly and performance achiever, with an estimate
+  // before closing: the open window lists top as a weekly achiever, with an estimate
   const before = (await admin.call('GET', '/api/admin/bonuses')).json.data;
   const wk = before.open.weekly.find((x: any) => x.email === top.email);
   assert.ok(wk, 'top has 3 PRO direct sales => in line for the weekly bonus');
   assert.ok(wk.amount >= 375, 'at least the minimum for one PRO share');
   assert.deepEqual(wk.sales, { PRO: 3, ELITE: 0 }, 'and the sales they come from');
-  assert.ok(before.open.performance.some((x: any) => x.email === top.email));
+  assert.deepEqual([before.open.performance, before.open.leadership], [[], []], 'those two pools are not shared out weekly');
   assert.ok(before.open.pools.weekly > 0 && before.open.revenue > 0);
   assert.equal(before.settings.minPerShare, 375);
 
@@ -2541,8 +2554,7 @@ test('BONUS ACHIEVERS: admin sees who got weekly, performance and leadership bon
   assert.ok(after.period && after.periods.length >= 1);
   const paid = after.paid.weekly.find((x: any) => x.email === top.email);
   assert.ok(paid && paid.amount >= 500, 'paid at least the new minimum');
-  assert.ok(after.paid.performance.some((x: any) => x.email === top.email));
-  assert.ok(Array.isArray(after.paid.leadership));
+  assert.deepEqual([after.paid.performance, after.paid.leadership], [[], []]);
   assert.equal(after.open.weekly.some((x: any) => x.email === top.email), false, 'the new open window starts empty');
   assert.equal((await admin.call('GET', `/api/admin/bonuses?periodId=${after.period.id}`)).json.data.period.id, after.period.id);
   assert.equal(JSON.stringify(after).includes('Hash'), false);

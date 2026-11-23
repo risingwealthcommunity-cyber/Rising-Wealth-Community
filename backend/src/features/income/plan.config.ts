@@ -26,8 +26,13 @@ export const PASSIVE_PCT = [5, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1] as const;
 /** How many passive levels each package unlocks. Locked levels go to the company fund. */
 export const PASSIVE_LEVELS_UNLOCKED: Record<Package, number> = { TRAINEE: 0, PRO: 7, ELITE: 12 };
 
-/** Pool percentages of total confirmed package revenue per payout period. */
-export const POOL_PCT = { WEEKLY: 5, PERFORMANCE: 5, LEADERSHIP: 12 } as const;
+/**
+ * Pool percentages of confirmed package revenue. WEEKLY is shared out when the week closes (Sunday midnight, IST) and then starts again.
+ * PERFORMANCE (Team Performance Bonus) and LEADERSHIP (Leadership Bonus) never reset: every sale adds to them, and each bonus
+ * paid to a member is taken out of them. COMPANY_FUND is the company's own part of every sale.
+ */
+export const POOL_PCT = { WEEKLY: 5, PERFORMANCE: 20, LEADERSHIP: 5 } as const;
+export const COMPANY_FUND_PCT = 20;
 
 /**
  * Demat referral income.
