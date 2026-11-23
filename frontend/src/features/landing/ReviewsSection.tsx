@@ -1,3 +1,4 @@
+import { useT } from './pageText';
 import { useState } from 'react';
 import type { Review, SiteAssets } from '../site';
 import Lightbox from './Lightbox';
@@ -9,6 +10,7 @@ import { initials } from './initials';
  * its own (pausing on hover); clicking a card opens the screenshot full size.
  */
 export default function ReviewsSection({ reviews, assets }: { reviews: Review[] | null; assets: SiteAssets }) {
+  const t = useT();
   const [open, setOpen] = useState<{ src: string; alt: string } | null>(null);
 
   const shown = (reviews ?? []).filter((r) => r.id && assets[`review-${r.id}`]);
@@ -19,8 +21,8 @@ export default function ReviewsSection({ reviews, assets }: { reviews: Review[] 
 
   return (
     <section className="lp-section lp-reviews-wrap" id="reviews">
-      <h2>What our members say</h2>
-      <p className="lp-section-sub">Real stories from real people in our community.</p>
+      <h2>{t('reviews.title')}</h2>
+      <p className="lp-section-sub">{t('reviews.sub')}</p>
 
       <div className={`lp-reviews ${scrolling ? 'is-scrolling' : ''}`}>
         <div className="lp-reviews-track">

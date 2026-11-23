@@ -1,3 +1,4 @@
+import { useT } from './pageText';
 import type { ReactNode } from 'react';
 import type { SiteAssets } from '../site';
 
@@ -50,10 +51,11 @@ const FEATURES: { title: string; text: string; icon: ReactNode }[] = [
 ];
 
 export default function FeaturesSection({ assets }: { assets: SiteAssets }) {
+  const t = useT();
   return (
     <section className="lp-section" id="why">
-      <h2>Why join Rising Wealth</h2>
-      <p className="lp-section-sub">Everything you need to learn, earn and grow, in one place.</p>
+      <h2>{t('features.title')}</h2>
+      <p className="lp-section-sub">{t('features.sub')}</p>
       <div className="lp-features">
         {FEATURES.map((f, i) => {
           const image = assets[`feature-${i + 1}`];
@@ -68,8 +70,8 @@ export default function FeaturesSection({ assets }: { assets: SiteAssets }) {
                   </svg>
                 </span>
               )}
-              <h3>{f.title}</h3>
-              <p>{f.text}</p>
+              <h3>{t(`feature.${i + 1}.title`, f.title)}</h3>
+              <p>{t(`feature.${i + 1}.text`, f.text)}</p>
             </div>
           );
         })}

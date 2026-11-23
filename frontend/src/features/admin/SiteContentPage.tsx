@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { DEFAULT_CONTACT, DEFAULT_MILESTONES, useSiteContent } from '../site';
 import ContactEditor from './ContactEditor';
+import PageTextEditor from './PageTextEditor';
 import PaymentEditor from './PaymentEditor';
 import ImageSlot from './ImageSlot';
 import ListEditor from './ListEditor';
@@ -28,6 +29,7 @@ export default function SiteContentPage() {
         <h1>Website content</h1>
         <p className="muted">Changes go live on the home page as soon as you save or upload.</p>
         <nav className="jump" aria-label="What you can change">
+          <a href="#sec-text">Written content</a>
           <a href="#sec-images">Page images</a>
           <a href="#sec-numbers">Numbers (milestones)</a>
           <a href="#sec-team">Team members</a>
@@ -46,6 +48,10 @@ export default function SiteContentPage() {
         </div>
       ) : (
         <>
+          <div id="sec-text">
+            <PageTextEditor saved={content.pageText?.texts ?? {}} onSaved={reload} />
+          </div>
+
           <div className="card" id="sec-images">
             <h2>Page images</h2>
             <p className="muted">PNG, JPEG or WebP, up to 6 MB each.</p>

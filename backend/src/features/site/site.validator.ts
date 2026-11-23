@@ -75,6 +75,13 @@ export const bonusRewardsSchema = z.object({
   leadership: z.array(z.object({ size: z.number().int().min(1).max(1_000_000), reward: z.number().min(0).max(100_000_000) })).min(1).max(40)
 });
 
+/** The sentences an admin changed on the home page: key (letters, digits and dots) to text. */
+export const pageTextSchema = z.object({
+  texts: z
+    .record(z.string().regex(/^[a-z0-9.]{2,40}$/, 'Unknown text'), z.string().trim().max(600))
+    .refine((o) => Object.keys(o).length <= 120, 'Too many texts')
+});
+
 export const contactSchema = z.object({
   phone,
   whatsapp: phone,
@@ -95,7 +102,8 @@ export const SETTING_SCHEMAS = {
   payment: paymentSchema,
   rankPerks: rankPerksSchema,
   weeklyBonus: weeklyBonusSchema,
-  bonusRewards: bonusRewardsSchema
+  bonusRewards: bonusRewardsSchema,
+  pageText: pageTextSchema
 } as const;
 
 export type SettingName = keyof typeof SETTING_SCHEMAS;

@@ -1,3 +1,4 @@
+import { useT } from './pageText';
 import { useEffect, useRef } from 'react';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
@@ -24,6 +25,7 @@ function setText(el: HTMLElement, value: string) {
 }
 
 export default function MilestonesSection({ milestones, assets }: { milestones: Milestone[] | null; assets: SiteAssets }) {
+  const t = useT();
   const items = milestones && milestones.length > 0 ? milestones : DEFAULT_MILESTONES;
   const root = useRef<HTMLDivElement>(null);
   const itemsKey = JSON.stringify(items);
@@ -82,8 +84,8 @@ export default function MilestonesSection({ milestones, assets }: { milestones: 
 
   return (
     <section className="lp-section" id="milestones">
-      <h2>Our milestones</h2>
-      <p className="lp-section-sub">Proud of our community&rsquo;s collective achievements.</p>
+      <h2>{t('milestones.title')}</h2>
+      <p className="lp-section-sub">{t('milestones.sub')}</p>
       <div className="lp-stats" ref={root}>
         {items.map((m, i) => {
           const bg = assets[`milestone-${i + 1}`];

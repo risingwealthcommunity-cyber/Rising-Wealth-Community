@@ -2958,6 +2958,27 @@ test('ADMIN DEDUCT AND HOLD: a hold keeps money in the wallet but out of reach; 
   assert.deepEqual([w.held, w.available], [0, 800]);
 });
 
+test('PAGE TEXT: the admin changes the written content of the home page; everyone sees it, and it can be put back', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_pt_m');
+  const put = (c: Client, body: object) => c.call('PUT', '/api/site/content/pageText', body);
+  const pub = async () => ((await new Client().call('GET', '/api/site/content')).json.data.pageText?.texts ?? {}) as Record<string, string>;
+
+  assert.equal((await put(m.c, { texts: { 'hero.cta': 'Join today' } })).status, 403, 'members cannot');
+  assert.equal((await put(new Client(), { texts: { 'hero.cta': 'Join today' } })).status, 401);
+  assert.equal((await put(admin, { texts: { 'Bad Key!': 'x' } })).status, 400, 'only letters, digits and dots in a key');
+  assert.equal((await put(admin, { texts: { 'hero.cta': 'x'.repeat(601) } })).status, 400, 'at most 600 characters');
+  assert.equal((await put(admin, { texts: 'nope' })).status, 400);
+
+  { const rr = await put(admin, { texts: { 'hero.cta': 'Join today', 'plan.2.price': 'Rs 2,999' } }); assert.equal(rr.status, 200, JSON.stringify(rr.json)); }
+  assert.deepEqual(await pub(), { 'hero.cta': 'Join today', 'plan.2.price': 'Rs 2,999' }, 'the public home page gets it, no login needed');
+
+  // saving a smaller set puts the rest back to the original
+  assert.equal((await put(admin, { texts: { 'hero.cta': 'Join today' } })).status, 200);
+  assert.deepEqual(await pub(), { 'hero.cta': 'Join today' });
+  assert.equal((await put(admin, { texts: {} })).status, 200);
+  assert.deepEqual(await pub(), {});
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

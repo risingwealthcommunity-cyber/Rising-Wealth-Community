@@ -69,7 +69,8 @@ export const siteService = {
       milestones: val('milestones'),
       team: val('team'),
       reviews: val('reviews'),
-      contact: val('contact')
+      contact: val('contact'),
+      pageText: val('pageText')
     };
   },
 

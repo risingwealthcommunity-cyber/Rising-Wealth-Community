@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { SiteAssets } from '../site';
 import Lightbox from './Lightbox';
+import { useT } from './pageText';
 
 const VALUES = [
   { title: 'Transparency', text: 'Your wallet, your team and every payout are visible in your dashboard.' },
@@ -9,6 +10,7 @@ const VALUES = [
 ];
 
 export default function AboutSection({ assets }: { assets: SiteAssets }) {
+  const t = useT();
   const about = assets['about-image'];
   const certificate = assets.certificate;
   const [zoom, setZoom] = useState(false);
@@ -17,20 +19,10 @@ export default function AboutSection({ assets }: { assets: SiteAssets }) {
     <section className="lp-section lp-about" id="about">
       <div className="lp-about-grid">
         <div className="lp-about-copy">
-          <h2>About Rising Wealth Community</h2>
-          <p>
-            Rising Wealth Community is a learning-and-earning community built on a simple belief: people grow faster
-            when they grow together.
-          </p>
-          <p>
-            You start free as a Trainee, learn through live trainings and community support, and earn from Demat
-            referrals. When you are ready, the PRO and ELITE packages unlock package income, passive levels, bonus pools
-            and rank rewards.
-          </p>
-          <p>
-            Everything is tracked in the open. Your wallet, your team and every payout sit in your dashboard, so you
-            always know where your income comes from.
-          </p>
+          <h2>{t('about.title')}</h2>
+          <p>{t('about.p1')}</p>
+          <p>{t('about.p2')}</p>
+          <p>{t('about.p3')}</p>
         </div>
 
         <div className="lp-about-media">
@@ -45,10 +37,10 @@ export default function AboutSection({ assets }: { assets: SiteAssets }) {
       </div>
 
       <ul className="lp-values">
-        {VALUES.map((v) => (
+        {VALUES.map((v, i) => (
           <li key={v.title}>
-            <b>{v.title}</b>
-            <span>{v.text}</span>
+            <b>{t(`about.v${i + 1}.title`, v.title)}</b>
+            <span>{t(`about.v${i + 1}.text`, v.text)}</span>
           </li>
         ))}
       </ul>
@@ -67,7 +59,7 @@ export default function AboutSection({ assets }: { assets: SiteAssets }) {
           </svg>
           Trusted &amp; Registered
         </h3>
-        <p>Registered under MSME, Government of India.</p>
+        <p>{t('about.msme')}</p>
 
         {certificate ? (
           <>

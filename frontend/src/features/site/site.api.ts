@@ -39,6 +39,7 @@ export interface SiteContent {
   team: TeamMember[] | null;
   reviews: Review[] | null;
   contact: Contact | null;
+  pageText?: { texts: Record<string, string> } | null;
 }
 
 export type ContentBlock = 'milestones' | 'team' | 'reviews' | 'contact';

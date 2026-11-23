@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom';
+import { useT } from './pageText';
 
 export default function CtaBanner({ signedIn }: { signedIn: boolean }) {
+  const t = useT();
   return (
     <section className="lp-section" id="join">
       <div className="lp-cta-banner">
-        <h2>Your income journey starts here</h2>
-        <p>Join free as a Trainee, learn with the community, and upgrade only when you are ready.</p>
+        <h2>{t('cta.title')}</h2>
+        <p>{t('cta.text')}</p>
         <div className="lp-cta-actions">
           {signedIn ? (
             <Link className="lp-cta" to="/dashboard">
@@ -14,10 +16,10 @@ export default function CtaBanner({ signedIn }: { signedIn: boolean }) {
           ) : (
             <>
               <Link className="lp-cta" to="/register">
-                Join now
+                {t('cta.join')}
               </Link>
               <Link className="lp-cta-ghost" to="/login">
-                Already a member?
+                {t('cta.member')}
               </Link>
             </>
           )}

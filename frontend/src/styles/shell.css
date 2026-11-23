@@ -759,3 +759,11 @@ label.narrow { max-width: 360px; }
 .level-row { display: grid; grid-template-columns: 70px 1fr 1fr auto auto; gap: 10px; align-items: end; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: #fff; }
 .level-row label { display: grid; gap: 4px; font-size: 0.8rem; }
 @media (max-width: 720px) { .level-row { grid-template-columns: 1fr 1fr; } .level-row b { grid-column: 1 / -1; } }
+
+/* ---------- admin: the written content of the home page */
+.text-group { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: #fff; }
+.text-group-head { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border: 0; background: #f4f5f7; cursor: pointer; font: inherit; }
+.text-rows { display: grid; gap: 12px; padding: 14px; }
+.text-row { display: grid; gap: 6px; font-size: 0.85rem; }
+.text-row > span { display: flex; gap: 10px; align-items: center; justify-content: space-between; font-weight: 600; }
+.link-btn { border: 0; background: none; color: #2563eb; cursor: pointer; font: 500 0.78rem 'Inter', sans-serif; padding: 0; }

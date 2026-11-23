@@ -10,6 +10,7 @@ import FeaturesSection from './FeaturesSection';
 import Hero3D from './Hero3D';
 import MilestonesSection from './MilestonesSection';
 import ReviewsSection from './ReviewsSection';
+import { PageTextProvider, useT } from './pageText';
 import SiteFooter from './SiteFooter';
 import TeamSection from './TeamSection';
 import TypedWordmark from './TypedWordmark';
@@ -39,6 +40,16 @@ const PLANS = [
 ];
 
 export default function LandingPage() {
+  const { content } = useSiteContent();
+  return (
+    <PageTextProvider texts={content.pageText?.texts}>
+      <LandingBody />
+    </PageTextProvider>
+  );
+}
+
+function LandingBody() {
+  const t = useT();
   const { user } = useAuth();
   const root = useRef<HTMLDivElement>(null);
   const { content, failed } = useSiteContent();
@@ -113,22 +124,18 @@ export default function LandingPage() {
               <span className="grad">Growth</span>
             </span>
           </h1>
-          <p className="lp-sub">
-            A dynamic community dedicated to financial growth, meaningful opportunities, and collective success.
-            Empowering individuals through knowledge, collaboration, and growth-driven initiatives to unlock their true
-            potential and build a prosperous future together.
-          </p>
+          <p className="lp-sub">{t('hero.sub')}</p>
           <div className="lp-actions">
             {!user && (
               <Link className="lp-cta" to="/register">
-                Start free {'↗'}
+                {t('hero.cta')} {'↗'}
               </Link>
             )}
             <a className="lp-ghost" href="#plans">
-              See plans
+              {t('hero.plans')}
             </a>
           </div>
-          <span className="lp-hint">Hover the notes and coins</span>
+          <span className="lp-hint">{t('hero.hint')}</span>
         </div>
       </section>
 
@@ -137,39 +144,31 @@ export default function LandingPage() {
       <MilestonesSection milestones={content.milestones} assets={content.assets} />
 
       <section className="lp-section" id="how">
-        <h2>How you earn</h2>
+        <h2>{t('how.title')}</h2>
         <div className="lp-steps">
-          <div>
-            <b>01</b>
-            <h3>Join and learn</h3>
-            <p>Sign up free with a sponsor link and start as a Trainee.</p>
-          </div>
-          <div>
-            <b>02</b>
-            <h3>Refer and earn</h3>
-            <p>Earn from Demat referrals, and from your team's activity down 5 passive levels.</p>
-          </div>
-          <div>
-            <b>03</b>
-            <h3>Upgrade and grow</h3>
-            <p>PRO and ELITE unlock package income, more levels, pools and 16 rank rewards.</p>
-          </div>
+          {[1, 2, 3].map((n) => (
+            <div key={n}>
+              <b>{`0${n}`}</b>
+              <h3>{t(`how.${n}.title`)}</h3>
+              <p>{t(`how.${n}.text`)}</p>
+            </div>
+          ))}
         </div>
       </section>
 
       <ReviewsSection reviews={content.reviews} assets={content.assets} />
 
       <section className="lp-section" id="plans">
-        <h2>Pick your plan</h2>
+        <h2>{t('plans.title')}</h2>
         <div className="lp-plans">
-          {PLANS.map((p) => (
+          {PLANS.map((p, i) => (
             <div key={p.name} className={`lp-plan ${p.featured ? 'featured' : ''}`}>
-              <span className="lp-plan-name">{p.name}</span>
-              <strong>{p.price}</strong>
-              <p>{p.note}</p>
+              <span className="lp-plan-name">{t(`plan.${i + 1}.name`, p.name)}</span>
+              <strong>{t(`plan.${i + 1}.price`, p.price)}</strong>
+              <p>{t(`plan.${i + 1}.note`, p.note)}</p>
               <ul>
-                {p.perks.map((perk) => (
-                  <li key={perk}>{perk}</li>
+                {p.perks.map((perk, k) => (
+                  <li key={perk}>{t(`plan.${i + 1}.perk${k + 1}`, perk)}</li>
                 ))}
               </ul>
             </div>

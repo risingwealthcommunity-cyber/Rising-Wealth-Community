@@ -1,14 +1,16 @@
 import type { SiteAssets, TeamMember } from '../site';
 import { initials } from './initials';
+import { useT } from './pageText';
 
 /** Hidden until an admin adds at least one member, so the page never shows made-up people. */
 export default function TeamSection({ team, assets }: { team: TeamMember[] | null; assets: SiteAssets }) {
+  const t = useT();
   if (!team || team.length === 0) return null;
 
   return (
     <section className="lp-section" id="team">
-      <h2>Meet our team</h2>
-      <p className="lp-section-sub">The leaders driving our community forward.</p>
+      <h2>{t('team.title')}</h2>
+      <p className="lp-section-sub">{t('team.sub')}</p>
       <div className="lp-team">
         {team.map((m) => {
           const photo = m.id ? assets[`team-${m.id}`] : undefined;
