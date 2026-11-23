@@ -31,7 +31,6 @@ interface TreeData {
   counts: { left: number; right: number; total: number };
 }
 
-const pct = (value: number, target: number) => Math.min(100, Math.round((value / target) * 100));
 const sub = (n: TreeNode) => (n.rank === 'NONE' ? label(n.package) : label(n.rank));
 
 function Slot({ node, onOpen, top, leg }: { node: TreeNode | null; onOpen: (id: string) => void; top?: boolean; leg?: 'LEFT' | 'RIGHT' }) {
@@ -108,7 +107,6 @@ export default function TeamPage() {
   };
 
   if (!team) return <p className="muted">Loading...</p>;
-  const next = team.nextRank;
   const direct = team.directReferrals.filter((r) => r.name.toLowerCase().includes(q.trim().toLowerCase()));
   const locked = team.passiveLevels.filter((l) => !l.unlocked);
 
@@ -207,42 +205,6 @@ export default function TeamPage() {
           </p>
         )}
       </div>
-
-      <div className="grid">
-        <div className="card stat">
-          <span className="muted">Rank</span>
-          <strong>{team.rank === 'NONE' ? 'Not ranked yet' : label(team.rank)}</strong>
-        </div>
-        <div className="card stat">
-          <span className="muted">Left points</span>
-          <strong>{team.points.left}</strong>
-        </div>
-        <div className="card stat">
-          <span className="muted">Right points</span>
-          <strong>{team.points.right}</strong>
-        </div>
-      </div>
-
-      {next && (
-        <div className="card">
-          <h2>
-            Next rank: {label(next.rank)} (₹{next.reward.toLocaleString('en-IN')} one-time)
-          </h2>
-          <p className="muted">
-            Needs {next.requiredEachLeg} : {next.requiredEachLeg} new points. Points reset after every rank.
-          </p>
-          {(['left', 'right'] as const).map((leg) => (
-            <div key={leg}>
-              <small className="muted">
-                {label(leg)}: {team.points[leg]} / {next.requiredEachLeg}
-              </small>
-              <div className="bar">
-                <div style={{ width: `${pct(team.points[leg], next.requiredEachLeg)}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </>
   );
 }
