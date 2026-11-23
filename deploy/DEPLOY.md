@@ -72,3 +72,9 @@ Oracle ke iptables wale steps yahan nahi chahiye. Baaki sab same hai.
    ```
    Restore: `gunzip -c /var/backups/rwc/<file>.sql.gz | docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T db psql -U rwc rwc`
 6. **Update:** `cd rwc && git pull && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build`
+
+## 2 GB wali machine ke liye swap (build ke waqt memory bachane ke liye)
+```
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
