@@ -42,7 +42,7 @@ interface Bonuses {
     company: { pct: number; total: number };
   };
   achievers: { performance: Achiever[]; leadership: Achiever[] };
-  settings: { minPerShare: number; rewards: { team: { members: number; reward: number }[]; leadership: { size: number; reward: number }[] } };
+  settings: { minPerShare: number; rewards: { team: { members: number; reward: number; name?: string; perkTitle?: string; perkText?: string }[]; leadership: { size: number; reward: number; name?: string }[] } };
 }
 
 const WEEKLY = {
@@ -116,8 +116,8 @@ export default function AdminBonusesPage() {
   const [data, setData] = useState<Bonuses | null>(null);
   const [periodId, setPeriodId] = useState('');
   const [min, setMin] = useState('');
-  const [teamLevels, setTeamLevels] = useState<{ members: string; reward: string }[]>([]);
-  const [leadLevels, setLeadLevels] = useState<{ size: string; reward: string }[]>([]);
+  const [teamLevels, setTeamLevels] = useState<{ members: string; reward: string; name: string; perkTitle: string; perkText: string }[]>([]);
+  const [leadLevels, setLeadLevels] = useState<{ size: string; reward: string; name: string }[]>([]);
   const rewards = useRun();
   const save = useRun();
   const close = useRun();
@@ -128,8 +128,8 @@ export default function AdminBonusesPage() {
         setData(r.data ?? null);
         if (r.data) setMin((m) => m || String(r.data!.settings.minPerShare));
         if (r.data) {
-          setTeamLevels((a) => (a.length ? a : r.data!.settings.rewards.team.map((t) => ({ members: String(t.members), reward: String(t.reward) }))));
-          setLeadLevels((a) => (a.length ? a : r.data!.settings.rewards.leadership.map((t) => ({ size: String(t.size), reward: String(t.reward) }))));
+          setTeamLevels((a) => (a.length ? a : r.data!.settings.rewards.team.map((t) => ({ members: String(t.members), reward: String(t.reward), name: t.name ?? '', perkTitle: t.perkTitle ?? '', perkText: t.perkText ?? '' }))));
+          setLeadLevels((a) => (a.length ? a : r.data!.settings.rewards.leadership.map((t) => ({ size: String(t.size), reward: String(t.reward), name: t.name ?? '' }))));
         }
       })
       .catch(() => setData(null));
@@ -149,8 +149,8 @@ export default function AdminBonusesPage() {
 
   const saveRewards = (e: FormEvent) => {
     e.preventDefault();
-    const team = teamLevels.map((t) => ({ members: Number(t.members), reward: Number(t.reward) }));
-    const leadership = leadLevels.map((t) => ({ size: Number(t.size), reward: Number(t.reward) }));
+    const team = teamLevels.map((t) => ({ members: Number(t.members), reward: Number(t.reward), name: t.name.trim(), perkTitle: t.perkTitle.trim(), perkText: t.perkText.trim() }));
+    const leadership = leadLevels.map((t) => ({ size: Number(t.size), reward: Number(t.reward), name: t.name.trim() }));
     const bad = [...team.map((t) => t.members), ...leadership.map((t) => t.size)].some((n) => !Number.isInteger(n) || n < 1);
     if (bad || [...team, ...leadership].some((t) => !Number.isFinite(t.reward) || t.reward < 0)) {
       return rewards.setMsg({ type: 'error', text: 'Every size must be a whole number of 1 or more, and every reward a number of rupees (0 or more).' });
@@ -189,6 +189,10 @@ export default function AdminBonusesPage() {
             <div className="level-row" key={i}>
               <b>Level {i + 1}</b>
               <label>
+                Rank name
+                <input value={t.name} maxLength={40} placeholder="e.g. Silver" onChange={(e) => setTeamLevels((a) => a.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} aria-label={`Team Performance level ${i + 1} name`} />
+              </label>
+              <label>
                 Members each side
                 <input value={t.members} inputMode="numeric" onChange={(e) => setTeamLevels((a) => a.map((x, j) => (j === i ? { ...x, members: e.target.value } : x)))} aria-label={`Team Performance level ${i + 1} members`} />
               </label>
@@ -202,7 +206,7 @@ export default function AdminBonusesPage() {
             </div>
           ))}
         </div>
-        <button className="btn ghost" type="button" disabled={teamLevels.length >= 40} onClick={() => setTeamLevels((a) => [...a, { members: String((Number(a[a.length - 1]?.members) || 1) * 2), reward: String((Number(a[a.length - 1]?.reward) || 0) * 2) }])}>
+        <button className="btn ghost" type="button" disabled={teamLevels.length >= 40} onClick={() => setTeamLevels((a) => [...a, { members: String((Number(a[a.length - 1]?.members) || 1) * 2), reward: String((Number(a[a.length - 1]?.reward) || 0) * 2), name: '', perkTitle: '', perkText: '' }])}>
           + Add a level
         </button>
 
@@ -213,6 +217,10 @@ export default function AdminBonusesPage() {
             return (
               <div className="level-row" key={i}>
                 <b>Level {i + 1}</b>
+                <label>
+                  Name
+                  <input value={t.name} maxLength={40} placeholder="optional" onChange={(e) => setLeadLevels((a) => a.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} aria-label={`Leadership level ${i + 1} name`} />
+                </label>
                 <label>
                   Points to add
                   <input value={t.size} inputMode="numeric" onChange={(e) => setLeadLevels((a) => a.map((x, j) => (j === i ? { ...x, size: e.target.value } : x)))} aria-label={`Leadership level ${i + 1} points`} />
@@ -229,7 +237,7 @@ export default function AdminBonusesPage() {
             );
           })}
         </div>
-        <button className="btn ghost" type="button" disabled={leadLevels.length >= 40} onClick={() => setLeadLevels((a) => [...a, { size: String((Number(a[a.length - 1]?.size) || 3) * 2), reward: String((Number(a[a.length - 1]?.reward) || 0) * 2) }])}>
+        <button className="btn ghost" type="button" disabled={leadLevels.length >= 40} onClick={() => setLeadLevels((a) => [...a, { size: String((Number(a[a.length - 1]?.size) || 3) * 2), reward: String((Number(a[a.length - 1]?.reward) || 0) * 2), name: '' }])}>
           + Add a level
         </button>
 

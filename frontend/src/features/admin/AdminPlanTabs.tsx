@@ -5,44 +5,84 @@ import { date, inr, label } from '../../shared/format';
 import { useRun } from '../../shared/useRun';
 import ImageSlot from './ImageSlot';
 
-/** The perk (bike, trip, gadget...) shown for each rank, and claimable by members who reached it. */
+interface Level {
+  members: number;
+  reward: number;
+  name?: string;
+  perkTitle?: string;
+  perkText?: string;
+}
+
+/**
+ * The rank of every Team Performance level: its name, cash reward and extra reward (bike, trip, gadget...). It is the same list as the
+ * levels on the Bonuses page: add a level there and it appears here, remove one and it is gone from here too.
+ */
 export function RankPerksEditor() {
-  const [rows, setRows] = useState<{ rank: string; reward: number; title: string; description: string }[] | null>(null);
+  const [levels, setLevels] = useState<Level[] | null>(null);
+  const [leadership, setLeadership] = useState<unknown[]>([]);
   const save = useRun();
 
-  useEffect(() => {
-    api<{ items: { rank: string; reward: number; perk: { title: string; description: string } | null }[] }>('/team/ranks')
-      .then((r) => setRows((r.data?.items ?? []).map((i) => ({ rank: i.rank, reward: i.reward, title: i.perk?.title ?? '', description: i.perk?.description ?? '' }))))
-      .catch(() => setRows([]));
+  const load = useCallback(() => {
+    api<{ settings: { rewards: { team: Level[]; leadership: unknown[] } } }>('/admin/bonuses')
+      .then((r) => {
+        setLevels(r.data?.settings.rewards.team ?? []);
+        setLeadership(r.data?.settings.rewards.leadership ?? []);
+      })
+      .catch(() => setLevels([]));
   }, []);
+  useEffect(load, [load]);
 
-  const set = (i: number, key: 'title' | 'description', v: string) => setRows((r) => r && r.map((row, idx) => (idx === i ? { ...row, [key]: v } : row)));
+  const set = (i: number, patch: Partial<Level>) => setLevels((l) => l && l.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const items = (rows ?? []).filter((r) => r.title.trim()).map((r) => ({ rank: r.rank, title: r.title.trim(), description: r.description.trim() }));
-    void save.run(() => api('/site/content/rankPerks', { method: 'PUT', body: { items } }), 'Rank perks saved. Members see them on the Ranks page.');
+    const team = (levels ?? []).map((r) => ({
+      members: r.members,
+      reward: Number(r.reward),
+      name: (r.name ?? '').trim(),
+      perkTitle: (r.perkTitle ?? '').trim(),
+      perkText: (r.perkText ?? '').trim()
+    }));
+    if (team.some((t) => !Number.isFinite(t.reward) || t.reward < 0)) return save.setMsg({ type: 'error', text: 'Every cash reward must be a number of rupees, zero or more.' });
+    void save.run(async () => {
+      const r = await api('/site/content/bonusRewards', { method: 'PUT', body: { team, leadership } });
+      load();
+      return r;
+    }, 'Saved. Members see the new names and extra rewards on the Team Performance Bonus page.');
   };
 
   return (
     <form className="card stack" onSubmit={submit}>
       <h2>Rank perks</h2>
-      <p className="muted">Write the perk for a rank, for example "Goa trip, up to ₹25,000". Leave the title empty for a rank with no perk. Members who reach the rank can claim it, and claims appear below.</p>
-      {rows === null && <p className="muted">Loading...</p>}
-      {rows?.map((r, i) => (
-        <div className="row-edit" key={r.rank}>
+      <p className="muted">
+        One section for each Team Performance level. Give the rank a name, set its cash reward, and write its extra reward (for example "Goa trip, up to ₹25,000"; leave empty for none). Members who complete the level can claim it, and claims appear below.
+        To add or remove a rank, add or remove a level on the Bonuses page: it appears here, or disappears, by itself.
+      </p>
+      {levels === null && <p className="muted">Loading...</p>}
+      {levels?.map((r, i) => (
+        <div className="row-edit" key={i}>
           <div className="row-edit-fields">
             <b>
-              {label(r.rank)} <span className="muted">· cash reward {inr(r.reward)}</span>
+              Level {i + 1} <span className="muted">· {r.members} : {r.members} new members</span>
             </b>
-            <input value={r.title} onChange={(e) => set(i, 'title', e.target.value)} placeholder="Perk title (empty = none)" maxLength={80} />
-            <textarea rows={2} value={r.description} onChange={(e) => set(i, 'description', e.target.value)} placeholder="Details (optional)" maxLength={300} />
+            <div className="form-row">
+              <label>
+                Rank name
+                <input value={r.name ?? ''} onChange={(e) => set(i, { name: e.target.value })} placeholder="e.g. Silver" maxLength={40} />
+              </label>
+              <label>
+                Cash reward (₹)
+                <input value={String(r.reward)} inputMode="decimal" onChange={(e) => set(i, { reward: e.target.value as unknown as number })} />
+              </label>
+            </div>
+            <input value={r.perkTitle ?? ''} onChange={(e) => set(i, { perkTitle: e.target.value })} placeholder="Extra reward (empty = none)" maxLength={80} />
+            <textarea rows={2} value={r.perkText ?? ''} onChange={(e) => set(i, { perkText: e.target.value })} placeholder="Details (optional)" maxLength={300} />
           </div>
         </div>
       ))}
       {save.msg && <div className={`alert ${save.msg.type}`}>{save.msg.text}</div>}
       <div className="profile-actions">
-        <button className="btn" disabled={save.busy || rows === null}>
+        <button className="btn" disabled={save.busy || levels === null || levels.length === 0}>
           Save rank perks
         </button>
       </div>

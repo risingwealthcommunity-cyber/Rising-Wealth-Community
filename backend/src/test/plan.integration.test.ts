@@ -2921,8 +2921,8 @@ test('BONUS LEVELS: the admin edits and adds Team Performance and Leadership tar
   const m = await signup('RWCROOT', 'LEFT', 'mny_ba_m');
   const put = (c: Client, body: object) => c.call('PUT', '/api/site/content/bonusRewards', body);
   // seven team targets (two more than the plan) and nine leadership targets (one more)
-  const team = [2, 4, 8, 16, 32, 64, 128].map((members, i) => ({ members, reward: 800 * 2 ** i }));
-  const leadership = [6, 12, 24, 48, 96, 192, 384, 768, 1536].map((size, i) => ({ size, reward: 700 * 2 ** i }));
+  const team = [2, 4, 8, 16, 32, 64, 128].map((members, i) => ({ members, reward: 800 * 2 ** i, ...(i === 0 ? { name: 'Starter', perkTitle: 'Bike Fund (50k)', perkText: 'Pick your own bike' } : {}) }));
+  const leadership = [6, 12, 24, 48, 96, 192, 384, 768, 1536].map((size, i) => ({ size, reward: 700 * 2 ** i, ...(i === 1 ? { name: 'Captain' } : {}) }));
 
   assert.equal((await put(m.c, { team, leadership })).status, 403, 'members cannot');
   assert.equal((await put(admin, { team: [], leadership })).status, 400, 'at least one team target');
@@ -2930,11 +2930,15 @@ test('BONUS LEVELS: the admin edits and adds Team Performance and Leadership tar
   assert.equal((await put(admin, { team: [{ members: 0, reward: 10 }], leadership })).status, 400, 'a target needs at least 1 member');
   assert.equal((await put(admin, { team: [{ members: 2, reward: -5 }], leadership })).status, 400, 'no negative amounts');
   assert.equal((await put(admin, { team: [{ members: 2.5, reward: 5 }], leadership })).status, 400, 'whole members only');
+  assert.equal((await put(admin, { team: [{ members: 2, reward: 5, name: 'x'.repeat(41) }], leadership })).status, 400, 'a name is at most 40 characters');
   assert.equal((await put(admin, { team: Array.from({ length: 41 }, () => ({ members: 2, reward: 1 })), leadership })).status, 400, 'at most 40 targets');
   assert.equal((await put(admin, { team, leadership })).status, 200);
 
   const seen = (await m.c.call('GET', '/api/team/bonuses')).json.data;
   assert.deepEqual(seen.team.targets.map((t: any) => [t.members, t.reward]), team.map((t) => [t.members, t.reward]));
+  assert.deepEqual([seen.team.targets[0].name, seen.team.targets[0].extraReward, seen.team.targets[0].extraRewardText], ['Starter', 'Bike Fund (50k)', 'Pick your own bike'], 'the rank name and extra reward the admin set');
+  assert.equal(seen.team.targets[1].name, null, 'a level without a name keeps the plan rank name');
+  assert.equal(seen.leadership.targets[1].name, 'Captain');
   assert.equal(seen.team.targets.length, 7, 'two targets were added');
   assert.deepEqual(seen.leadership.targets.map((t: any) => [t.size, t.reward]), leadership.map((t) => [t.size, t.reward]));
   assert.deepEqual(seen.leadership.targets.map((t: any) => t.threshold), [6, 18, 42, 90, 186, 378, 762, 1530, 3066], 'thresholds add up');

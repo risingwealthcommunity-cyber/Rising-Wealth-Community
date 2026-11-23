@@ -70,9 +70,22 @@ export const weeklyBonusSchema = z.object({
 /** The rupee reward of each Team Performance target (5) and each Leadership target (8), in order. Applies to targets completed from now on. */
 export const bonusRewardsSchema = z.object({
   /** Each target needs `members` NEW members on EACH side; the reward is in rupees. Targets are won in this order. */
-  team: z.array(z.object({ members: z.number().int().min(1).max(1_000_000), reward: z.number().min(0).max(100_000_000) })).min(1).max(40),
+  team: z
+    .array(
+      z.object({
+        members: z.number().int().min(1).max(1_000_000),
+        reward: z.number().min(0).max(100_000_000),
+        /** The rank name members see (empty = the plan's own rank name). */
+        name: z.string().trim().max(40).optional(),
+        /** The extra reward (a perk) and its details, claimable once the level is done. */
+        perkTitle: z.string().trim().max(80).optional(),
+        perkText: z.string().trim().max(300).optional()
+      })
+    )
+    .min(1)
+    .max(40),
   /** Each target needs `size` more points than the one before; the reward is in rupees. */
-  leadership: z.array(z.object({ size: z.number().int().min(1).max(1_000_000), reward: z.number().min(0).max(100_000_000) })).min(1).max(40)
+  leadership: z.array(z.object({ size: z.number().int().min(1).max(1_000_000), reward: z.number().min(0).max(100_000_000), name: z.string().trim().max(40).optional() })).min(1).max(40)
 });
 
 /** The sentences an admin changed on the home page: key (letters, digits and dots) to text. */

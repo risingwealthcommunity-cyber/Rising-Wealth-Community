@@ -100,7 +100,10 @@ router.get('/bonuses', requireAuth, async (req: Request, res: Response) => {
     target: i + 1,
     // each target is a rank: its name, and the extra reward (a perk) the admin set for that rank
     rank: RANKS[i]?.rank ?? null,
-    extraReward: perks.find((p) => p.rank === RANKS[i]?.rank)?.title ?? null,
+    // the name the admin gave the level (or the plan's rank name), and its extra reward (set on the level, or the older rank perk)
+    name: t.name?.trim() || null,
+    extraReward: t.perkTitle?.trim() || perks.find((p) => p.rank === RANKS[i]?.rank)?.title || null,
+    extraRewardText: t.perkText?.trim() || perks.find((p) => p.rank === RANKS[i]?.rank)?.description || null,
     claim: perkClaims.find((c) => c.rank === RANKS[i]?.rank) ?? null,
     members: t.members,
     reward: t.reward,
@@ -114,6 +117,7 @@ router.get('/bonuses', requireAuth, async (req: Request, res: Response) => {
     size: t.size,
     threshold: t.threshold,
     reward: t.paise / 100,
+    name: rewards.leadership[t.index - 1]?.name?.trim() || null,
     status: t.index <= me.leadershipTargetsDone ? 'DONE' : t.index === me.leadershipTargetsDone + 1 ? 'CURRENT' : 'LOCKED',
     completedAt: t.index <= me.leadershipTargetsDone ? doneAt('LEADERSHIP_TARGET_BONUS', t.index) : null
   }));
@@ -300,13 +304,15 @@ router.post('/perks/:rank/claim', requireAuth, async (req: Request, res: Respons
   const userId = req.user!.id;
   if (!RANK_KEYS.includes(rank)) throw new AppError('Unknown rank', 404);
 
-  const me = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { rank: true } });
-  const reached = me.rank !== 'NONE' && RANK_KEYS.indexOf(me.rank) >= RANK_KEYS.indexOf(rank);
-  if (!reached) throw new AppError('You have not reached this rank yet.', 403);
+  const me = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { rank: true, teamTargetsDone: true } });
+  const at = RANK_KEYS.indexOf(rank);
+  // done: the Team Performance level of this rank is completed (or the member holds this rank, as before)
+  const reached = me.teamTargetsDone > at || (me.rank !== 'NONE' && RANK_KEYS.indexOf(me.rank) >= at);
+  if (!reached) throw new AppError('You have not completed this level yet.', 403);
 
-  const perkRow = await prisma.siteSetting.findUnique({ where: { key: 'rankPerks' } });
+  const [perkRow, levels] = await Promise.all([prisma.siteSetting.findUnique({ where: { key: 'rankPerks' } }), bonusRewards(prisma)]);
   const perks = (perkRow?.value as { items?: { rank: string }[] } | null)?.items ?? [];
-  if (!perks.some((p) => p.rank === rank)) throw new AppError('There is no perk set for this rank yet.', 404);
+  if (!levels.team[at]?.perkTitle?.trim() && !perks.some((p) => p.rank === rank)) throw new AppError('There is no extra reward set for this level yet.', 404);
 
   try {
     await prisma.perkClaim.create({ data: { userId, rank: rank as Rank } });

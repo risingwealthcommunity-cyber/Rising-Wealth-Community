@@ -8,7 +8,7 @@ type Status = 'DONE' | 'CURRENT' | 'LOCKED';
 interface Bonuses {
   eligible: boolean;
   team: {
-    targets: { target: number; rank?: string | null; extraReward?: string | null; claim?: { status: 'PENDING' | 'APPROVED' | 'REJECTED'; note: string | null } | null; members: number; reward: number; status: Status; completedAt: string | null }[];
+    targets: { target: number; rank?: string | null; name?: string | null; extraReward?: string | null; extraRewardText?: string | null; claim?: { status: 'PENDING' | 'APPROVED' | 'REJECTED'; note: string | null } | null; members: number; reward: number; status: Status; completedAt: string | null }[];
     current: { target: number; members: number; reward: number } | null;
     pendingLeft: number;
     pendingRight: number;
@@ -165,13 +165,13 @@ export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
           <tbody>
             {team.targets.map((t) => (
               <tr key={t.target} className={`st-${t.status.toLowerCase()}`}>
-                <td>{t.rank ? label(t.rank) : t.target}</td>
+                <td>{t.name || (t.rank ? label(t.rank) : t.target)}</td>
                 <td>
                   {t.members} : {t.members}
                 </td>
                 <td>{inr(t.reward)}</td>
                 <td>
-                  {t.extraReward ?? <span className="muted">–</span>}
+                  {t.extraReward ? <span title={t.extraRewardText ?? undefined}>{t.extraReward}</span> : <span className="muted">–</span>}
                   {t.extraReward && t.status === 'DONE' && !t.claim && t.rank && (
                     <button className="btn ghost" type="button" disabled={claimBusy} onClick={() => void claimPerk(t.rank as string)}>
                       Claim

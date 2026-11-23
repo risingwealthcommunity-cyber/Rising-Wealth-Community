@@ -183,15 +183,17 @@ export async function weeklyMinPaise(tx: Tx): Promise<number> {
  * The rupee reward of every Team Performance target and Leadership target: the admin's setting, or the plan default.
  * Changing it affects only targets completed afterwards.
  */
-export type BonusLevels = { team: { members: number; reward: number }[]; leadership: { size: number; reward: number }[] };
+export type TeamLevel = { members: number; reward: number; name?: string; perkTitle?: string; perkText?: string };
+export type LeadLevel = { size: number; reward: number; name?: string };
+export type BonusLevels = { team: TeamLevel[]; leadership: LeadLevel[] };
 
 export async function bonusRewards(tx: Tx): Promise<BonusLevels> {
   const row = await tx.siteSetting.findUnique({ where: { key: 'bonusRewards' } });
   const v = row?.value as { team?: unknown; leadership?: unknown } | null;
   const okRow = (x: unknown, key: 'members' | 'size'): x is Record<string, number> =>
     typeof x === 'object' && x !== null && typeof (x as Record<string, unknown>)[key] === 'number' && typeof (x as Record<string, unknown>).reward === 'number';
-  const team = Array.isArray(v?.team) && v.team.length > 0 && v.team.every((x) => okRow(x, 'members')) ? (v.team as { members: number; reward: number }[]) : null;
-  const leadership = Array.isArray(v?.leadership) && v.leadership.length > 0 && v.leadership.every((x) => okRow(x, 'size')) ? (v.leadership as { size: number; reward: number }[]) : null;
+  const team = Array.isArray(v?.team) && v.team.length > 0 && v.team.every((x) => okRow(x, 'members')) ? (v.team as unknown as TeamLevel[]) : null;
+  const leadership = Array.isArray(v?.leadership) && v.leadership.length > 0 && v.leadership.every((x) => okRow(x, 'size')) ? (v.leadership as unknown as LeadLevel[]) : null;
   return {
     team: team ?? TEAM_TARGETS.map((t) => ({ members: t.members, reward: t.reward })),
     leadership: leadership ?? leadershipTargets().map((t) => ({ size: t.size, reward: t.paise / 100 }))
