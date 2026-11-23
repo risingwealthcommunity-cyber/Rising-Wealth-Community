@@ -235,36 +235,6 @@ export default function AdminPage() {
         </label>
         <button className="btn">Record and pay</button>
       </form>
-
-      <div className="card">
-        <h2>Weekly pools</h2>
-        <p className="muted">
-          Closes the window since the last close and shares Weekly (5%), Performance (5%) and Leadership (12%) pools.
-        </p>
-        <button
-          className="btn"
-          onClick={() => {
-            if (window.confirm('Close the current period and pay out the pools?')) {
-              void run(() => api('/admin/periods/close', { method: 'POST' }));
-            }
-          }}
-        >
-          Close period and distribute
-        </button>
-        <table>
-          <tbody>
-            {periods.map((p) => (
-              <tr key={p.id}>
-                <td className="muted">{date(p.endsAt)}</td>
-                <td>Revenue {inr(p.revenue)}</td>
-                <td>Weekly {inr(p.weeklyPaid)}</td>
-                <td>Perf {inr(p.performancePaid)}</td>
-                <td>Leadership {inr(p.leadershipPaid)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </>
   );
 }
