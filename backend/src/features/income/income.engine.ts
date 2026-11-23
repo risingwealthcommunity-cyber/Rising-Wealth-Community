@@ -90,8 +90,8 @@ export function computePackageSale(pkg: PaidPackage, upline: UplineMember[]): Di
  * Demat referral: the referrer gets `directPaise` (active income). Up to 5 sponsor levels earn a
  * passive % of it, whatever their package (Trainees included). Passive levels with nobody go unpaid.
  */
-export function computeDematIncome(referrerId: string, directPaise: number, upline: UplineMember[]): Distribution {
-  const payouts: Payout[] = [{ userId: referrerId, type: 'DEMAT_DIRECT', paise: directPaise }];
+export function computeDematIncome(referrerId: string, directPaise: number, upline: UplineMember[], directType: 'DEMAT_DIRECT' | 'CAMPAIGN_REWARD' = 'DEMAT_DIRECT'): Distribution {
+  const payouts: Payout[] = [{ userId: referrerId, type: directType, paise: directPaise }];
 
   DEMAT_PASSIVE_PCT.forEach((pct, i) => {
     const member = upline[i];

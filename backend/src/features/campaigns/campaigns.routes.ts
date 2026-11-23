@@ -295,8 +295,15 @@ campaignAdminRoutes.post('/reports/:id/approve', async (req: Request, res: Respo
           note: `Demat: ${r.holderName}`
         });
       } else {
-        await tx.ledgerEntry.create({ data: { userId: r.userId, type: 'CAMPAIGN_REWARD', amount: r.campaign.reward, note: `Campaign: ${r.campaign.title}` } });
-        await tx.user.update({ where: { id: r.userId }, data: { walletBalance: { increment: r.campaign.reward } } });
+        // an ordinary campaign: the member gets the reward, and 5 sponsor levels above them earn a passive share of it (9/5/3/2/1%)
+        const reporter = await tx.user.findUniqueOrThrow({ where: { id: r.userId }, select: { sponsorId: true } });
+        await distributeDematReferral(tx, {
+          referrerId: r.userId,
+          sponsorId: reporter.sponsorId,
+          directPaise: Math.round(Number(r.campaign.reward) * 100),
+          directType: 'CAMPAIGN_REWARD',
+          note: `Campaign: ${r.campaign.title}`
+        });
       }
     }
   });

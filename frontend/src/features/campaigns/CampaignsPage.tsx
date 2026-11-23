@@ -110,7 +110,7 @@ export default function CampaignsPage() {
       )}
       {withDocs.length > 0 && (
         <section className="lesson-section">
-          <h2>Campaigns with reports</h2>
+          <h2>Campaigns with documents</h2>
           <div className="lessons">
             {withDocs.map((c) => (
               <Card c={c} key={c.id} />

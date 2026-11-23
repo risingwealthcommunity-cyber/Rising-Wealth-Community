@@ -1272,8 +1272,8 @@ test('demat: referrer + up to 5 passive levels (Trainees earn too)', async () =>
   });
   assert.equal(r.status, 201, JSON.stringify(r.json));
   assert.equal(await balance(u3.c), 200);
-  assert.equal(await balance(u2.c), 10); // L1 5%
-  assert.equal(await balance(u1.c), 6); // L2 3%
+  assert.equal(await balance(u2.c), 18); // L1 9%
+  assert.equal(await balance(u1.c), 10); // L2 5%
 });
 
 // ---------------------------------------------------------------- POOLS
@@ -2285,8 +2285,8 @@ test('DEMAT CAMPAIGN: approving a report runs the Demat plan: direct income for 
   assert.equal((await admin.call('POST', `/api/admin/reports/${sent.json.data.id}/approve`)).status, 200);
 
   assert.equal((await w(leaf.c)) - leaf0, 1000, 'the member gets the Demat direct income');
-  assert.equal((await w(mid.c)) - mid0, 50, 'sponsor level 1 earns 5% (even as a Trainee)');
-  assert.equal((await w(top.c)) - top0, 30, 'sponsor level 2 earns 3%');
+  assert.equal((await w(mid.c)) - mid0, 90, 'sponsor level 1 earns 9% (even as a Trainee)');
+  assert.equal((await w(top.c)) - top0, 50, 'sponsor level 2 earns 5%');
   const types = ((await leaf.c.call('GET', '/api/wallet/transactions')).json.data.items as any[]).map((e) => e.type);
   assert.ok(types.includes('DEMAT_DIRECT') && !types.includes('CAMPAIGN_REWARD'));
   const midTypes = ((await mid.c.call('GET', '/api/wallet/transactions')).json.data.items as any[]).map((e) => e.type);

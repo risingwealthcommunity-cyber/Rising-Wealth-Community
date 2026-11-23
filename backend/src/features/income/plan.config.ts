@@ -34,7 +34,7 @@ export const POOL_PCT = { WEEKLY: 5, PERFORMANCE: 5, LEADERSHIP: 12 } as const;
  * ASSUMPTION (plan gives no numbers): admin enters the amount payable to the referrer;
  * 5 passive levels pay these % of that amount, funded by the company.
  */
-export const DEMAT_PASSIVE_PCT = [5, 3, 2, 2, 1] as const;
+export const DEMAT_PASSIVE_PCT = [9, 5, 3, 2, 1] as const;
 
 /** Weekly bonus: every 3 direct sales of a package = 1 share (max 2 shares per package). ELITE share weighs 2x. */
 export const WEEKLY_SALES_PER_SHARE = 3;

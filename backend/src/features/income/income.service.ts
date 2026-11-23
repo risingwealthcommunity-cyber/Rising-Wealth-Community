@@ -165,10 +165,10 @@ export async function distributePackageSale(
 /** Records a Demat referral and pays the referrer plus 5 passive levels. */
 export async function distributeDematReferral(
   tx: Tx,
-  referral: { referrerId: string; sponsorId: string | null; directPaise: number; note?: string }
+  referral: { referrerId: string; sponsorId: string | null; directPaise: number; note?: string; directType?: 'DEMAT_DIRECT' | 'CAMPAIGN_REWARD' }
 ) {
   const upline = await getSponsorUpline(tx, referral.sponsorId, 5);
-  const dist = computeDematIncome(referral.referrerId, referral.directPaise, upline);
+  const dist = computeDematIncome(referral.referrerId, referral.directPaise, upline, referral.directType);
   await postLedger(tx, { ...dist, sourceUserId: referral.referrerId, note: referral.note });
 }
 
