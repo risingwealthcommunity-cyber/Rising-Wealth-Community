@@ -40,6 +40,7 @@ export interface SiteContent {
   reviews: Review[] | null;
   contact: Contact | null;
   pageText?: { texts: Record<string, string> } | null;
+  loginPopup?: { enabled: boolean; link: string } | null;
 }
 
 export type ContentBlock = 'milestones' | 'team' | 'reviews' | 'contact';

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth';
 import { Avatar } from './Avatar';
+import LoginPopup from './LoginPopup';
 import MemberFooter from './MemberFooter';
 import { ADMIN_LINKS } from '../adminLinks';
 import { Icon } from './ShellIcons';
@@ -170,6 +171,7 @@ export default function AppLayout() {
           <Outlet />
           <MemberFooter />
         </main>
+        <LoginPopup />
       </div>
     </div>
   );

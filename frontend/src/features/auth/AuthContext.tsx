@@ -1,3 +1,4 @@
+import { resetLoginPopup } from '../../shared/components/LoginPopup';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { authApi } from './auth.api';
@@ -38,12 +39,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const res = await authApi.login({ email, password });
     if (res.requireOtp) return res.data as unknown as OtpChallenge;
+    resetLoginPopup(); // a new sign-in shows the poster again
     setUser(res.data?.user ?? null);
     return null;
   }, []);
 
   const verifyOtp = useCallback(async (tempToken: string, otp: string) => {
     const res = await authApi.verifyOtp(tempToken, otp);
+    resetLoginPopup();
     setUser(res.data?.user ?? null);
   }, []);
 

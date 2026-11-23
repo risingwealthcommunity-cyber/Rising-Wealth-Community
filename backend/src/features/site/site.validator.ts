@@ -95,6 +95,12 @@ export const pageTextSchema = z.object({
     .refine((o) => Object.keys(o).length <= 120, 'Too many texts')
 });
 
+/** The poster members see in a popup right after they log in. */
+export const loginPopupSchema = z.object({
+  enabled: z.boolean(),
+  link: z.string().trim().max(300).refine((v) => v === '' || /^https:\/\/\S+$/i.test(v), 'The link must start with https://')
+});
+
 export const contactSchema = z.object({
   phone,
   whatsapp: phone,
@@ -116,7 +122,8 @@ export const SETTING_SCHEMAS = {
   rankPerks: rankPerksSchema,
   weeklyBonus: weeklyBonusSchema,
   bonusRewards: bonusRewardsSchema,
-  pageText: pageTextSchema
+  pageText: pageTextSchema,
+  loginPopup: loginPopupSchema
 } as const;
 
 export type SettingName = keyof typeof SETTING_SCHEMAS;

@@ -3090,6 +3090,30 @@ test('INCOME ADDS UP: deducted and held money come off the Demat referral income
   assert.ok((d.chart?.today ?? d.charts?.today ?? []).every?.((x: any) => x.amount >= 0) ?? true);
 });
 
+test('LOGIN POPUP: the admin sets a poster that members see after they log in', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_lpp_m');
+  const put = (c: Client, body: object) => c.call('PUT', '/api/site/content/loginPopup', body);
+  const pub = async () => (await new Client().call('GET', '/api/site/content')).json.data;
+
+  assert.equal((await put(m.c, { enabled: true, link: '' })).status, 403, 'only an admin');
+  assert.equal((await put(admin, { enabled: 'yes', link: '' })).status, 400);
+  assert.equal((await put(admin, { enabled: true, link: 'http://example.com' })).status, 400, 'the link must be https');
+  assert.equal((await putImage(m.c, 'login-poster', PNG, 'image/png')).status, 403, 'only an admin uploads it');
+  assert.equal((await putImage(admin, 'login-poster', Buffer.from('<svg/>'), 'image/png')).status, 415, 'a real picture');
+  assert.equal((await putImage(admin, 'login-poster', PNG, 'image/png')).status, 200);
+  assert.equal((await put(admin, { enabled: true, link: 'https://example.com/offer' })).status, 200);
+
+  const c = await pub();
+  assert.deepEqual(c.loginPopup, { enabled: true, link: 'https://example.com/offer' });
+  assert.ok(c.assets['login-poster'].url.startsWith('/api/site/assets/login-poster'), 'the poster is a public site image');
+  assert.equal((await new Client().call('GET', '/api/site/assets/login-poster')).status, 200);
+
+  assert.equal((await put(admin, { enabled: false, link: '' })).status, 200);
+  assert.equal((await pub()).loginPopup.enabled, false, 'switched off');
+  assert.equal((await admin.call('DELETE', '/api/site/assets/login-poster')).status, 200);
+  assert.equal((await new Client().call('GET', '/api/site/assets/login-poster')).status, 404);
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

@@ -5,6 +5,7 @@ import PageTextEditor from './PageTextEditor';
 import PaymentEditor from './PaymentEditor';
 import ImageSlot from './ImageSlot';
 import ListEditor from './ListEditor';
+import LoginPopupEditor from './LoginPopupEditor';
 import MilestonesEditor from './MilestonesEditor';
 
 const PAGE_IMAGES = [
@@ -30,6 +31,7 @@ export default function SiteContentPage() {
         <p className="muted">Changes go live on the home page as soon as you save or upload.</p>
         <nav className="jump" aria-label="What you can change">
           <a href="#sec-text">Written content</a>
+          <a href="#sec-popup">Login popup</a>
           <a href="#sec-images">Page images</a>
           <a href="#sec-numbers">Numbers (milestones)</a>
           <a href="#sec-team">Team members</a>
@@ -50,6 +52,10 @@ export default function SiteContentPage() {
         <>
           <div id="sec-text">
             <PageTextEditor saved={content.pageText?.texts ?? {}} onSaved={reload} />
+          </div>
+
+          <div id="sec-popup">
+            <LoginPopupEditor saved={content.loginPopup ?? null} assets={content.assets} onSaved={reload} />
           </div>
 
           <div className="card" id="sec-images">
