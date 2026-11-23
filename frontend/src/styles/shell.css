@@ -746,3 +746,6 @@ label.narrow { max-width: 360px; }
 /* ---------- admin: the amounts of each bonus target */
 .reward-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
 .reward-grid label { display: grid; gap: 6px; font-size: 0.85rem; }
+
+/* ---------- live training poster */
+.live-card .live-poster { width: 100%; max-width: 280px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 12px; border: 1px solid var(--border); }

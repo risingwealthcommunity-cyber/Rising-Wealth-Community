@@ -11,17 +11,26 @@ export const liveRoutes = Router();
 export const liveAdminRoutes = Router();
 
 const TIER = { TRAINEE: 0, PRO: 1, ELITE: 2 } as const;
+
+/** A poster is an admin upload kept as a site image named live-<id>. */
+async function posterMap(): Promise<Map<string, string>> {
+  const rows = await prisma.siteAsset.findMany({ where: { key: { startsWith: 'live-' } }, select: { key: true, updatedAt: true } });
+  return new Map(rows.map((r) => [r.key.slice('live-'.length), `/api/site/assets/${r.key}?v=${r.updatedAt.getTime()}`]));
+}
 /** A session stays in the list for this long after it starts, so people can still join a running one. */
 const STAYS_MS = 3 * 3_600_000;
 
 liveRoutes.get('/', requireAuth, async (req: Request, res: Response) => {
   const { package: pkg, role } = req.user!;
   const isAdmin = role !== 'USER';
-  const rows = await prisma.liveSession.findMany({
-    where: { isActive: true, startsAt: { gte: new Date(Date.now() - STAYS_MS) } },
-    orderBy: { startsAt: 'asc' },
-    take: 50
-  });
+  const [rows, posters] = await Promise.all([
+    prisma.liveSession.findMany({
+      where: { isActive: true, startsAt: { gte: new Date(Date.now() - STAYS_MS) } },
+      orderBy: { startsAt: 'asc' },
+      take: 50
+    }),
+    posterMap()
+  ]);
   res.json({
     success: true,
     data: {
@@ -31,6 +40,7 @@ liveRoutes.get('/', requireAuth, async (req: Request, res: Response) => {
           id: s.id,
           title: s.title,
           description: s.description,
+          posterUrl: posters.get(s.id) ?? null,
           startsAt: s.startsAt,
           minTier: s.minTier,
           unlocked,
@@ -55,8 +65,8 @@ const sessionSchema = z.object({
 });
 
 liveAdminRoutes.get('/live', async (_req: Request, res: Response) => {
-  const items = await prisma.liveSession.findMany({ orderBy: { startsAt: 'desc' }, take: 100 });
-  res.json({ success: true, data: { items } });
+  const [rows, posters] = await Promise.all([prisma.liveSession.findMany({ orderBy: { startsAt: 'desc' }, take: 100 }), posterMap()]);
+  res.json({ success: true, data: { items: rows.map((s) => ({ ...s, posterUrl: posters.get(s.id) ?? null })) } });
 });
 
 liveAdminRoutes.post('/live', validateBody(sessionSchema), async (req: Request, res: Response) => {
@@ -73,6 +83,8 @@ liveAdminRoutes.put('/live/:id', validateBody(sessionSchema), async (req: Reques
 });
 
 liveAdminRoutes.delete('/live/:id', async (req: Request, res: Response) => {
-  await prisma.liveSession.deleteMany({ where: { id: String(req.params.id) } });
+  const id = String(req.params.id);
+  await prisma.liveSession.deleteMany({ where: { id } });
+  await prisma.siteAsset.deleteMany({ where: { key: `live-${id}` } }); // its poster
   res.json({ success: true, message: 'Deleted' });
 });

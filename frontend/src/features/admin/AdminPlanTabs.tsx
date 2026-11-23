@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { api } from '../../shared/api/apiClient';
 import { date, inr, label } from '../../shared/format';
 import { useRun } from '../../shared/useRun';
+import ImageSlot from './ImageSlot';
 
 /** The perk (bike, trip, gadget...) shown for each rank, and claimable by members who reached it. */
 export function RankPerksEditor() {
@@ -57,6 +58,7 @@ interface Session {
   link: string;
   minTier: 'TRAINEE' | 'PRO' | 'ELITE';
   isActive: boolean;
+  posterUrl?: string | null;
 }
 
 /** `<input type="datetime-local">` wants the local time without a zone. */
@@ -141,6 +143,17 @@ export function LiveEditor() {
         <label className="check">
           <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} /> Visible to members
         </label>
+        {editId ? (
+          <ImageSlot
+            title="Poster (thumbnail)"
+            hint="PNG, JPEG or WebP. Shown on the training in the members' Live Trainings list."
+            assetKey={`live-${editId}`}
+            asset={items.find((s) => s.id === editId)?.posterUrl ? { url: items.find((s) => s.id === editId)!.posterUrl as string, updatedAt: '' } : undefined}
+            onChanged={load}
+          />
+        ) : (
+          <p className="muted">Poster: add the training first, then edit it to add a poster.</p>
+        )}
         {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
         <div className="profile-actions">
           <button className="btn" disabled={act.busy}>
@@ -161,6 +174,7 @@ export function LiveEditor() {
           {items.map((s) => (
             <div className="report-row ops-row" key={s.id}>
               <div>
+                {s.posterUrl && <img className="camp-thumb" src={s.posterUrl} alt="" width={48} height={48} />}
                 <b>{s.title}</b>
                 <small className="muted">
                   {date(s.startsAt)} · {s.minTier === 'TRAINEE' ? 'everyone' : `${s.minTier}+`} · {s.isActive ? 'visible' : 'hidden'}

@@ -10,7 +10,7 @@ import type { SettingName } from './site.validator';
  * backgrounds) plus one slot per team member / review, keyed by that item's id.
  */
 export const ASSET_KEY_PATTERN =
-  /^(about-image|certificate|payment-qr|campaign-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|feature-[1-6]|milestone-[1-6]|team-[a-f0-9]{10}|review-[a-f0-9]{10})$/;
+  /^(about-image|certificate|payment-qr|campaign-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|live-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|feature-[1-6]|milestone-[1-6]|team-[a-f0-9]{10}|review-[a-f0-9]{10})$/;
 
 export const MAX_ASSET_BYTES = 6 * 1024 * 1024;
 export const ASSET_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'];

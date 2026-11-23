@@ -9,6 +9,7 @@ interface Session {
   startsAt: string;
   minTier: 'TRAINEE' | 'PRO' | 'ELITE';
   unlocked: boolean;
+  posterUrl?: string | null;
   link?: string;
 }
 
@@ -48,6 +49,7 @@ export default function LivePage() {
           const live = now >= start && now <= start + LIVE_MS;
           return (
             <div className={`card live-card${live ? ' now' : ''}`} key={s.id}>
+              {s.posterUrl && <img className="live-poster" src={s.posterUrl} alt={`Poster of ${s.title}`} loading="lazy" />}
               <div>
                 <div className="live-when">
                   {live && <span className="live-dot">LIVE NOW</span>}
