@@ -27,22 +27,29 @@ async function uploadDirect(blob: Blob): Promise<string | null> {
 }
 
 /** Videos go straight to storage (they are too big for a normal request). Needs storage to be set up on the server. */
-export const VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'];
-const MAX_VIDEO = 50_000_000;
+const MAX_VIDEO = 100_000_000;
+const VIDEO_EXT: Record<string, string> = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska', avi: 'video/x-msvideo', wmv: 'video/x-ms-wmv', '3gp': 'video/3gpp', mpg: 'video/mpeg', mpeg: 'video/mpeg', flv: 'video/x-flv', ogv: 'video/ogg' };
 
-async function uploadVideo(file: File): Promise<string> {
-  if (!VIDEO_TYPES.includes(file.type)) throw new Error('Choose an MP4, WebM or MOV video.');
-  if (file.size > MAX_VIDEO) throw new Error('That video is too large. The most is 50 MB.');
-  const r = await api<{ direct: boolean; url?: string; key?: string }>('/uploads/sign', { method: 'POST', body: { mime: file.type, size: file.size } });
+/** The video type of a file: what the browser says, or (when it says nothing) what its name says. Null if it is not a video. */
+export function videoTypeOf(file: File): string | null {
+  if (file.type.startsWith('video/')) return file.type;
+  if (file.type === '') return VIDEO_EXT[file.name.split('.').pop()?.toLowerCase() ?? ''] ?? null;
+  return null;
+}
+
+async function uploadVideo(file: File, type: string): Promise<string> {
+  if (file.size > MAX_VIDEO) throw new Error('That video is too large. The most is 100 MB.');
+  const r = await api<{ direct: boolean; url?: string; key?: string }>('/uploads/sign', { method: 'POST', body: { mime: type, size: file.size } });
   if (!r.data?.direct || !r.data.url || !r.data.key) throw new Error('Video upload is not available right now. Send a photo instead.');
-  const put = await fetch(r.data.url, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+  const put = await fetch(r.data.url, { method: 'PUT', headers: { 'Content-Type': type }, body: file });
   if (!put.ok) throw new Error('The video could not be uploaded. Check your connection and try again.');
   return r.data.key;
 }
 
 /** A photo is shrunk and sent; a video is uploaded straight to storage. Either way the result goes into the request. */
 export async function prepareProof(file: File): Promise<{ fileName: string; fileData?: string; fileKey?: string }> {
-  if (file.type.startsWith('video/')) return { fileName: file.name.slice(0, 120), fileKey: await uploadVideo(file) };
+  const video = videoTypeOf(file);
+  if (video) return { fileName: file.name.slice(0, 120), fileKey: await uploadVideo(file, video) };
   return compressImage(file);
 }
 

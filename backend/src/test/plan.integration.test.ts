@@ -3014,6 +3014,43 @@ test('PAGE TEXT: the admin changes the written content of the home page; everyon
   assert.deepEqual(await pub(), {});
 });
 
+test('PROOF CLEANUP: the proof of a report approved more than 2 months ago is removed; nothing else is touched', async () => {
+  const { removeOldProofs } = await import('../features/campaigns/proof.cleanup');
+  const m = await signup('RWCROOT', 'LEFT', 'mny_pc_m');
+  const row = await rowOf(m.email);
+  const camp = (await admin.call('POST', '/api/admin/campaigns', { title: 'Cleanup test', description: '', reward: 0, url: 'https://example.com/c', videoUrl: '', needsProof: true, isActive: true })).json.data;
+  const day = 86_400_000;
+  const make = (mobile: string, status: 'APPROVED' | 'PENDING' | 'REJECTED', ageDays: number) =>
+    prisma.campaignReport.create({
+      data: { userId: row.id, campaignId: camp.id, holderName: 'Old Proof', mobile, status, processedAt: new Date(Date.now() - ageDays * day), fileName: 'p.png', fileMime: 'image/png', fileData: Buffer.from(REPORT_PNG, 'base64') }
+    });
+  const old = await make('9100000001', 'APPROVED', 61);
+  const fresh = await make('9100000002', 'APPROVED', 10);
+  const waiting = await make('9100000003', 'PENDING', 90);
+  const rejected = await make('9100000004', 'REJECTED', 90);
+
+  assert.equal(await removeOldProofs(), 1, 'only the one approved more than 60 days ago');
+  const left = async (id: string) => (await prisma.campaignReport.findUniqueOrThrow({ where: { id } })).fileData !== null;
+  assert.equal(await left(old.id), false, 'the old approved proof is gone');
+  assert.equal(await left(fresh.id), true, 'a recently approved proof stays');
+  assert.equal(await left(waiting.id), true, 'a waiting report keeps its proof');
+  assert.equal(await left(rejected.id), true, 'a rejected one is not touched');
+  const record = await prisma.campaignReport.findUniqueOrThrow({ where: { id: old.id } });
+  assert.deepEqual([record.status, record.holderName, record.fileMime, record.fileName], ['APPROVED', 'Old Proof', null, null], 'the report itself is kept');
+
+  // the owner sees why there is nothing to open, and the list says there is no file
+  const view = await m.c.call('GET', `/api/campaigns/reports/${old.id}/file`);
+  assert.equal(view.status, 404);
+  assert.match(view.json.message, /removed 2 months after/);
+  const mine = ((await m.c.call('GET', '/api/campaigns/reports')).json.data.items as any[]).find((r) => r.id === old.id);
+  assert.equal(mine.hasFile, false);
+  assert.equal((await m.c.call('GET', `/api/campaigns/reports/${fresh.id}/file`)).status, 200);
+
+  assert.equal(await removeOldProofs(), 0, 'running again does nothing');
+  assert.equal(await removeOldProofs(new Date(Date.now() + 55 * day)), 1, 'the proof approved 10 days ago goes once it is over 60 days old');
+  assert.equal(await left(fresh.id), false);
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

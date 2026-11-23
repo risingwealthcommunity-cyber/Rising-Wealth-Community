@@ -257,7 +257,7 @@ export default function AdminReports() {
                             View proof
                           </button>
                         ) : (
-                          <small className="muted">No screenshot (not required)</small>
+                          <small className="muted">No proof (not required, or removed 2 months after approval)</small>
                         )}
                         {r.status === 'PENDING' && (
                           <>

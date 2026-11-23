@@ -158,10 +158,10 @@ campaignRoutes.get('/reports/:id/file', requireAuth, async (req: Request, res: R
   const isAdmin = req.user!.role === 'ADMIN' || req.user!.role === 'SUPER_ADMIN';
   const r = await prisma.campaignReport.findFirst({
     where: { id: String(req.params.id), ...(isAdmin ? {} : { userId: req.user!.id }) },
-    select: { fileData: true, fileMime: true }
+    select: { fileData: true, fileMime: true, status: true }
   });
   if (!r) throw new AppError('Report not found', 404);
-  if (!r.fileData || !r.fileMime) throw new AppError('This report has no screenshot.', 404);
+  if (!r.fileData || !r.fileMime) throw new AppError(r.status === 'APPROVED' ? 'The proof was removed 2 months after this report was approved.' : 'This report has no proof.', 404);
   if (r.fileMime.startsWith('video/')) {
     const url = await signDownload(r.fileData);
     if (!url) throw new AppError('This video is not available.', 404);

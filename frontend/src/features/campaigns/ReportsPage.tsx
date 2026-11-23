@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../shared/api/apiClient';
-import { prepareProof, VIDEO_TYPES } from '../../shared/compressImage';
+import { prepareProof, videoTypeOf } from '../../shared/compressImage';
 import { date, inr, label } from '../../shared/format';
 import { useRun } from '../../shared/useRun';
 import type { Campaign } from './CampaignsPage';
@@ -149,13 +149,13 @@ export default function ReportsPage() {
             <input value={mobile} onChange={(e) => setMobile(e.target.value)} placeholder="Registered mobile number" inputMode="numeric" maxLength={10} required />
           </label>
           <label>
-            Proof (photo or video) {editing && <span className="muted">(leave empty to keep the old one)</span>}
+            Proof (photo or video, kept for 2 months after approval) {editing && <span className="muted">(leave empty to keep the old one)</span>}
             {!editing && selected && !selected.needsProof && <span className="muted"> (optional for this campaign)</span>}
-            <input ref={fileRef} type="file" accept={`image/png,image/jpeg,image/webp,${VIDEO_TYPES.join(',')}`} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,video/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </label>
           {previewUrl && file && (
             <div className="proof-preview">
-              {file.type.startsWith('video/') ? <video src={previewUrl} controls preload="metadata" /> : <img src={previewUrl} alt="Your proof" />}
+              {videoTypeOf(file) ? <video src={previewUrl} controls preload="metadata" /> : <img src={previewUrl} alt="Your proof" />}
               <small className="muted">{file.name}</small>
             </div>
           )}

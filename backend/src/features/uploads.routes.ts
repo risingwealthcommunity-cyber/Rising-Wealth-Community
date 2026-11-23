@@ -17,7 +17,7 @@ router.post(
   uploadLimiter,
   validateBody(
     z
-      .object({ mime: z.enum(['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm', 'video/quicktime']), size: z.number().int().min(100).max(MAX_VIDEO_BYTES) })
+      .object({ mime: z.string().regex(/^(image\/(jpeg|png|webp)|video\/[a-z0-9.+-]{2,40})$/, 'Choose a photo or a video'), size: z.number().int().min(100).max(MAX_VIDEO_BYTES) })
       .refine((v) => isVideoMime(v.mime) || v.size <= MAX_UPLOAD_BYTES, { message: 'That picture is too large.', path: ['size'] })
   ),
   async (req: Request, res: Response) => {

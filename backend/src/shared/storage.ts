@@ -9,7 +9,7 @@ import { AppError } from './errors/AppError';
  * A real image can never start with "r2:", so the two cannot be confused.
  */
 const MARK = 'r2:';
-const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov' };
+const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/3gpp': '3gp', 'video/x-msvideo': 'avi', 'video/x-ms-wmv': 'wmv', 'video/mpeg': 'mpg', 'video/x-flv': 'flv', 'video/ogg': 'ogv', 'video/x-matroska': 'mkv' };
 
 const cfg = () => ({
   endpoint: process.env.R2_ENDPOINT?.trim(),
@@ -35,13 +35,13 @@ const PENDING = 'r2pending:';
 /** A picture the browser uploaded straight to R2 may be at most this big. */
 export const MAX_UPLOAD_BYTES = 2_000_000;
 /** A video proof uploaded straight to R2 may be at most this big. */
-export const MAX_VIDEO_BYTES = 50_000_000;
+export const MAX_VIDEO_BYTES = 100_000_000;
 export const isVideoMime = (mime: string) => mime.startsWith('video/');
 const finalKey = (folder: string, mime: string) => `${folder}/${new Date().toISOString().slice(0, 7)}/${randomUUID()}.${EXT[mime] ?? 'bin'}`;
 
 /** A one-time address the browser can PUT a picture to. The size and type are part of the signature, so nothing else is accepted. */
 export async function signUpload(userId: string, mime: string, size: number): Promise<{ url: string; key: string; expiresIn: number }> {
-  const key = `pending/${userId}/${randomUUID()}.${EXT[mime]}`;
+  const key = `pending/${userId}/${randomUUID()}.${EXT[mime] ?? 'vid'}`; // any other kind of video is kept under .vid
   const expiresIn = 300;
   const url = await getSignedUrl(s3(), new PutObjectCommand({ Bucket: bucketName(), Key: key, ContentType: mime, ContentLength: size }), {
     expiresIn,
@@ -56,19 +56,19 @@ export async function signUpload(userId: string, mime: string, size: number): Pr
  */
 export async function claimUpload(userId: string, key: string, sniff: (b: Buffer) => string | null): Promise<{ data: Buffer; mime: string }> {
   if (!isR2On()) throw new AppError('Direct upload is not available.', 400);
-  if (!new RegExp(`^pending/${userId}/[0-9a-f-]{36}\\.(jpg|png|webp|mp4|webm|mov)$`).test(key)) throw new AppError('That upload is not valid. Please try again.', 400);
+  if (!new RegExp(`^pending/${userId}/[0-9a-f-]{36}\\.(jpg|png|webp|mp4|webm|mov|3gp|avi|wmv|mpg|flv|ogv|mkv|vid)$`).test(key)) throw new AppError('That upload is not valid. Please try again.', 400);
   try {
     const head = await s3().send(new HeadObjectCommand({ Bucket: bucketName(), Key: key }));
-    const isVideo = /\.(mp4|webm|mov)$/.test(key);
+    const isVideo = !/\.(jpg|png|webp)$/.test(key);
     if ((head.ContentLength ?? 0) > (isVideo ? MAX_VIDEO_BYTES : MAX_UPLOAD_BYTES) || (head.ContentLength ?? 0) < 100) {
       await s3().send(new DeleteObjectCommand({ Bucket: bucketName(), Key: key }));
-      throw new AppError(isVideo ? 'That video is too large. The most is 50 MB.' : 'That picture is too large. Use a smaller screenshot.', 413);
+      throw new AppError(isVideo ? 'That video is too large. The most is 100 MB.' : 'That picture is too large. Use a smaller screenshot.', 413);
     }
     const first = await s3().send(new GetObjectCommand({ Bucket: bucketName(), Key: key, Range: 'bytes=0-31' }));
     const mime = sniff(Buffer.from(await first.Body!.transformToByteArray()));
     if (!mime) {
       await s3().send(new DeleteObjectCommand({ Bucket: bucketName(), Key: key }));
-      throw new AppError('Upload a PNG, JPG or WebP picture (or an MP4, WebM or MOV video where videos are allowed).', 400);
+      throw new AppError('Upload a PNG, JPG or WebP picture (or a video where videos are allowed).', 400);
     }
     return { data: Buffer.from(PENDING + key), mime };
   } catch (e) {

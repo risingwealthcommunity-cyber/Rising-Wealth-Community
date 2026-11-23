@@ -34,7 +34,7 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
       select: { name: true, avatar: true, package: true, rank: true, referralCode: true, leftCode: true, rightCode: true, walletBalance: true, sponsor: { select: { name: true } } }
     }),
     prisma.ledgerEntry.findMany({
-      where: { userId, createdAt: { gte: new Date(monthStart) }, amount: { gt: 0 } },
+      where: { userId, createdAt: { gte: new Date(monthStart) }, OR: [{ amount: { gt: 0 } }, { type: 'ADMIN_DEDUCTION' }] },
       select: { amount: true, createdAt: true }
     }),
     prisma.ledgerEntry.groupBy({ by: ['type'], where: { userId }, _sum: { amount: true } }),
@@ -48,7 +48,7 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
   ]);
 
   const sum = (from: number) =>
-    rupees(recent.filter((r) => r.createdAt.getTime() >= from).reduce((s, r) => s + Number(r.amount), 0));
+    Math.max(0, rupees(recent.filter((r) => r.createdAt.getTime() >= from).reduce((s, r) => s + Number(r.amount), 0))); // less what an admin deducted, never below zero
 
   // ---- charts
   const today = Array.from({ length: 8 }, (_, i) => ({ label: hourLabel(i * 3), amount: 0 }));
@@ -67,7 +67,7 @@ router.get('/summary', requireAuth, async (req: Request, res: Response) => {
     if (t >= todayStart - 6 * DAY_MS) week[Math.floor((t - (todayStart - 6 * DAY_MS)) / DAY_MS)].amount += amount;
     month[Math.min(5, Math.floor((t - monthStart) / (5 * DAY_MS)))].amount += amount;
   }
-  const round = (rows: { label: string; amount: number }[]) => rows.map((r) => ({ ...r, amount: rupees(r.amount) }));
+  const round = (rows: { label: string; amount: number }[]) => rows.map((r) => ({ ...r, amount: Math.max(0, rupees(r.amount)) }));
 
   const typeSum = (types: string[]) =>
     byType.filter((b) => types.includes(b.type)).reduce((s, b) => s + Number(b._sum.amount ?? 0), 0);

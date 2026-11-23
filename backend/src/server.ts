@@ -3,6 +3,7 @@ import app from './app';
 import { config } from './config/env';
 import { prisma } from './config/database';
 import { startPayoutScheduler } from './features/income/payout.scheduler';
+import { startProofCleanup } from './features/campaigns/proof.cleanup';
 
 let server: http.Server | undefined;
 
@@ -13,6 +14,8 @@ const start = async () => {
     server = app.listen(config.port, () => {
       console.log(`Server running on port ${config.port} (${config.nodeEnv})`);
     });
+    startProofCleanup();
+    console.log('Proof cleanup is on (approved proofs are removed after 60 days)');
     if (config.autoWeeklyPayout) {
       startPayoutScheduler();
       console.log('Automatic weekly payout is on (Mondays, IST)');

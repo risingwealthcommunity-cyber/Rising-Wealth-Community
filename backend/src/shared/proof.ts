@@ -25,8 +25,16 @@ export function readProof(base64: string): { data: Buffer; mime: string } {
 export function sniffMedia(buf: Buffer): string | null {
   const img = sniffImage(buf);
   if (img) return img;
-  if (buf.length > 12 && buf.subarray(4, 8).toString() === 'ftyp') return buf.subarray(8, 12).toString() === 'qt  ' ? 'video/quicktime' : 'video/mp4';
-  if (buf.length > 12 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) return 'video/webm';
+  if (buf.length > 12 && buf.subarray(4, 8).toString() === 'ftyp') {
+    const brand = buf.subarray(8, 12).toString();
+    return brand === 'qt  ' ? 'video/quicktime' : brand.startsWith('3g') ? 'video/3gpp' : 'video/mp4'; // mp4, m4v, mov, 3gp
+  }
+  if (buf.length > 12 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) return 'video/webm'; // webm and mkv
+  if (buf.length > 12 && buf.subarray(0, 4).toString() === 'RIFF' && buf.subarray(8, 12).toString() === 'AVI ') return 'video/x-msvideo';
+  if (buf.length > 16 && buf.subarray(0, 8).equals(Buffer.from([0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11]))) return 'video/x-ms-wmv';
+  if (buf.length > 12 && buf[0] === 0 && buf[1] === 0 && buf[2] === 1 && (buf[3] === 0xba || buf[3] === 0xb3)) return 'video/mpeg';
+  if (buf.length > 12 && buf.subarray(0, 3).toString() === 'FLV' && buf[3] === 1) return 'video/x-flv';
+  if (buf.length > 12 && buf.subarray(0, 4).toString() === 'OggS') return 'video/ogg';
   return null;
 }
 
