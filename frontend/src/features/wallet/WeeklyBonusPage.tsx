@@ -20,6 +20,7 @@ interface Progress {
   maxShares: number;
   PRO: number;
   ELITE: number;
+  awaiting?: number;
 }
 
 /**
@@ -97,6 +98,10 @@ export default function WeeklyBonusPage() {
           <strong>{tx ? tx.total : '...'}</strong>
         </div>
       </div>
+
+      {progress && (progress.awaiting ?? 0) > 0 && (
+        <div className="alert">You have earned {inr(progress.awaiting ?? 0)} of weekly bonus. It reaches your wallet when the admin releases it.</div>
+      )}
 
       {progress && (
         <div className="wb-bars">

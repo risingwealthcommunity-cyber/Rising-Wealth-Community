@@ -142,6 +142,7 @@ model User {
   fundRequests      FundRequest[]
   withdrawals       WithdrawalRequest[]
   holds             WalletHold[] @relation("WalletHolds")
+  pendingBonuses    PendingBonus[] @relation("PendingBonuses")
   bankDetails       BankDetails?
   campaignReports   CampaignReport[]
   perkClaims        PerkClaim[]
@@ -180,6 +181,25 @@ enum LedgerType {
   /// An admin took money out of a member's wallet (the reason is in the note).
   ADMIN_DEDUCTION
   COMPANY_FUND
+}
+
+/// A bonus a member has earned that waits for an admin to press Release, and only then reaches their wallet.
+model PendingBonus {
+  id           String     @id @default(uuid())
+  userId       String
+  user         User       @relation("PendingBonuses", fields: [userId], references: [id])
+  type         LedgerType
+  level        Int?
+  amount       Decimal    @db.Decimal(14, 2)
+  sourceUserId String?
+  periodId     String?
+  note         String?
+  createdAt    DateTime   @default(now())
+  releasedAt   DateTime?
+  releasedBy   String?
+
+  @@index([releasedAt, type])
+  @@index([userId])
 }
 
 /// Money an admin has put on hold in a member's wallet: it stays in the wallet but cannot be withdrawn or moved until released.

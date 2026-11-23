@@ -60,7 +60,8 @@ router.get('/weekly-progress', requireAuth, async (req: Request, res: Response) 
     _count: { _all: true }
   });
   const count = (p: string) => rows.find((r) => r.package === p)?._count._all ?? 0;
-  res.json({ success: true, data: { since, perShare: 3, maxShares: 2, PRO: count('PRO'), ELITE: count('ELITE') } });
+  const waiting = await prisma.pendingBonus.aggregate({ where: { userId: req.user!.id, type: 'WEEKLY_BONUS', releasedAt: null }, _sum: { amount: true } });
+  res.json({ success: true, data: { since, perShare: 3, maxShares: 2, PRO: count('PRO'), ELITE: count('ELITE'), awaiting: Number(waiting._sum.amount ?? 0) } });
 });
 
 /** Team Performance (binary targets) and Leadership Bonus: where the member stands, plus the bonus history. */
@@ -88,6 +89,8 @@ router.get('/bonuses', requireAuth, async (req: Request, res: Response) => {
     })
   ]);
 
+  const waitingRows = await prisma.pendingBonus.groupBy({ by: ['type'], where: { userId, releasedAt: null }, _sum: { amount: true } });
+  const awaitingOf = (type: string) => Number(waitingRows.find((w) => w.type === type)?._sum.amount ?? 0);
   const doneAt = (type: string, n: number) => history.find((h) => h.type === type && h.level === n)?.createdAt ?? null;
 
   const [perkRow, perkClaims] = await Promise.all([
@@ -126,6 +129,8 @@ router.get('/bonuses', requireAuth, async (req: Request, res: Response) => {
     success: true,
     data: {
       eligible: me.package !== 'TRAINEE',
+      // earned, and waiting for an admin to press Release
+      awaiting: { team: awaitingOf('TEAM_PERFORMANCE_BONUS'), leadership: awaitingOf('LEADERSHIP_TARGET_BONUS') },
       team: {
         targets: team,
         current,

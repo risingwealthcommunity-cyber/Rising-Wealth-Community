@@ -7,6 +7,7 @@ type Status = 'DONE' | 'CURRENT' | 'LOCKED';
 
 interface Bonuses {
   eligible: boolean;
+  awaiting?: { team: number; leadership: number };
   team: {
     targets: { target: number; rank?: string | null; name?: string | null; extraReward?: string | null; extraRewardText?: string | null; claim?: { status: 'PENDING' | 'APPROVED' | 'REJECTED'; note: string | null } | null; members: number; reward: number; status: Status; completedAt: string | null }[];
     current: { target: number; members: number; reward: number } | null;
@@ -70,6 +71,12 @@ export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
   return (
     <>
       <h1>{view === 'team' ? 'Team Performance Bonus' : 'Leadership Bonus'}</h1>
+
+      {(view === 'team' ? data.awaiting?.team : data.awaiting?.leadership) ? (
+        <div className="alert">
+          You have earned {inr((view === 'team' ? data.awaiting?.team : data.awaiting?.leadership) ?? 0)} here. It reaches your wallet when the admin releases it.
+        </div>
+      ) : null}
 
       {!data.eligible && (
         <div className="alert">

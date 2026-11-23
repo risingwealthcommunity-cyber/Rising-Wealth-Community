@@ -18,6 +18,12 @@ interface Line extends Person {
   amount: number;
   sales?: { PRO: number; ELITE: number };
 }
+interface Waiting extends Person {
+  bonusId: string;
+  level: number | null;
+  amount: number;
+  at: string;
+}
 interface Achiever extends Person {
   level: number | null;
   amount: number;
@@ -42,7 +48,8 @@ interface Bonuses {
     company: { pct: number; total: number };
   };
   achievers: { performance: Achiever[]; leadership: Achiever[] };
-  settings: { minPerShare: number; rewards: { team: { members: number; reward: number; name?: string; perkTitle?: string; perkText?: string }[]; leadership: { size: number; reward: number; name?: string }[] } };
+  pending: { weekly: Waiting[]; performance: Waiting[]; leadership: Waiting[] };
+  settings: { manualRelease: boolean; minPerShare: number; rewards: { team: { members: number; reward: number; name?: string; perkTitle?: string; perkText?: string }[]; leadership: { size: number; reward: number; name?: string }[] } };
 }
 
 const WEEKLY = {
@@ -111,6 +118,83 @@ function Table({ rows, unit, estimate }: { rows: (Paid | Line)[]; unit: string; 
   );
 }
 
+/** Bonuses that are earned and waiting: one Release button for each, and one to release them all. */
+function ReleaseTable({ rows, type, onChanged }: { rows: Waiting[]; type: 'WEEKLY_BONUS' | 'TEAM_PERFORMANCE_BONUS' | 'LEADERSHIP_TARGET_BONUS'; onChanged: () => void }) {
+  const act = useRun();
+  if (rows.length === 0) return <p className="muted">Nothing is waiting for release.</p>;
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  const one = (r: Waiting) =>
+    void act.run(async () => {
+      const res = await api(`/admin/bonus-releases/${r.bonusId}/release`, { method: 'POST' });
+      onChanged();
+      return res;
+    });
+  const all = () => {
+    if (!window.confirm(`Release ${rows.length} bonus${rows.length === 1 ? '' : 'es'} (${inr(total)}) to the members' wallets?`)) return;
+    void act.run(async () => {
+      const res = await api('/admin/bonus-releases/release-all', { method: 'POST', body: { type } });
+      onChanged();
+      return res;
+    });
+  };
+  return (
+    <>
+      {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
+      <div className="table-wrap">
+        <table className="rep-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Level</th>
+              <th>Bonus</th>
+              <th>Earned on</th>
+              <th className="center">
+                <button className="btn solid" type="button" disabled={act.busy} onClick={all}>
+                  Release all
+                </button>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.bonusId}>
+                <td>
+                  <b>{r.name}</b>
+                  <small className="muted">
+                    {r.email} · {r.referralCode}
+                  </small>
+                </td>
+                <td>{r.level ?? '-'}</td>
+                <td>
+                  <b>{inr(r.amount)}</b>
+                </td>
+                <td>{date(r.at)}</td>
+                <td className="center">
+                  <button className="btn ok" type="button" disabled={act.busy} onClick={() => one(r)}>
+                    Release
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>
+                <b>Waiting</b> ({rows.length})
+              </td>
+              <td />
+              <td>
+                <b>{inr(total)}</b>
+              </td>
+              <td colSpan={2} />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </>
+  );
+}
+
 /** Who earned each bonus: the weekly, performance and leadership lists, for a closed period and for the week in progress. */
 export default function AdminBonusesPage() {
   const [data, setData] = useState<Bonuses | null>(null);
@@ -119,6 +203,13 @@ export default function AdminBonusesPage() {
   const [teamLevels, setTeamLevels] = useState<{ members: string; reward: string; name: string; perkTitle: string; perkText: string }[]>([]);
   const [leadLevels, setLeadLevels] = useState<{ size: string; reward: string; name: string }[]>([]);
   const rewards = useRun();
+  const relMode = useRun();
+  const setRelease = (manual: boolean) =>
+    void relMode.run(async () => {
+      const r = await api('/site/content/bonusRelease', { method: 'PUT', body: { manual } });
+      load();
+      return r;
+    }, manual ? 'Bonuses now wait for your Release.' : 'Bonuses are now credited at once.');
   const save = useRun();
   const close = useRun();
 
@@ -247,6 +338,17 @@ export default function AdminBonusesPage() {
         </button>
       </form>
 
+      <div className="card stack">
+        <h2>How bonuses are paid</h2>
+        <p className="muted">
+          When a member earns a weekly, Team Performance or Leadership bonus it shows below with a <b>Release</b> button. The money reaches their wallet when you press it.
+        </p>
+        <label className="check">
+          <input type="checkbox" checked={data?.settings.manualRelease ?? true} disabled={!data || relMode.busy} onChange={(e) => setRelease(e.target.checked)} /> Bonuses wait for my Release (turn off to credit them at once)
+        </label>
+        {relMode.msg && <div className={`alert ${relMode.msg.type}`}>{relMode.msg.text}</div>}
+      </div>
+
       <div className="bonus-top">
         <form className="card stack" onSubmit={saveMin}>
           <h2>Weekly bonus pool and settings</h2>
@@ -293,6 +395,9 @@ export default function AdminBonusesPage() {
         <h2>{WEEKLY.title}</h2>
         <p className="muted">{WEEKLY.blurb}</p>
 
+        <h3>Waiting for your release</h3>
+        <ReleaseTable rows={data?.pending.weekly ?? []} type="WEEKLY_BONUS" onChanged={load} />
+
         <h3>In line this week (estimate)</h3>
         <Table rows={data?.open.weekly ?? []} unit={WEEKLY.unit} estimate />
 
@@ -313,8 +418,8 @@ export default function AdminBonusesPage() {
 
       {(
         [
-          { key: 'performance' as const, title: 'Team Performance bonus pool and achievers', blurb: 'Every package sale adds 20% to this pool. It never resets. Each Team Performance bonus paid to a member is taken out of it.' },
-          { key: 'leadership' as const, title: 'Leadership bonus pool and achievers', blurb: 'Every package sale adds 5% to this pool. It never resets. Each Leadership bonus paid to a member is taken out of it.' }
+          { key: 'performance' as const, type: 'TEAM_PERFORMANCE_BONUS' as const, title: 'Team Performance bonus pool and achievers', blurb: 'Every package sale adds 20% to this pool. It never resets. Each Team Performance bonus paid to a member is taken out of it.' },
+          { key: 'leadership' as const, type: 'LEADERSHIP_TARGET_BONUS' as const, title: 'Leadership bonus pool and achievers', blurb: 'Every package sale adds 5% to this pool. It never resets. Each Leadership bonus paid to a member is taken out of it.' }
         ]
       ).map((sec) => {
         const pool = data?.pools[sec.key];
@@ -341,7 +446,10 @@ export default function AdminBonusesPage() {
             ) : (
               <p className="muted">Loading...</p>
             )}
-            <h3>Achievers (latest first)</h3>
+            <h3>Waiting for your release</h3>
+            <ReleaseTable rows={data?.pending[sec.key] ?? []} type={sec.type} onChanged={load} />
+
+            <h3>Paid achievers (latest first)</h3>
             {rows.length === 0 ? (
               <p className="muted">Nobody has completed a target yet.</p>
             ) : (

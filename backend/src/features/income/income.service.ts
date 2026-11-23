@@ -204,6 +204,43 @@ export async function bonusRewards(tx: Tx): Promise<BonusLevels> {
 export const leadershipLevels = (levels: BonusLevels) =>
   leadershipTargets(levels.leadership.map((t) => t.size)).map((t, i) => ({ ...t, paise: Math.round(levels.leadership[i].reward * 100) }));
 
+/** True when bonuses wait for an admin to press Release (the default); false when they are credited at once. */
+export async function manualRelease(tx: Tx): Promise<boolean> {
+  const row = await tx.siteSetting.findUnique({ where: { key: 'bonusRelease' } });
+  const v = (row?.value as { manual?: unknown } | null)?.manual;
+  return typeof v === 'boolean' ? v : true;
+}
+
+export type BonusType = 'WEEKLY_BONUS' | 'TEAM_PERFORMANCE_BONUS' | 'LEADERSHIP_TARGET_BONUS';
+
+/** A bonus a member earned: it waits for Release, or goes straight to the wallet, depending on the admin's setting. */
+export async function postBonus(tx: Tx, input: { userId: string; type: BonusType; level?: number; paise: number; sourceUserId?: string; periodId?: string; note?: string }) {
+  if (input.paise <= 0) return;
+  if (await manualRelease(tx)) {
+    await tx.pendingBonus.create({
+      data: { userId: input.userId, type: input.type, level: input.level ?? null, amount: paiseToDecimal(input.paise), sourceUserId: input.sourceUserId, periodId: input.periodId, note: input.note }
+    });
+    return;
+  }
+  await postLedger(tx, { payouts: [{ userId: input.userId, type: input.type, level: input.level, paise: input.paise }], sourceUserId: input.sourceUserId, periodId: input.periodId, note: input.note });
+}
+
+/** An admin presses Release: the bonus is credited to the member's wallet, once. */
+export async function releaseBonus(tx: Tx, adminId: string, id: string) {
+  const row = await tx.pendingBonus.findUnique({ where: { id } });
+  if (!row) throw new AppError('Bonus not found', 404);
+  if (row.userId === adminId) throw new AppError('You cannot release your own bonus. Ask another admin.', 403);
+  const claimed = await tx.pendingBonus.updateMany({ where: { id, releasedAt: null }, data: { releasedAt: new Date(), releasedBy: adminId } });
+  if (claimed.count !== 1) throw new AppError('That bonus was already released.', 409);
+  await postLedger(tx, {
+    payouts: [{ userId: row.userId, type: row.type as BonusType, level: row.level ?? undefined, paise: decimalToPaise(row.amount) }],
+    sourceUserId: row.sourceUserId ?? undefined,
+    periodId: row.periodId ?? undefined,
+    note: row.note ?? undefined
+  });
+  return { userId: row.userId };
+}
+
 /**
  * What an admin took out (deducted) or is holding in a member's wallet, in rupees. It comes off the Demat referral income the
  * member sees (first the Demat direct income, then the campaign rewards), and never takes that below zero.
@@ -356,11 +393,8 @@ export async function closePayoutPeriod(tx: Tx, adminId: string) {
 
   // Weekly bonus: the pool, but never less than the plan's minimum per share (the company fund covers any gap)
   const weekly = splitWeeklyPool(weeklyPool, weeklyWeights, minPerSharePaise);
-  await postLedger(tx, {
-    payouts: weekly.payouts.map((p) => ({ userId: p.id, type: 'WEEKLY_BONUS' as const, paise: p.paise })),
-    company: [{ reason: 'WEEKLY_POOL_UNCLAIMED', paise: weekly.unclaimed }],
-    periodId: period.id
-  });
+  for (const p of weekly.payouts) await postBonus(tx, { userId: p.id, type: 'WEEKLY_BONUS', paise: p.paise, periodId: period.id, note: 'Weekly bonus' });
+  await postLedger(tx, { payouts: [], company: [{ reason: 'WEEKLY_POOL_UNCLAIMED', paise: weekly.unclaimed }], periodId: period.id });
   if (weekly.topUp > 0) {
     await tx.ledgerEntry.create({
       data: { userId: null, type: 'COMPANY_FUND', amount: paiseToDecimal(-weekly.topUp), periodId: period.id, note: 'WEEKLY_MIN_TOPUP' }

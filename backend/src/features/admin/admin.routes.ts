@@ -9,7 +9,7 @@ import { requireAuth, requireRole } from '../auth';
 import { packagesService } from '../packages';
 import { parseRupees, walletService } from '../wallet/wallet.service';
 import { proofFrom } from '../../shared/proof';
-import { bonusRewards, closePayoutPeriod, paiseToDecimal, poolBalances, postLedger, previewPayoutWindow, weeklyMinPaise } from '../income/income.service';
+import { bonusRewards, closePayoutPeriod, manualRelease, paiseToDecimal, poolBalances, postLedger, releaseBonus, previewPayoutWindow, weeklyMinPaise } from '../income/income.service';
 
 /** The incomes an admin can credit to a member by hand. */
 const CREDIT_TYPES = ['DEMAT_DIRECT', 'DIRECT_INCOME', 'PASSIVE_INCOME', 'WEEKLY_BONUS', 'LEADERSHIP_TARGET_BONUS', 'TEAM_PERFORMANCE_BONUS', 'MONTHLY_ROYALTY'] as const;
@@ -413,6 +413,13 @@ router.get('/bonuses', async (req: Request, res: Response) => {
       select: { amount: true, level: true, createdAt: true, user: { select: { id: true, name: true, email: true, referralCode: true } } }
     })
   ]);
+  const waiting = await prisma.pendingBonus.findMany({
+    where: { releasedAt: null },
+    orderBy: { createdAt: 'desc' },
+    take: 300,
+    select: { id: true, type: true, level: true, amount: true, createdAt: true, user: { select: { id: true, name: true, email: true, referralCode: true } } }
+  });
+  const pendingOf = (type: string) => waiting.filter((w) => w.type === type).map((w) => ({ ...w.user, bonusId: w.id, level: w.level, amount: Number(w.amount), at: w.createdAt }));
   const achieved = (rows: typeof perfRows) =>
     rows.filter((r) => r.user).map((r) => ({ ...r.user!, level: r.level, amount: Number(r.amount), at: r.createdAt }));
 
@@ -431,6 +438,7 @@ router.get('/bonuses', async (req: Request, res: Response) => {
       period: period && { id: period.id, startsAt: period.startsAt, endsAt: period.endsAt, revenue: Number(period.revenue) },
       paid: { weekly: paid('WEEKLY_BONUS'), performance: [] as ReturnType<typeof paid>, leadership: [] as ReturnType<typeof paid> },
       pools,
+      pending: { weekly: pendingOf('WEEKLY_BONUS'), performance: pendingOf('TEAM_PERFORMANCE_BONUS'), leadership: pendingOf('LEADERSHIP_TARGET_BONUS') },
       achievers: { performance: achieved(perfRows), leadership: achieved(leadRows) },
       open: {
         startsAt: open.startsAt,
@@ -440,7 +448,7 @@ router.get('/bonuses', async (req: Request, res: Response) => {
         performance: withUser(open.performance),
         leadership: withUser(open.leadership)
       },
-      settings: { minPerShare: (await weeklyMinPaise(prisma)) / 100, rewards: await bonusRewards(prisma) }
+      settings: { minPerShare: (await weeklyMinPaise(prisma)) / 100, rewards: await bonusRewards(prisma), manualRelease: await manualRelease(prisma) }
     }
   });
 });
@@ -538,6 +546,27 @@ router.post('/demat', validateBody(dematSchema), async (req: Request, res: Respo
   });
 
   res.status(201).json({ success: true, message: 'Income added to the member.' });
+});
+
+/** Release one waiting bonus: it is credited to the member's wallet now. */
+router.post('/bonus-releases/:id/release', async (req: Request, res: Response) => {
+  await prisma.$transaction((tx) => releaseBonus(tx, req.user!.id, String(req.params.id)), { timeout: 20_000 });
+  res.json({ success: true, message: 'Released. It is in the member\'s wallet now.' });
+});
+
+/** Release every waiting bonus of one kind (never your own). */
+router.post('/bonus-releases/release-all', validateBody(z.object({ type: z.enum(['WEEKLY_BONUS', 'TEAM_PERFORMANCE_BONUS', 'LEADERSHIP_TARGET_BONUS']) })), async (req: Request, res: Response) => {
+  const rows = await prisma.pendingBonus.findMany({ where: { releasedAt: null, type: req.body.type, userId: { not: req.user!.id } }, select: { id: true }, take: 500 });
+  let n = 0;
+  for (const r of rows) {
+    try {
+      await prisma.$transaction((tx) => releaseBonus(tx, req.user!.id, r.id), { timeout: 20_000 });
+      n++;
+    } catch (e) {
+      if (!(e instanceof AppError)) throw e; // already released by someone else: skip it
+    }
+  }
+  res.json({ success: true, message: n === 1 ? '1 bonus released.' : `${n} bonuses released.` });
 });
 
 router.post('/periods/close', async (req: Request, res: Response) => {

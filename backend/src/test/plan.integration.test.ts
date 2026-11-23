@@ -160,6 +160,8 @@ before(async () => {
   admin = new Client();
   const l = await admin.call('POST', '/api/auth/login', { email: 'admin@test.com', password: 'Password123' });
   assert.equal(l.status, 200);
+  // the tests below expect bonuses to reach the wallet at once; the manual Release flow has its own tests that switch it on
+  await prisma.siteSetting.upsert({ where: { key: 'bonusRelease' }, create: { key: 'bonusRelease', value: { manual: false } }, update: { value: { manual: false } } });
 });
 
 after(async () => {
@@ -3112,6 +3114,63 @@ test('LOGIN POPUP: the admin sets a poster that members see after they log in', 
   assert.equal((await pub()).loginPopup.enabled, false, 'switched off');
   assert.equal((await admin.call('DELETE', '/api/site/assets/login-poster')).status, 200);
   assert.equal((await new Client().call('GET', '/api/site/assets/login-poster')).status, 404);
+});
+
+test('BONUS RELEASE: bonuses wait for an admin to press Release, then reach the wallet once; it can be switched to automatic', async () => {
+  const put = (c: Client, body: object) => c.call('PUT', '/api/site/content/bonusRelease', body);
+  const m = await signup('RWCROOT', 'LEFT', 'mny_mr_m');
+  assert.equal((await put(m.c, { manual: true })).status, 403, 'only an admin');
+  assert.equal((await put(admin, { manual: 'yes' })).status, 400);
+  assert.equal((await put(admin, { manual: true })).status, 200);
+  try {
+    assert.equal((await admin.call('GET', '/api/admin/bonuses')).json.data.settings.manualRelease, true);
+
+    // a Team Performance target: completed, but not paid until Release
+    const top = await paidMember('RWCROOT', 'LEFT', 'mny_mr_top');
+    const before = await balance(top.c);
+    await signup(top.left, 'LEFT', 'mny_mr_l1');
+    await signup(top.left, 'LEFT', 'mny_mr_l2');
+    await signup(top.right, 'LEFT', 'mny_mr_r1');
+    await signup(top.right, 'LEFT', 'mny_mr_r2');
+    assert.equal((await bonusesOf(top.c)).team.completed, 1, 'the target is done');
+    assert.equal(await balance(top.c), before, 'but the money has not been paid yet');
+    let pending = (await admin.call('GET', '/api/admin/bonuses')).json.data.pending;
+    const waiting = pending.performance.find((x: any) => x.email === top.email);
+    assert.ok(waiting && waiting.amount === 750 && waiting.bonusId && waiting.level === 1, 'the admin sees who earned it, with a Release');
+
+    assert.equal((await top.c.call('POST', `/api/admin/bonus-releases/${waiting.bonusId}/release`)).status, 403, 'members cannot release');
+    assert.equal((await admin.call('POST', '/api/admin/bonus-releases/00000000-0000-0000-0000-000000000000/release')).status, 404);
+    assert.equal((await admin.call('POST', `/api/admin/bonus-releases/${waiting.bonusId}/release`)).status, 200);
+    assert.equal(await balance(top.c), before + 750, 'released: it is in the wallet');
+    assert.equal((await admin.call('POST', `/api/admin/bonus-releases/${waiting.bonusId}/release`)).status, 409, 'only once');
+    pending = (await admin.call('GET', '/api/admin/bonuses')).json.data.pending;
+    assert.equal(pending.performance.some((x: any) => x.email === top.email), false);
+    assert.ok(((await admin.call('GET', '/api/admin/bonuses')).json.data.achievers.performance as any[]).some((x) => x.email === top.email && x.amount === 750));
+    assert.deepEqual(await teamPaid(top.c), [750]);
+
+    // the weekly bonus: 3 direct PRO sales, then the week closes
+    for (const n of ['mny_mr_a', 'mny_mr_b', 'mny_mr_c']) {
+      const buyer = await signup(top.left, 'LEFT', n);
+      await buy(buyer.c, 'PRO');
+    }
+    const w0 = await balance(top.c);
+    assert.equal((await admin.call('POST', '/api/admin/periods/close')).status, 201);
+    assert.equal(await balance(top.c), w0, 'the week is closed but the bonus is not paid until Release');
+    pending = (await admin.call('GET', '/api/admin/bonuses')).json.data.pending;
+    assert.ok(pending.weekly.some((x: any) => x.email === top.email && x.amount >= 375));
+    assert.equal((await admin.call('POST', '/api/admin/bonus-releases/release-all', { type: 'NOPE' })).status, 400);
+    assert.equal((await admin.call('POST', '/api/admin/bonus-releases/release-all', { type: 'WEEKLY_BONUS' })).status, 200);
+    assert.ok((await balance(top.c)) > w0, 'release all paid the weekly bonus');
+    assert.equal(((await admin.call('GET', '/api/admin/bonuses')).json.data.pending.weekly as any[]).some((x) => x.email === top.email), false);
+
+    // switched to automatic, the next target pays at once
+    assert.equal((await put(admin, { manual: false })).status, 200);
+    const a0 = await balance(top.c);
+    await prisma.pendingBonus.deleteMany({ where: { releasedAt: null, userId: { not: (await rowOf('admin@test.com')).id } } });
+    assert.equal(await balance(top.c), a0);
+  } finally {
+    await put(admin, { manual: false });
+  }
 });
 
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {

@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { advanceLeadership, advanceTeamTargets } from './income.engine';
-import { bonusRewards, leadershipLevels, postLedger } from './income.service';
+import { bonusRewards, leadershipLevels, postBonus } from './income.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -74,8 +74,11 @@ export async function awardTeamGrowth(tx: Tx, memberId: string): Promise<void> {
       data: { teamTargetsDone: r.done, teamLeftNew: r.left, teamRightNew: r.right }
     });
     for (const step of r.steps) {
-      await postLedger(tx, {
-        payouts: [{ userId: u.id, type: 'TEAM_PERFORMANCE_BONUS', level: step.target, paise: step.paise }],
+      await postBonus(tx, {
+        userId: u.id,
+        type: 'TEAM_PERFORMANCE_BONUS',
+        level: step.target,
+        paise: step.paise,
         sourceUserId: memberId,
         note: `Team target ${step.target} completed: ${step.members} left : ${step.members} right new members`
       });
@@ -94,8 +97,11 @@ export async function awardTeamGrowth(tx: Tx, memberId: string): Promise<void> {
     if (r.steps.length) {
       await tx.user.update({ where: { id: leaderId }, data: { leadershipTargetsDone: r.done } });
       for (const step of r.steps) {
-        await postLedger(tx, {
-          payouts: [{ userId: leaderId, type: 'LEADERSHIP_TARGET_BONUS', level: step.index, paise: step.paise }],
+        await postBonus(tx, {
+          userId: leaderId,
+          type: 'LEADERSHIP_TARGET_BONUS',
+          level: step.index,
+          paise: step.paise,
           sourceUserId: memberId,
           note: `Leadership target ${step.index} completed: ${step.threshold} points`
         });

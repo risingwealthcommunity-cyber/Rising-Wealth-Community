@@ -101,6 +101,9 @@ export const loginPopupSchema = z.object({
   link: z.string().trim().max(300).refine((v) => v === '' || /^https:\/\/\S+$/i.test(v), 'The link must start with https://')
 });
 
+/** Bonuses wait for an admin to press Release (manual), or are credited at once. */
+export const bonusReleaseSchema = z.object({ manual: z.boolean() });
+
 export const contactSchema = z.object({
   phone,
   whatsapp: phone,
@@ -123,7 +126,8 @@ export const SETTING_SCHEMAS = {
   weeklyBonus: weeklyBonusSchema,
   bonusRewards: bonusRewardsSchema,
   pageText: pageTextSchema,
-  loginPopup: loginPopupSchema
+  loginPopup: loginPopupSchema,
+  bonusRelease: bonusReleaseSchema
 } as const;
 
 export type SettingName = keyof typeof SETTING_SCHEMAS;
