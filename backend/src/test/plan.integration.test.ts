@@ -2820,6 +2820,15 @@ test('CAMPAIGN STATUS: the admin makes a campaign Live or Expired; members see E
   assert.ok(gone.expiredAt);
   assert.equal((await report()).status, 404, 'no reports on an expired campaign');
 
+  // the admin can keep report submission open after the campaign expired, and close it again
+  assert.equal((await m.c.call('POST', `/api/admin/campaigns/${camp.id}/reports-open`, { open: true })).status, 403, 'members cannot');
+  assert.equal((await admin.call('POST', `/api/admin/campaigns/${camp.id}/reports-open`, { open: 'yes' })).status, 400);
+  assert.equal((await admin.call('POST', `/api/admin/campaigns/${camp.id}/reports-open`, { open: true })).status, 200);
+  assert.equal((await seen()).reportsOpen, true);
+  assert.equal((await report({ mobile: '9000000012' })).status, 201, 'still takes reports while expired, because the admin left submission open');
+  assert.equal((await admin.call('POST', `/api/admin/campaigns/${camp.id}/reports-open`, { open: false })).status, 200);
+  assert.equal((await report({ mobile: '9000000013' })).status, 404, 'closed again');
+
   // expired for more than 30 days: no longer listed for members, and the admin still sees it
   await prisma.campaign.update({ where: { id: camp.id }, data: { expiredAt: new Date(Date.now() - 31 * 86_400_000) } });
   assert.equal(await seen(), undefined);

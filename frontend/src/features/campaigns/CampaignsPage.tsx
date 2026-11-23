@@ -13,6 +13,7 @@ export interface Campaign {
   videoUrl: string;
   needsProof: boolean;
   status?: 'LIVE' | 'EXPIRED';
+  reportsOpen?: boolean;
   logoUrl?: string | null;
   groupName?: string;
   linkType?: 'STANDARD' | 'PERSONAL';
@@ -58,7 +59,7 @@ function Card({ c }: { c: Campaign }) {
           <span className="lesson-play">▶</span>
         </a>
       )}
-      {expired && <p className="muted">This campaign has ended. New reports are not accepted.</p>}
+      {expired && <p className="muted">{c.reportsOpen ? 'This campaign has ended, but you can still send a report for it.' : 'This campaign has ended. New reports are not accepted.'}</p>}
       <div className="campaign-actions">
         {!expired && link && (
           <>
@@ -70,7 +71,7 @@ function Card({ c }: { c: Campaign }) {
             </a>
           </>
         )}
-        {!expired && (
+        {(!expired || c.reportsOpen) && (
           <Link className="btn ghost" to={`/reports?campaign=${c.id}`}>
             Submit report
           </Link>

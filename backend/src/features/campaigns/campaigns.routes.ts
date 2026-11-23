@@ -32,7 +32,7 @@ async function logoMap(): Promise<Map<string, string>> {
   return new Map(rows.map((r) => [r.key.slice('campaign-'.length), `/api/site/assets/${r.key}?v=${r.updatedAt.getTime()}`]));
 }
 
-const publicCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; groupName: string; linkType: string; isActive?: boolean; expiredAt?: Date | null }, logo?: string) => ({
+const publicCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; groupName: string; linkType: string; isActive?: boolean; expiredAt?: Date | null; reportsOpen?: boolean }, logo?: string) => ({
   logoUrl: logo ?? null,
   groupName: c.groupName,
   linkType: c.linkType,
@@ -44,11 +44,12 @@ const publicCampaign = (c: { id: string; title: string; description: string; rew
   videoUrl: c.videoUrl,
   needsProof: c.needsProof,
   status: c.isActive === false ? 'EXPIRED' : 'LIVE',
-  expiredAt: c.expiredAt ?? null
+  expiredAt: c.expiredAt ?? null,
+  reportsOpen: c.reportsOpen ?? false
 });
 
 campaignRoutes.get('/', requireAuth, async (_req: Request, res: Response) => {
-  const [items, logos] = await Promise.all([prisma.campaign.findMany({ where: { OR: [{ isActive: true }, { isActive: false, expiredAt: { gte: new Date(Date.now() - 30 * 86_400_000) } }] }, orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }], take: 200 }), logoMap()]);
+  const [items, logos] = await Promise.all([prisma.campaign.findMany({ where: { OR: [{ isActive: true }, { reportsOpen: true }, { isActive: false, expiredAt: { gte: new Date(Date.now() - 30 * 86_400_000) } }] }, orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }], take: 200 }), logoMap()]);
   res.json({ success: true, data: { items: items.map((c) => publicCampaign(c, logos.get(c.id))) } });
 });
 
@@ -87,7 +88,7 @@ const createSchema = z.object({ campaignId: z.string().uuid(), holderName: holde
 
 campaignRoutes.post('/reports', requireAuth, validateBody(createSchema), async (req: Request, res: Response) => {
   const body = req.body as z.infer<typeof createSchema>;
-  const campaign = await prisma.campaign.findFirst({ where: { id: body.campaignId, isActive: true } });
+  const campaign = await prisma.campaign.findFirst({ where: { id: body.campaignId, OR: [{ isActive: true }, { reportsOpen: true }] } });
   if (!campaign) throw new AppError('That campaign is not open for reports.', 404);
 
   const pending = await prisma.campaignReport.count({ where: { userId: req.user!.id, status: 'PENDING' } });
@@ -188,7 +189,7 @@ const campaignSchema = z.object({
   isActive: z.boolean().default(true)
 });
 
-const adminCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; isActive: boolean; isDemat: boolean; groupName: string; linkType: string; expiredAt?: Date | null }, logo?: string) => ({
+const adminCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; isActive: boolean; isDemat: boolean; groupName: string; linkType: string; expiredAt?: Date | null; reportsOpen?: boolean }, logo?: string) => ({
   ...publicCampaign(c, logo),
   isActive: c.isActive,
   isDemat: c.isDemat
@@ -219,6 +220,13 @@ campaignAdminRoutes.post('/campaigns/:id/status', validateBody(z.object({ status
   const done = await prisma.campaign.updateMany({ where: { id: String(req.params.id) }, data: { isActive: live, expiredAt: live ? null : new Date() } });
   if (done.count !== 1) throw new AppError('Campaign not found', 404);
   res.json({ success: true, message: live ? 'Campaign is Live.' : 'Campaign expired.' });
+});
+
+/** Keep taking reports for a campaign after it expired (or stop again). Live campaigns always take reports. */
+campaignAdminRoutes.post('/campaigns/:id/reports-open', validateBody(z.object({ open: z.boolean() })), async (req: Request, res: Response) => {
+  const done = await prisma.campaign.updateMany({ where: { id: String(req.params.id) }, data: { reportsOpen: req.body.open } });
+  if (done.count !== 1) throw new AppError('Campaign not found', 404);
+  res.json({ success: true, message: req.body.open ? 'Members can still send reports for this campaign.' : 'Reports for this campaign close when it expires.' });
 });
 
 campaignAdminRoutes.delete('/campaigns/:id', async (req: Request, res: Response) => {

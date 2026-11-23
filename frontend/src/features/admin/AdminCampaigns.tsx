@@ -18,6 +18,7 @@ export interface Camp {
   isDemat: boolean;
   isActive: boolean;
   status?: 'LIVE' | 'EXPIRED';
+  reportsOpen?: boolean;
   logoUrl: string | null;
 }
 
@@ -255,6 +256,21 @@ export default function AdminCampaigns() {
                 }}
               >
                 {c.isActive ? 'Expire' : 'Make live'}
+              </button>
+              <button
+                className={c.reportsOpen ? 'btn ok' : 'btn ghost'}
+                type="button"
+                disabled={act.busy}
+                title="When ON, members can still send reports for this campaign after it has expired"
+                onClick={() =>
+                  void act.run(async () => {
+                    const r = await api(`/admin/campaigns/${c.id}/reports-open`, { method: 'POST', body: { open: !c.reportsOpen } });
+                    load();
+                    return r;
+                  })
+                }
+              >
+                Report submission: {c.reportsOpen ? 'ON' : 'OFF'}
               </button>
               <button className="btn ghost" type="button" onClick={() => edit(c)}>
                 Edit

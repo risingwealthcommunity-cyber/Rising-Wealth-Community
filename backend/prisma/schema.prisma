@@ -387,6 +387,8 @@ model Campaign {
   /// true = Live. false = Expired: members still see it for 30 days, marked Expired, and cannot send reports.
   isActive    Boolean  @default(true)
   expiredAt   DateTime?
+  /// true = members can still send reports for this campaign even after it has expired.
+  reportsOpen Boolean  @default(false)
   createdAt   DateTime @default(now())
 
   reports CampaignReport[]

@@ -55,7 +55,7 @@ export default function ReportsPage() {
 
   const load = useCallback(async () => {
     const [c, r] = await Promise.all([api<{ items: Campaign[] }>('/campaigns'), api<{ items: Report[] }>('/campaigns/reports')]);
-    setCampaigns((c.data?.items ?? []).filter((x) => x.status !== 'EXPIRED'));
+    setCampaigns((c.data?.items ?? []).filter((x) => x.status !== 'EXPIRED' || x.reportsOpen));
     setReports(r.data?.items ?? []);
   }, []);
   useEffect(() => {
