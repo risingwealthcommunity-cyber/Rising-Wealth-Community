@@ -35,6 +35,12 @@ export const POOL_PCT = { WEEKLY: 5, PERFORMANCE: 20, LEADERSHIP: 5 } as const;
 export const COMPANY_FUND_PCT = 20;
 
 /**
+ * A rank used to pay a one-time cash reward as well as the Team Performance Bonus for the same milestone (2:2 paid Rs 750 twice). The owner
+ * said the two are the same thing, so the cash is paid once, as the Team Performance Bonus. Ranks still advance and show their name.
+ */
+export const RANK_CASH_REWARDS = false;
+
+/**
  * Demat referral income.
  * ASSUMPTION (plan gives no numbers): admin enters the amount payable to the referrer;
  * 5 passive levels pay these % of that amount, funded by the company.

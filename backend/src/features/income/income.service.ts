@@ -14,7 +14,7 @@ import {
   type Payout,
   type UplineMember
 } from './income.engine';
-import { COMPANY_FUND_PCT, PACKAGE_HALF_POINTS, POOL_PCT, TEAM_TARGETS, WEEKLY_MIN_PER_SHARE_PAISE, type PaidPackage } from './plan.config';
+import { COMPANY_FUND_PCT, PACKAGE_HALF_POINTS, POOL_PCT, RANK_CASH_REWARDS, TEAM_TARGETS, WEEKLY_MIN_PER_SHARE_PAISE, type PaidPackage } from './plan.config';
 
 type Tx = Prisma.TransactionClient;
 
@@ -136,12 +136,14 @@ async function awardBinaryPoints(tx: Tx, buyerId: string, pkg: PaidPackage, purc
       where: { id: u.id },
       data: { rank: reached.rank, rankLeftHalf: 0, rankRightHalf: 0 }
     });
-    await postLedger(tx, {
-      payouts: [{ userId: u.id, type: 'RANK_REWARD', paise: reached.reward * 100 }],
-      sourceUserId: buyerId,
-      purchaseId,
-      note: `Rank achieved: ${reached.rank}`
-    });
+    if (RANK_CASH_REWARDS) {
+      await postLedger(tx, {
+        payouts: [{ userId: u.id, type: 'RANK_REWARD', paise: reached.reward * 100 }],
+        sourceUserId: buyerId,
+        purchaseId,
+        note: `Rank achieved: ${reached.rank}`
+      });
+    }
   }
 }
 

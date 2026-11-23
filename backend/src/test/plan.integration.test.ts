@@ -1248,17 +1248,13 @@ test('rank: SILVER at 2:2 points (4 PRO per leg), one-time reward Rs 750, points
   assert.deepEqual([t.points.left, t.points.right], [0, 0]); // reset after rank
   assert.equal(t.nextRank.rank, 'GOLD');
 
-  const rewards = await prisma.ledgerEntry.findMany({ where: { userId: lead.user.id, type: 'RANK_REWARD' } });
-  assert.equal(rewards.length, 1);
-  assert.equal(rupees(rewards[0].amount.toString()), 750);
-
-  // 8 sales -> direct income for leader (35%+5%)... balance grew by 750 reward + direct/passive of the last 2 sales
-  assert.ok((await balance(lead.c)) >= before + 750);
+  // the rank advances, but its cash is not paid separately: the same milestone pays through the Team Performance Bonus only
+  assert.equal(await prisma.ledgerEntry.count({ where: { userId: lead.user.id, type: 'RANK_REWARD' } }), 0, 'no separate rank cash reward');
+  assert.ok((await balance(lead.c)) >= before, 'income from the last sales still arrives');
 });
 
-test('rank: a rank reward is never paid twice for the same points', async () => {
-  const lead = await prisma.user.findUniqueOrThrow({ where: { email: 'leader@test.com' } });
-  assert.equal(await prisma.ledgerEntry.count({ where: { userId: lead.id, type: 'RANK_REWARD' } }), 1);
+test('rank: no rank cash reward is ever paid on top of the Team Performance Bonus', async () => {
+  assert.equal(await prisma.ledgerEntry.count({ where: { type: 'RANK_REWARD' } }), 0);
 });
 
 // ---------------------------------------------------------------- DEMAT
