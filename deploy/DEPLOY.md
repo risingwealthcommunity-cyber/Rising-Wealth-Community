@@ -48,3 +48,27 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec api npx 
 - Update: `git pull && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build`
 - Logs: `docker compose -f deploy/docker-compose.yml logs -f api`
 - Backup: `docker compose -f deploy/docker-compose.yml exec db pg_dump -U rwc rwc > backup-$(date +%F).sql` (isko kahin bahar bhi rakho).
+
+---
+
+# DigitalOcean par deploy (Droplet 2 GB, ~$12/mahina)
+
+Oracle ke iptables wale steps yahan nahi chahiye. Baaki sab same hai.
+
+1. **Create > Droplets.** Region **Bangalore (BLR1)**, Image **Ubuntu 22.04 (LTS) x64**, Size **Basic > Regular SSD > $12/mo (2 GB)**,
+   Authentication **Password**, Hostname `rwc`. Create dabao, aur uska **IP** note karo.
+2. **Networking > Firewalls > Create Firewall:** Inbound mein SSH 22, HTTP 80, HTTPS 443 (All IPv4). Droplet ko is firewall se jodo.
+3. Droplet page > **Console** kholo (browser mein terminal) aur chalao:
+   ```
+   curl -fsSL https://get.docker.com | sudo sh
+   git clone https://github.com/risingwealthcommunity-cyber/Rising-Wealth-Community.git rwc && cd rwc
+   cp deploy/.env.example deploy/.env && nano deploy/.env
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+   ```
+4. **Domain:** DNS mein A record (`app`) -> Droplet ka IP. `deploy/.env` mein `DOMAIN=app.yourdomain.com`. Caddy HTTPS khud lagata hai.
+5. **Roz ka backup:** `sudo crontab -e` mein ye line jodo (roz raat 3 baje):
+   ```
+   0 3 * * * cd /root/rwc && sh deploy/backup.sh >> /var/log/rwc-backup.log 2>&1
+   ```
+   Restore: `gunzip -c /var/backups/rwc/<file>.sql.gz | docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T db psql -U rwc rwc`
+6. **Update:** `cd rwc && git pull && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build`
