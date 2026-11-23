@@ -30,7 +30,7 @@ interface Bonuses {
     performance: Line[];
     leadership: Line[];
   };
-  settings: { minPerShare: number; rewards: { team: number[]; leadership: number[] } };
+  settings: { minPerShare: number; rewards: { team: { members: number; reward: number }[]; leadership: { size: number; reward: number }[] } };
 }
 
 const SECTIONS = [
@@ -119,8 +119,8 @@ export default function AdminBonusesPage() {
   const [data, setData] = useState<Bonuses | null>(null);
   const [periodId, setPeriodId] = useState('');
   const [min, setMin] = useState('');
-  const [teamAmts, setTeamAmts] = useState<string[]>([]);
-  const [leadAmts, setLeadAmts] = useState<string[]>([]);
+  const [teamLevels, setTeamLevels] = useState<{ members: string; reward: string }[]>([]);
+  const [leadLevels, setLeadLevels] = useState<{ size: string; reward: string }[]>([]);
   const rewards = useRun();
   const save = useRun();
   const close = useRun();
@@ -131,8 +131,8 @@ export default function AdminBonusesPage() {
         setData(r.data ?? null);
         if (r.data) setMin((m) => m || String(r.data!.settings.minPerShare));
         if (r.data) {
-          setTeamAmts((a) => (a.length ? a : r.data!.settings.rewards.team.map(String)));
-          setLeadAmts((a) => (a.length ? a : r.data!.settings.rewards.leadership.map(String)));
+          setTeamLevels((a) => (a.length ? a : r.data!.settings.rewards.team.map((t) => ({ members: String(t.members), reward: String(t.reward) }))));
+          setLeadLevels((a) => (a.length ? a : r.data!.settings.rewards.leadership.map((t) => ({ size: String(t.size), reward: String(t.reward) }))));
         }
       })
       .catch(() => setData(null));
@@ -152,14 +152,17 @@ export default function AdminBonusesPage() {
 
   const saveRewards = (e: FormEvent) => {
     e.preventDefault();
-    const team = teamAmts.map(Number);
-    const leadership = leadAmts.map(Number);
-    if ([...team, ...leadership].some((n) => !Number.isFinite(n) || n < 0)) return rewards.setMsg({ type: 'error', text: 'Every amount must be a number in rupees, zero or more.' });
+    const team = teamLevels.map((t) => ({ members: Number(t.members), reward: Number(t.reward) }));
+    const leadership = leadLevels.map((t) => ({ size: Number(t.size), reward: Number(t.reward) }));
+    const bad = [...team.map((t) => t.members), ...leadership.map((t) => t.size)].some((n) => !Number.isInteger(n) || n < 1);
+    if (bad || [...team, ...leadership].some((t) => !Number.isFinite(t.reward) || t.reward < 0)) {
+      return rewards.setMsg({ type: 'error', text: 'Every size must be a whole number of 1 or more, and every reward a number of rupees (0 or more).' });
+    }
     void rewards.run(async () => {
       const r = await api('/site/content/bonusRewards', { method: 'PUT', body: { team, leadership } });
       load();
       return r;
-    }, 'Saved. Members see the new amounts now, and they are paid for targets completed from now on.');
+    }, 'Saved. Members see the new levels now, and they are paid for targets completed from now on.');
   };
 
   const closeNow = () => {
@@ -180,29 +183,62 @@ export default function AdminBonusesPage() {
       <h1>Bonuses</h1>
 
       <form className="card stack" onSubmit={saveRewards}>
-        <h2>Team Performance and Leadership bonus amounts</h2>
-        <p className="muted">The rupees paid when a member completes each target. Changing them affects only targets completed from now on.</p>
-        <h3>Team Performance (new members on each side)</h3>
-        <div className="reward-grid">
-          {teamAmts.map((v, i) => (
-            <label key={i}>
-              Target {i + 1} ({2 ** (i + 1)} : {2 ** (i + 1)}) ₹
-              <input value={v} inputMode="decimal" onChange={(e) => setTeamAmts((a) => a.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Team Performance target ${i + 1} amount`} />
-            </label>
+        <h2>Team Performance and Leadership levels</h2>
+        <p className="muted">Add, change or remove levels. A change affects only targets completed from now on. Members who are part-way keep their progress.</p>
+
+        <h3>Team Performance (new members needed on each side)</h3>
+        <div className="level-rows">
+          {teamLevels.map((t, i) => (
+            <div className="level-row" key={i}>
+              <b>Level {i + 1}</b>
+              <label>
+                Members each side
+                <input value={t.members} inputMode="numeric" onChange={(e) => setTeamLevels((a) => a.map((x, j) => (j === i ? { ...x, members: e.target.value } : x)))} aria-label={`Team Performance level ${i + 1} members`} />
+              </label>
+              <label>
+                Bonus (₹)
+                <input value={t.reward} inputMode="decimal" onChange={(e) => setTeamLevels((a) => a.map((x, j) => (j === i ? { ...x, reward: e.target.value } : x)))} aria-label={`Team Performance level ${i + 1} bonus`} />
+              </label>
+              <button className="btn ghost" type="button" disabled={teamLevels.length <= 1} onClick={() => setTeamLevels((a) => a.filter((_, j) => j !== i))}>
+                Remove
+              </button>
+            </div>
           ))}
         </div>
-        <h3>Leadership (points from your directs&rsquo; new members)</h3>
-        <div className="reward-grid">
-          {leadAmts.map((v, i) => (
-            <label key={i}>
-              Target {i + 1} ₹
-              <input value={v} inputMode="decimal" onChange={(e) => setLeadAmts((a) => a.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Leadership target ${i + 1} amount`} />
-            </label>
-          ))}
+        <button className="btn ghost" type="button" disabled={teamLevels.length >= 40} onClick={() => setTeamLevels((a) => [...a, { members: String((Number(a[a.length - 1]?.members) || 1) * 2), reward: String((Number(a[a.length - 1]?.reward) || 0) * 2) }])}>
+          + Add a level
+        </button>
+
+        <h3>Leadership (points needed on top of the level before)</h3>
+        <div className="level-rows">
+          {leadLevels.map((t, i) => {
+            const total = leadLevels.slice(0, i + 1).reduce((s, x) => s + (Number(x.size) || 0), 0);
+            return (
+              <div className="level-row" key={i}>
+                <b>Level {i + 1}</b>
+                <label>
+                  Points to add
+                  <input value={t.size} inputMode="numeric" onChange={(e) => setLeadLevels((a) => a.map((x, j) => (j === i ? { ...x, size: e.target.value } : x)))} aria-label={`Leadership level ${i + 1} points`} />
+                </label>
+                <label>
+                  Bonus (₹)
+                  <input value={t.reward} inputMode="decimal" onChange={(e) => setLeadLevels((a) => a.map((x, j) => (j === i ? { ...x, reward: e.target.value } : x)))} aria-label={`Leadership level ${i + 1} bonus`} />
+                </label>
+                <small className="muted">{total} points in all</small>
+                <button className="btn ghost" type="button" disabled={leadLevels.length <= 1} onClick={() => setLeadLevels((a) => a.filter((_, j) => j !== i))}>
+                  Remove
+                </button>
+              </div>
+            );
+          })}
         </div>
+        <button className="btn ghost" type="button" disabled={leadLevels.length >= 40} onClick={() => setLeadLevels((a) => [...a, { size: String((Number(a[a.length - 1]?.size) || 3) * 2), reward: String((Number(a[a.length - 1]?.reward) || 0) * 2) }])}>
+          + Add a level
+        </button>
+
         {rewards.msg && <div className={`alert ${rewards.msg.type}`}>{rewards.msg.text}</div>}
-        <button className="btn" disabled={rewards.busy || teamAmts.length === 0}>
-          {rewards.busy ? 'Saving...' : 'Save target amounts'}
+        <button className="btn" disabled={rewards.busy || teamLevels.length === 0}>
+          {rewards.busy ? 'Saving...' : 'Save levels'}
         </button>
       </form>
 
