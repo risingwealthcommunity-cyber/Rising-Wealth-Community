@@ -75,7 +75,7 @@ export default function AdminIncomePage() {
             <div className="level">
               <small>Company fund</small>
               <strong>{inr(data.totals.companyFund)}</strong>
-              <em>excess, locked levels, unclaimed pools</em>
+              <em>20% of every package sale</em>
             </div>
             <div className="level">
               <small>Withdrawals paid</small>

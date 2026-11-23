@@ -3169,6 +3169,18 @@ test('BONUS RELEASE: bonuses wait for an admin to press Release, then reach the 
   }
 });
 
+test('COMPANY FUND: it is 20% of every package sale, in the income summary and on the admin overview', async () => {
+  const all = (await admin.call('GET', '/api/admin/income?range=all')).json.data;
+  assert.ok(all.totals.sales > 0);
+  assert.equal(rupees(all.totals.companyFund), rupees(all.totals.sales * 0.2), 'the summary total is 20% of sales');
+  assert.equal(rupees(all.days.reduce((s: number, d: any) => s + d.companyFund, 0)), rupees(all.totals.companyFund), 'and so are the days added up');
+  assert.ok(all.days.every((d: any) => rupees(d.companyFund) === rupees(d.sales * 0.2)), 'each day too');
+  const fund = (await admin.call('GET', '/api/admin/company-fund')).json.data;
+  assert.equal(rupees(fund.total), rupees(all.totals.sales * 0.2), 'the overview agrees');
+  assert.equal(fund.pct, 20);
+  assert.equal(rupees((await admin.call('GET', '/api/admin/bonuses')).json.data.pools.company.total), rupees(fund.total), 'and so does the Bonuses page');
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

@@ -9,6 +9,7 @@ import { requireAuth, requireRole } from '../auth';
 import { packagesService } from '../packages';
 import { parseRupees, walletService } from '../wallet/wallet.service';
 import { proofFrom } from '../../shared/proof';
+import { COMPANY_FUND_PCT } from '../income/plan.config';
 import { bonusRewards, closePayoutPeriod, manualRelease, paiseToDecimal, poolBalances, postLedger, releaseBonus, previewPayoutWindow, weeklyMinPaise } from '../income/income.service';
 
 /** The incomes an admin can credit to a member by hand. */
@@ -467,16 +468,13 @@ router.get('/income', async (req: Request, res: Response) => {
   const startOfToday = Math.floor((Date.now() + IST_MS) / DAY_MS) * DAY_MS - IST_MS;
   const from = days === null ? new Date(0) : new Date(startOfToday - (days - 1) * DAY_MS);
 
-  const [sales, paid, company, withdrawn] = await Promise.all([
+  const [sales, paid, withdrawn] = await Promise.all([
     prisma.$queryRaw<{ day: string; n: bigint; total: unknown }[]>`
       SELECT to_char("confirmedAt" + interval '330 minutes', 'YYYY-MM-DD') AS day, COUNT(*) AS n, SUM(amount) AS total
       FROM "PackagePurchase" WHERE status = 'CONFIRMED' AND "confirmedAt" >= ${from} GROUP BY 1`,
     prisma.$queryRaw<{ day: string; type: string; total: unknown }[]>`
       SELECT to_char("createdAt" + interval '330 minutes', 'YYYY-MM-DD') AS day, type::text AS type, SUM(amount) AS total
       FROM "LedgerEntry" WHERE "userId" IS NOT NULL AND (amount > 0 OR type = 'ADMIN_DEDUCTION') AND type <> 'COMPANY_FUND' AND "createdAt" >= ${from} GROUP BY 1, 2`,
-    prisma.$queryRaw<{ day: string; total: unknown }[]>`
-      SELECT to_char("createdAt" + interval '330 minutes', 'YYYY-MM-DD') AS day, SUM(amount) AS total
-      FROM "LedgerEntry" WHERE "userId" IS NULL AND type = 'COMPANY_FUND' AND "createdAt" >= ${from} GROUP BY 1`,
     prisma.$queryRaw<{ day: string; total: unknown }[]>`
       SELECT to_char("createdAt" + interval '330 minutes', 'YYYY-MM-DD') AS day, SUM(-amount) AS total
       FROM "LedgerEntry" WHERE type = 'WITHDRAWAL' AND "createdAt" >= ${from} GROUP BY 1`
@@ -495,8 +493,10 @@ router.get('/income', async (req: Request, res: Response) => {
     const d = day(r.day);
     d.sales = money(r.total);
     d.salesCount = Number(r.n);
+    d.companyFund = money((d.sales * COMPANY_FUND_PCT) / 100); // the company keeps 20% of every package sale
     totals.sales = money(totals.sales + d.sales);
     totals.salesCount += d.salesCount;
+    totals.companyFund = money(totals.companyFund + d.companyFund);
   }
   for (const r of paid) {
     const d = day(r.day);
@@ -505,11 +505,6 @@ router.get('/income', async (req: Request, res: Response) => {
     d.paid = money(d.paid + v);
     totals.byType[r.type] = money((totals.byType[r.type] ?? 0) + v);
     totals.paid = money(totals.paid + v);
-  }
-  for (const r of company) {
-    const d = day(r.day);
-    d.companyFund = money(r.total);
-    totals.companyFund = money(totals.companyFund + d.companyFund);
   }
   for (const r of withdrawn) {
     const d = day(r.day);
@@ -582,12 +577,10 @@ router.get('/periods', async (_req: Request, res: Response) => {
   res.json({ success: true, data: { periods } });
 });
 
+/** The company fund: 20% of every confirmed package sale. */
 router.get('/company-fund', async (_req: Request, res: Response) => {
-  const total = await prisma.ledgerEntry.aggregate({
-    where: { type: 'COMPANY_FUND' },
-    _sum: { amount: true }
-  });
-  res.json({ success: true, data: { total: (total._sum.amount ?? 0).toString() } });
+  const pools = await poolBalances(prisma);
+  res.json({ success: true, data: { total: pools.company.total.toFixed(2), pct: pools.company.pct } });
 });
 
 export default router;

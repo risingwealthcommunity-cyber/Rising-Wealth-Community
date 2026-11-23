@@ -160,7 +160,7 @@ export default function AdminPage() {
       </div>
 
       <div className="card stat">
-        <span className="muted">Company fund (excess, locked levels, unclaimed pools)</span>
+        <span className="muted">Company fund (20% of every package sale)</span>
         <strong className="price">{inr(fund)}</strong>
       </div>
 
