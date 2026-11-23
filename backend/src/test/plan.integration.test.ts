@@ -2483,6 +2483,29 @@ test('CAMPAIGN LOGO: the admin uploads a logo for a campaign; it shows to member
   assert.equal((await new Client().call('GET', `/api/site/assets/campaign-${camp.id}`)).status, 404, 'the logo is removed with the campaign');
 });
 
+test('LIVE POSTER: the admin adds a poster to a live training; members see it, and it goes away with the training', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_lp_one');
+  const when = new Date(Date.now() + 86_400_000).toISOString();
+  const made = await admin.call('POST', '/api/admin/live', { title: 'Poster training', description: '', startsAt: when, link: 'https://meet.example.com/p', minTier: 'TRAINEE', isActive: true });
+  assert.equal(made.status, 201);
+  const sid = made.json.data.id as string;
+  const mine = async () => ((await m.c.call('GET', '/api/live')).json.data.items as any[]).find((x) => x.id === sid);
+  const adminRow = async () => ((await admin.call('GET', '/api/admin/live')).json.data.items as any[]).find((x) => x.id === sid);
+
+  assert.equal((await mine()).posterUrl, null, 'no poster yet');
+  assert.equal((await putImage(m.c, `live-${sid}`, PNG, 'image/png')).status, 403, 'only an admin');
+  assert.equal((await putImage(admin, 'live-not-an-id', PNG, 'image/png')).status, 404);
+  assert.equal((await putImage(admin, `live-${sid}`, Buffer.from('<svg/>'), 'image/png')).status, 415, 'must be a real raster image');
+  assert.equal((await putImage(admin, `live-${sid}`, PNG, 'image/png')).status, 200);
+
+  assert.ok(/^\/api\/site\/assets\/live-[0-9a-f-]{36}\?v=\d+$/.test((await adminRow()).posterUrl));
+  assert.equal((await mine()).posterUrl, (await adminRow()).posterUrl, 'members see the same poster');
+  assert.equal((await new Client().call('GET', `/api/site/assets/live-${sid}`)).status, 200);
+
+  assert.equal((await admin.call('DELETE', `/api/admin/live/${sid}`)).status, 200);
+  assert.equal((await new Client().call('GET', `/api/site/assets/live-${sid}`)).status, 404, 'the poster is removed with the training');
+});
+
 test('BONUS ACHIEVERS: admin sees who got weekly, performance and leadership bonuses, plus who is in line now; the weekly minimum is a setting', async () => {
   const m = await signup('RWCROOT', 'LEFT', 'mny_bn_one');
   assert.equal((await m.c.call('GET', '/api/admin/bonuses')).status, 403);
