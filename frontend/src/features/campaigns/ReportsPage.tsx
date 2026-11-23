@@ -123,7 +123,7 @@ export default function ReportsPage() {
     <>
       <div>
         <h1>Submit reports</h1>
-        <p className="muted">Upload the proof for each account you got opened. The screenshot must clearly show the successful account creation.</p>
+        <p className="muted">Upload the proof for each account you got opened. The photo or video must clearly show the successful account creation.</p>
       </div>
 
       <div className="reports-grid">
