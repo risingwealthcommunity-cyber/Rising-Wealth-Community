@@ -11,6 +11,8 @@ import MilestonesEditor from './MilestonesEditor';
 const PAGE_IMAGES = [
   { key: 'about-image', title: 'About section image', hint: 'Shown beside the About text. Landscape works best, e.g. 1200 x 800.' },
   { key: 'certificate', title: 'Registration certificate', hint: 'Opens in the "View document" viewer. Use a clear scan or photo.' },
+  { key: 'package-pro', title: 'PRO package picture', hint: 'Shown in the popup after someone is activated on PRO. A tall or square picture works best.' },
+  { key: 'package-elite', title: 'ELITE package picture', hint: 'Shown in the popup after someone is activated on ELITE.' },
   { key: 'feature-1', title: 'Card 1: Start free', hint: 'Optional top image. Wide images (16:9) look best.' },
   { key: 'feature-2', title: 'Card 2: Build your team', hint: 'Optional top image.' },
   { key: 'feature-3', title: 'Card 3: Passive levels', hint: 'Optional top image.' },

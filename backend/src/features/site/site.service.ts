@@ -10,7 +10,7 @@ import type { SettingName } from './site.validator';
  * backgrounds) plus one slot per team member / review, keyed by that item's id.
  */
 export const ASSET_KEY_PATTERN =
-  /^(about-image|certificate|payment-qr|login-poster|avatar-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|campaign-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|live-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|feature-[1-6]|milestone-[1-6]|team-[a-f0-9]{10}|review-[a-f0-9]{10})$/;
+  /^(about-image|certificate|payment-qr|login-poster|package-pro|package-elite|avatar-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|campaign-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|live-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|feature-[1-6]|milestone-[1-6]|team-[a-f0-9]{10}|review-[a-f0-9]{10})$/;
 
 export const MAX_ASSET_BYTES = 6 * 1024 * 1024;
 export const ASSET_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -54,7 +54,11 @@ async function readSetting<T>(name: SettingName): Promise<T | null> {
 export const siteService = {
   /** Which images exist (metadata only, never the bytes). */
   async list() {
-    const rows = await prisma.siteAsset.findMany({ select: { key: true, updatedAt: true } });
+    // members' own photos, campaign logos and live posters are served by their own pages: they are not part of the public home page list
+    const rows = await prisma.siteAsset.findMany({
+      where: { NOT: [{ key: { startsWith: 'avatar-' } }, { key: { startsWith: 'campaign-' } }, { key: { startsWith: 'live-' } }] },
+      select: { key: true, updatedAt: true }
+    });
     return Object.fromEntries(
       rows.map((r) => [r.key, { url: assetUrl(r.key, r.updatedAt), updatedAt: r.updatedAt.toISOString() }])
     );

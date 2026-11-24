@@ -131,10 +131,11 @@ export const packagesService = {
    * Pays for a package out of the payer's activation wallet, for themselves or for someone in their downline.
    * Confirmed on the spot: the same income plan runs as for an admin-confirmed purchase.
    */
-  async activateFromWallet(payerId: string, targetAffiliateId: string, pkg: PaidPackage) {
+  /** `allowSelf` lets a member upgrade their own ID from their own activation wallet (the "Upgrade your own ID" box). */
+  async activateFromWallet(payerId: string, targetAffiliateId: string, pkg: PaidPackage, allowSelf = false) {
     const payer = await prisma.user.findUniqueOrThrow({ where: { id: payerId }, select: { id: true, referralCode: true } });
     const code = targetAffiliateId.trim().toUpperCase();
-    if (code === payer.referralCode.toUpperCase()) throw new AppError('To upgrade your own ID, send an upgrade request. An admin approves it.', 400);
+    if (code === payer.referralCode.toUpperCase() && !allowSelf) throw new AppError('To upgrade your own ID, use the "Upgrade your own ID" box.', 400);
 
     let target = await prisma.user.findUnique({ where: { referralCode: code } });
     if (!target || !target.isVerified || !target.isActive) throw new AppError('No active member has that Affiliate ID.', 404);
@@ -187,7 +188,8 @@ export const packagesService = {
       const upgraded = await tx.user.updateMany({ where: { id: buyer.id, package: { in: LOWER_THAN[pkg] } }, data: { package: pkg } });
       if (upgraded.count !== 1) throw new AppError('That member already has this package or higher.', 409);
       await distributePackageSale(tx, { purchaseId: purchase.id, buyerId: buyer.id, sponsorId: fresh.sponsorId, package: pkg });
-      return { purchaseId: purchase.id, memberName: buyer.name, package: pkg };
+      // what the popup after an activation shows: who, which package, how much, and when
+      return { purchaseId: purchase.id, memberName: buyer.name, referralCode: buyer.referralCode, package: pkg, amount: price / 100, at: new Date().toISOString(), self: buyer.id === payer.id };
     }, TX_OPTIONS);
   },
 

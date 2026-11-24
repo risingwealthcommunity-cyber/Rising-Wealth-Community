@@ -3210,6 +3210,47 @@ test('OWN PHOTO: a member can use their own picture as the avatar, at most 100 K
   assert.equal((await new Client().call('GET', `/api/site/assets/avatar-${row.id}`)).status, 404, 'the old photo is gone');
 });
 
+test('SELF UPGRADE: a member upgrades their own ID from their own activation wallet at once, with the transaction password', async () => {
+  const prices = (await new Client().call('GET', '/api/packages/prices')).json.data as { PRO: number; ELITE: number };
+  const sponsor = await paidMember('RWCROOT', 'LEFT', 'mny_su_sp');
+  const m = await signup(sponsor.left, 'LEFT', 'mny_su_m');
+  const row = await rowOf(m.email);
+  const up = (c: Client, body: object) => c.call('POST', '/api/packages/upgrade-self', body);
+  await setTxn(m.c);
+  await addFund(m.c, prices.PRO + 50, 'UTR-SU-1');
+
+  assert.equal((await up(new Client(), { package: 'PRO', txnPassword: TXN })).status, 401);
+  assert.equal((await up(m.c, { package: 'GOLD', txnPassword: TXN })).status, 400);
+  assert.equal((await up(m.c, { package: 'PRO' })).status, 400, 'the transaction password is asked');
+  assert.equal((await up(m.c, { package: 'PRO', txnPassword: 'wrong-one' })).status, 401);
+  assert.equal((await up(m.c, { package: 'ELITE', txnPassword: TXN })).status, 400, 'not enough in the activation wallet');
+  assert.equal((await rowOf(m.email)).package, 'TRAINEE', 'nothing changed so far');
+
+  const earned = (await walletOf(sponsor.c)).totalEarned;
+  const ok = await up(m.c, { package: 'PRO', txnPassword: TXN });
+  assert.equal(ok.status, 201, JSON.stringify(ok.json));
+  // no admin step: the package is PRO now, and the details for the popup come back
+  assert.equal((await rowOf(m.email)).package, 'PRO');
+  const d = ok.json.data;
+  assert.deepEqual([d.memberName, d.referralCode, d.package, d.amount, d.self], [row.name, row.referralCode, 'PRO', prices.PRO, true]);
+  assert.ok(!Number.isNaN(Date.parse(d.at)));
+  assert.equal((await actOf(m.c)).activation, 50, 'only the price left the activation wallet');
+  assert.ok((await walletOf(sponsor.c)).totalEarned > earned, 'the sponsor earned from it, as from any package sale');
+  assert.equal(await prisma.packagePurchase.count({ where: { userId: row.id, status: 'PENDING' } }), 0, 'nothing is waiting for an admin');
+
+  assert.equal((await up(m.c, { package: 'PRO', txnPassword: TXN })).status, 409, 'already on PRO');
+  // the old "ask an admin" box is not needed, but an own ID still cannot be activated through the team box
+  assert.equal((await m.c.call('POST', '/api/wallet/activate', { affiliateId: row.referralCode, package: 'ELITE', txnPassword: TXN })).status, 400);
+});
+
+test('PUBLIC SITE LIST: member photos are not listed on the public home page content', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_pl_m');
+  const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(400, 7)]).toString('base64');
+  assert.equal((await m.c.call('POST', '/api/dashboard/avatar/photo', { fileData: png })).status, 200);
+  const keys = Object.keys((await new Client().call('GET', '/api/site/content')).json.data.assets);
+  assert.equal(keys.some((k) => k.startsWith('avatar-')), false, 'no member photo addresses are listed publicly');
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {

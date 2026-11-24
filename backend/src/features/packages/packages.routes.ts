@@ -4,6 +4,9 @@ import { requireAuth } from '../auth';
 import { validateBody } from '../../shared/middleware/validate.middleware';
 import { proofFrom } from '../../shared/proof';
 import { packagesService } from './packages.service';
+import { walletService } from '../wallet/wallet.service';
+import { strictAuthLimiter } from '../../shared/middleware/rateLimit.middleware';
+import { prisma } from '../../config/database';
 
 const purchaseSchema = z.object({
   package: z.enum(['PRO', 'ELITE']),
@@ -27,6 +30,17 @@ router.post('/purchase', requireAuth, validateBody(purchaseSchema), async (req: 
     message: 'Purchase request created. Your package activates once payment is confirmed.',
     data: { purchase }
   });
+});
+
+/**
+ * Upgrade my own package from my own activation wallet, at once: no admin has to approve it. The transaction password is asked, and the
+ * whole income plan runs exactly as for any other purchase.
+ */
+router.post('/upgrade-self', requireAuth, strictAuthLimiter, validateBody(z.object({ package: z.enum(['PRO', 'ELITE']), txnPassword: z.string().min(1).max(100) })), async (req: Request, res: Response) => {
+  await walletService.verifyTxnPassword(req.user!.id, req.body.txnPassword);
+  const me = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id }, select: { referralCode: true } });
+  const done = await packagesService.activateFromWallet(req.user!.id, me.referralCode, req.body.package, true);
+  res.status(201).json({ success: true, message: `Your ID is now on ${done.package}.`, data: done });
 });
 
 /** Ask to upgrade my own package and pay from my activation wallet. An admin approves, and only then is the price taken. */

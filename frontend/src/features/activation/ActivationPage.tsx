@@ -5,6 +5,9 @@ import { api } from '../../shared/api/apiClient';
 import { date, inr, label } from '../../shared/format';
 import { toAmount, useRun } from '../../shared/useRun';
 import { useAuth } from '../auth';
+import ActivationPopup from '../../shared/components/ActivationPopup';
+import type { Activated } from '../../shared/components/ActivationPopup';
+import PasswordInput from '../../shared/components/PasswordInput';
 
 interface Activation {
   wallet: number;
@@ -25,59 +28,39 @@ interface Purchase {
 const KIND: Record<string, string> = { FUND_ADDED: 'Fund added', TRANSFER_IN: 'Transfer in', SPEND: 'Activation' };
 const TIER = { TRAINEE: 0, PRO: 1, ELITE: 2 } as const;
 
-/** Ask to move up a package. The price is taken from the activation wallet only when an admin approves. */
-function UpgradeRequest({ activation, prices, onChanged }: { activation: number; prices: { PRO: number; ELITE: number } | null; onChanged: () => Promise<void> }) {
+/** Upgrade your own ID from your own activation wallet, at once. The price leaves the wallet now; no admin has to approve it. */
+function UpgradeSelf({ activation, prices, onChanged, onDone }: { activation: number; prices: { PRO: number; ELITE: number } | null; onChanged: () => Promise<void>; onDone: (a: Activated) => void }) {
   const { user, refreshUser } = useAuth();
-  const [mine, setMine] = useState<Purchase[]>([]);
   const [pkg, setPkg] = useState('');
+  const [pass, setPass] = useState('');
   const act = useRun();
 
-  const load = useCallback(async () => {
-    const r = await api<{ purchases: Purchase[] }>('/packages/mine');
-    setMine(r.data?.purchases ?? []);
-  }, []);
-  useEffect(() => {
-    // the package may have been upgraded since the page was last loaded
-    void load().then(() => refreshUser());
-  }, [load, refreshUser]);
-
   if (!user) return null;
-  const waiting = mine.find((p) => p.status === 'PENDING');
-  const last = mine.find((p) => p.status !== 'PENDING' && p.paidFromWallet);
   const options = (['PRO', 'ELITE'] as const).filter((k) => TIER[k] > TIER[user.package]);
   const price = pkg && prices ? prices[pkg as 'PRO' | 'ELITE'] : 0;
 
   const send = (e: FormEvent) => {
     e.preventDefault();
     void act.run(async () => {
-      const r = await api('/packages/wallet-request', { method: 'POST', body: { package: pkg } });
+      const r = await api<Activated>('/packages/upgrade-self', { method: 'POST', body: { package: pkg, txnPassword: pass } });
       setPkg('');
-      await Promise.all([load(), onChanged()]);
+      setPass('');
+      await Promise.all([refreshUser(), onChanged()]);
+      if (r.data) onDone(r.data);
       return r;
     });
   };
 
   return (
-    <div className="card stack">
+    <form className="card stack" onSubmit={send} autoComplete="off">
       <h2>Upgrade your own ID</h2>
       <p className="muted">
-        You are on <strong>{label(user.package)}</strong>. Your Affiliate ID: <b>{user.referralCode}</b>. Send a request: when an admin approves it, the price is taken from your activation wallet and your package is upgraded.
+        You are on <strong>{label(user.package)}</strong>. Your Affiliate ID: <b>{user.referralCode}</b>. The price is taken from your activation wallet and your package is upgraded at once.
       </p>
-
-      {waiting && (
-        <div className="alert">
-          Your request for <b>{waiting.package}</b> ({inr(waiting.amount)}) is waiting for an admin to approve it. Sent {date(waiting.createdAt)}. Keep at least {inr(waiting.amount)} in your activation wallet until then.
-        </div>
-      )}
-      {!waiting && last && (
-        <div className={`alert ${last.status === 'CONFIRMED' ? 'success' : 'error'}`}>
-          {last.status === 'CONFIRMED' ? `Your upgrade to ${last.package} was approved.` : `Your request for ${last.package} was not approved. Nothing was taken from your wallet.`}
-        </div>
-      )}
-
-      {!waiting && options.length === 0 && <p className="muted">You are on the highest package.</p>}
-      {!waiting && options.length > 0 && (
-        <form className="stack" onSubmit={send}>
+      {options.length === 0 ? (
+        <p className="muted">You are on the highest package.</p>
+      ) : (
+        <>
           <div className="form-row">
             <select value={pkg} onChange={(e) => setPkg(e.target.value)} aria-label="Package">
               <option value="">Select package</option>
@@ -87,8 +70,9 @@ function UpgradeRequest({ activation, prices, onChanged }: { activation: number;
                 </option>
               ))}
             </select>
-            <button className="btn" disabled={act.busy || !pkg}>
-              Send upgrade request
+            <PasswordInput value={pass} onChange={(e) => setPass(e.target.value)} placeholder="Transaction password" autoComplete="new-password" aria-label="Transaction password" />
+            <button className="btn" disabled={act.busy || !pkg || !pass}>
+              {act.busy ? 'Upgrading...' : 'Upgrade now'}
             </button>
           </div>
           {pkg && prices && activation < price && (
@@ -96,10 +80,10 @@ function UpgradeRequest({ activation, prices, onChanged }: { activation: number;
               Your activation wallet has {inr(activation)}, and {pkg} needs {inr(price)}. Add {inr(price - activation)} first: <Link to="/wallet">Wallet &gt; Add fund</Link>, or move money from your wallet above.
             </div>
           )}
-          {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
-        </form>
+        </>
       )}
-    </div>
+      {act.msg && <div className={`alert ${act.msg.type}`}>{act.msg.text}</div>}
+    </form>
   );
 }
 
@@ -124,6 +108,7 @@ export default function ActivationPage() {
   const [memberId, setMemberId] = useState('');
   const [memberPkg, setMemberPkg] = useState('');
   const [dPass, setDPass] = useState('');
+  const [popup, setPopup] = useState<Activated | null>(null);
 
   if (!user) return null;
   const noTxn = data && !data.hasTxnPassword;
@@ -148,10 +133,11 @@ export default function ActivationPage() {
   const doActivate = (e: FormEvent) => {
     e.preventDefault();
     void downline.run(async () => {
-      const r = await api('/wallet/activate', { method: 'POST', body: { affiliateId: memberId, package: memberPkg, txnPassword: dPass } });
+      const r = await api<Activated>('/wallet/activate', { method: 'POST', body: { affiliateId: memberId, package: memberPkg, txnPassword: dPass } });
       setMemberId('');
       setDPass('');
       await load();
+      if (r.data) setPopup(r.data);
       return r;
     });
   };
@@ -188,7 +174,7 @@ export default function ActivationPage() {
         <h2>Transfer to activation wallet</h2>
         <div className="form-row">
           <input value={amount} inputMode="decimal" onChange={(e) => setAmount(e.target.value)} placeholder="Amount" aria-label="Amount to transfer" />
-          <input type="password" value={tPass} onChange={(e) => setTPass(e.target.value)} placeholder="Transaction password" autoComplete="new-password" aria-label="Transaction password" />
+          <PasswordInput value={tPass} onChange={(e) => setTPass(e.target.value)} placeholder="Transaction password" autoComplete="new-password" aria-label="Transaction password" />
           <button className="btn" disabled={transfer.busy || !amount || !tPass}>
             Transfer
           </button>
@@ -196,24 +182,26 @@ export default function ActivationPage() {
         {transfer.msg && <div className={`alert ${transfer.msg.type}`}>{transfer.msg.text}</div>}
       </form>
 
-      <UpgradeRequest activation={data?.activation ?? 0} prices={prices} onChanged={load} />
+      <UpgradeSelf activation={data?.activation ?? 0} prices={prices} onChanged={load} onDone={setPopup} />
 
       <form className="card" onSubmit={doActivate}>
         <h2>Activate / upgrade a member of your team</h2>
-        <p className="muted">This is done at once from your activation wallet. Upgrading your own ID needs an admin to approve (above).</p>
+        <p className="muted">This is done at once from your activation wallet. To upgrade your own ID, use the box above.</p>
         <div className="form-row">
           <input value={memberId} onChange={(e) => setMemberId(e.target.value)} placeholder="Their Affiliate ID" aria-label="Affiliate ID of the member" />
           <select value={memberPkg} onChange={(e) => setMemberPkg(e.target.value)} aria-label="Package">
             <option value="">Select package</option>
             {options}
           </select>
-          <input type="password" value={dPass} onChange={(e) => setDPass(e.target.value)} placeholder="Transaction password" autoComplete="new-password" aria-label="Transaction password" />
+          <PasswordInput value={dPass} onChange={(e) => setDPass(e.target.value)} placeholder="Transaction password" autoComplete="new-password" aria-label="Transaction password" />
           <button className="btn" disabled={downline.busy || !memberId || !memberPkg || !dPass}>
             Activate
           </button>
         </div>
         {downline.msg && <div className={`alert ${downline.msg.type}`}>{downline.msg.text}</div>}
       </form>
+
+      {popup && <ActivationPopup info={popup} onClose={() => setPopup(null)} />}
 
       <div className="card">
         <h2>Transaction history</h2>
