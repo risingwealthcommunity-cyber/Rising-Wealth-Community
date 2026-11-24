@@ -159,6 +159,7 @@ export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
         </p>
 
         {claimMsg && <div className="alert">{claimMsg}</div>}
+        <div className="table-wrap">
         <table className="ladder">
           <thead>
             <tr>
@@ -194,6 +195,7 @@ export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       )}
@@ -220,6 +222,7 @@ export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
         ) : (
           <p>All Leadership targets are completed.</p>
         )}
+        <div className="table-wrap">
         <table className="ladder">
           <thead>
             <tr>
@@ -245,6 +248,7 @@ export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       )}
