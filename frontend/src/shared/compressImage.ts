@@ -26,6 +26,41 @@ async function uploadDirect(blob: Blob): Promise<string | null> {
   }
 }
 
+/**
+ * Shrinks a picture to fit under `maxBytes` (a square-ish picture no bigger than `maxSide` pixels), as base64 JPEG for the server.
+ * Used for profile photos, which may weigh at most 100 KB.
+ */
+export async function shrinkImage(file: File, maxBytes = 100 * 1024, maxSide = 512): Promise<string> {
+  if (!file.type.startsWith('image/')) throw new Error('Choose a picture (PNG, JPG or WebP).');
+  if (file.size > 15_000_000) throw new Error('That file is too big. Choose a smaller picture.');
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('That file is not a picture we can read.'));
+      el.src = url;
+    });
+    let scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Your browser cannot prepare this picture.');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', Math.max(0.45, 0.85 - attempt * 0.07)));
+      if (blob && blob.size <= maxBytes) return toBase64(blob);
+      scale *= 0.8;
+    }
+    throw new Error('We could not make that picture small enough. Try another one.');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /** Videos go straight to storage (they are too big for a normal request). Needs storage to be set up on the server. */
 const MAX_VIDEO = 100_000_000;
 const VIDEO_EXT: Record<string, string> = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska', avi: 'video/x-msvideo', wmv: 'video/x-ms-wmv', '3gp': 'video/3gpp', mpg: 'video/mpeg', mpeg: 'video/mpeg', flv: 'video/x-flv', ogv: 'video/ogg' };

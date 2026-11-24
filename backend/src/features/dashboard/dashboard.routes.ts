@@ -4,6 +4,9 @@ import { prisma } from '../../config/database';
 import { requireAuth } from '../auth';
 import { istWeekStart } from '../income/payout.scheduler';
 import { applyCuts, incomeCuts } from '../income/income.service';
+import { sniffImage } from '../../shared/proof';
+import { uploadLimiter } from '../../shared/middleware/rateLimit.middleware';
+import { AppError } from '../../shared/errors/AppError';
 
 const router = Router();
 
@@ -115,8 +118,35 @@ router.put('/avatar', requireAuth, async (req: Request, res: Response) => {
     res.status(400).json({ success: false, message: 'Pick one of the avatars from the list.' });
     return;
   }
-  await prisma.user.update({ where: { id: req.user!.id }, data: { avatar: key } });
+  // choosing a preset (or nothing) replaces an uploaded photo, which is then removed
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: req.user!.id }, data: { avatar: key } }),
+    prisma.siteAsset.deleteMany({ where: { key: `avatar-${req.user!.id}` } })
+  ]);
   res.json({ success: true, data: { avatar: key } });
+});
+
+/** The most a member's own profile photo may weigh. The browser shrinks the picture to fit; the server holds the line. */
+export const MAX_AVATAR_BYTES = 100 * 1024;
+
+/** A member's own photo as the profile picture: a real PNG, JPEG or WebP of at most 100 KB. */
+router.post('/avatar/photo', requireAuth, uploadLimiter, async (req: Request, res: Response) => {
+  const data = (req.body as { fileData?: unknown } | undefined)?.fileData;
+  if (typeof data !== 'string' || data.length < 100) throw new AppError('Choose a picture.', 400);
+  if (data.length > Math.ceil((MAX_AVATAR_BYTES * 4) / 3) + 8) throw new AppError('That picture is bigger than 100 KB. Choose a smaller one.', 413);
+  const bytes = Buffer.from(data, 'base64');
+  if (bytes.length > MAX_AVATAR_BYTES) throw new AppError('That picture is bigger than 100 KB. Choose a smaller one.', 413);
+  const mime = sniffImage(bytes);
+  if (!mime) throw new AppError('Use a PNG, JPG or WebP picture.', 400);
+
+  const id = req.user!.id;
+  const key = `avatar-${id}`;
+  const url = `/api/site/assets/${key}?v=${Date.now()}`;
+  await prisma.$transaction([
+    prisma.siteAsset.upsert({ where: { key }, create: { key, mime, data: bytes }, update: { mime, data: bytes } }),
+    prisma.user.update({ where: { id }, data: { avatar: url } })
+  ]);
+  res.json({ success: true, data: { avatar: url } });
 });
 
 /** Account details a member can edit. Email stays fixed: it is the login. */

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/apiClient';
+import { shrinkImage } from '../compressImage';
 import { Avatar, AVATAR_KEYS } from './Avatar';
 
 /** A small dialog: tap an avatar to choose it, or "Use my initials" to remove it. Saves straight away. */
@@ -37,6 +38,22 @@ export default function AvatarPicker({
     }
   };
 
+  /** The member's own photo: shrunk in the browser to fit 100 KB, then sent. */
+  const upload = async (file: File | undefined) => {
+    if (!file || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const fileData = await shrinkImage(file);
+      await api('/dashboard/avatar/photo', { method: 'POST', body: { fileData } });
+      await onSaved();
+      onClose();
+    } catch (err) {
+      setError((err as Error).message || 'Could not save your photo.');
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="avp-scrim" onClick={onClose}>
       <div className="avp" role="dialog" aria-modal="true" aria-label="Choose your avatar" onClick={(e) => e.stopPropagation()}>
@@ -61,6 +78,11 @@ export default function AvatarPicker({
             </button>
           ))}
         </div>
+        <label className="btn ghost avp-upload">
+          {busy ? 'Saving...' : 'Upload my own photo'}
+          <input type="file" accept="image/png,image/jpeg,image/webp" hidden disabled={busy} onChange={(e) => void upload(e.target.files?.[0])} />
+        </label>
+        <small className="muted avp-note">Any picture works. It is shrunk to 100 KB or less.</small>
         {error && <div className="alert error">{error}</div>}
         <button type="button" className="btn ghost avp-reset" disabled={busy || !current} onClick={() => void choose(null)}>
           Use my initials

@@ -134,6 +134,10 @@ function gear(p: Preset): ReactNode {
 
 /** A round avatar: the chosen preset, or the member's initials when none is set. */
 export function Avatar({ avatar, name, size = 64 }: { avatar?: string | null; name: string; size?: number }) {
+  // a member's own photo: the server sets this address, it is never typed in
+  if (avatar && avatar.startsWith('/api/site/assets/avatar-')) {
+    return <img src={avatar} alt={name} width={size} height={size} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', display: 'block' }} loading="lazy" decoding="async" />;
+  }
   const p = avatar ? PRESETS[avatar] : undefined;
   if (!p) {
     const text = name

@@ -3181,6 +3181,35 @@ test('COMPANY FUND: it is 20% of every package sale, in the income summary and o
   assert.equal(rupees((await admin.call('GET', '/api/admin/bonuses')).json.data.pools.company.total), rupees(fund.total), 'and so does the Bonuses page');
 });
 
+test('OWN PHOTO: a member can use their own picture as the avatar, at most 100 KB', async () => {
+  const m = await signup('RWCROOT', 'LEFT', 'mny_ph_m');
+  const row = await rowOf(m.email);
+  const photo = (fileData: string, c: Client = m.c) => c.call('POST', '/api/dashboard/avatar/photo', { fileData });
+  // a real PNG of about 60 KB: the signature, then filler that is not read as a picture
+  const sixty = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(60 * 1024, 7)]).toString('base64');
+  const big = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(101 * 1024, 7)]).toString('base64');
+
+  assert.equal((await photo(sixty, new Client())).status, 401, 'sign in first');
+  assert.equal((await photo('')).status, 400);
+  assert.equal((await photo(Buffer.from('<svg onload=alert(1)/>'.repeat(10)).toString('base64'))).status, 400, 'must really be a picture');
+  assert.equal((await photo(big)).status, 413, 'more than 100 KB is refused');
+  assert.equal((await photo(Buffer.alloc(300_000, 1).toString('base64'))).status, 413, 'and a much bigger one too');
+
+  const ok = await photo(sixty);
+  assert.equal(ok.status, 200, JSON.stringify(ok.json));
+  const url = ok.json.data.avatar as string;
+  assert.ok(url.startsWith(`/api/site/assets/avatar-${row.id}?v=`), 'the address is the member own photo');
+  assert.equal((await rowOf(m.email)).avatar, url, 'it is the avatar now');
+  assert.equal((await new Client().call('GET', `/api/site/assets/avatar-${row.id}`)).status, 200, 'the picture is shown to others');
+  assert.equal(((await m.c.call('GET', '/api/dashboard/summary')).json.data.profile.avatar), url);
+
+  // a typed address is still not accepted through the normal avatar call
+  assert.equal((await m.c.call('PUT', '/api/dashboard/avatar', { avatar: url })).status, 400);
+  // choosing a preset replaces the photo and removes it
+  assert.equal((await m.c.call('PUT', '/api/dashboard/avatar', { avatar: 'a4' })).status, 200);
+  assert.equal((await new Client().call('GET', `/api/site/assets/avatar-${row.id}`)).status, 404, 'the old photo is gone');
+});
+
 test('integrity: every wallet balance equals the sum of its ledger entries', async () => {
   const users = await prisma.user.findMany({ select: { id: true, email: true, walletBalance: true } });
   for (const u of users) {
