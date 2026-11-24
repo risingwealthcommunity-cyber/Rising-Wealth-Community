@@ -245,6 +245,13 @@ html.lp-no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .lp-socials a:hover { background: #f0c850; color: #1a1200; }
 @media (max-width: 860px) { .lp-footer-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 560px) { .lp-footer-grid { grid-template-columns: 1fr; } .lp-review { width: 190px; } .lp-review img { height: 320px; } }
+/* phones: the member stories sit two side by side instead of one under the other */
+@media (max-width: 560px) {
+  .lp-reviews:not(.is-scrolling) .lp-reviews-track { gap: 12px; padding: 6px 12px; justify-content: center; }
+  .lp-reviews:not(.is-scrolling) .lp-review { width: calc(50% - 6px); min-width: 0; }
+  .lp-reviews:not(.is-scrolling) .lp-review img { height: 250px; }
+  .lp-review-meta b { font-size: 0.78rem; }
+}
 
 /* development-only hint when the API is unreachable */
 .lp-devwarn { position: fixed; left: 16px; bottom: 16px; z-index: 60; max-width: 420px; padding: 12px 14px; border-radius: 14px; background: #fff6dd; border: 1px solid #f1deaa; color: #6b4b00; font-size: 0.85rem; line-height: 1.5; box-shadow: 0 10px 30px rgba(30, 20, 5, 0.18); }
