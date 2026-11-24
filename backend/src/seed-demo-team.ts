@@ -1,10 +1,9 @@
 /**
- * Four ready members in one chain, so people can test who earns what: each is sponsored by the one before.
+ * Four ready members, all direct members of the admin (root) on the admin's RIGHT leg, so the admin can test the income distribution:
  *
- *   admin (root) <- Demo One (ELITE) <- Demo Two (ELITE) <- Demo Three (PRO) <- Demo Four (TRAINEE)
+ *   admin (root) -> Demo One (ELITE), Demo Two (ELITE), Demo Three (PRO), Demo Four (TRAINEE)
  *
- * Everyone has Rs 10,000 in the activation wallet and a transaction password, so Demo Three can activate Demo Four (or the other way up)
- * and the sponsor and the seniors above get their share at once. Set DEMO_TEAM_PASSWORD (at least 10 characters; the password lives only
+ * Everyone has Rs 10,000 in the activation wallet and a transaction password, so they can activate each other or upgrade themselves. Set DEMO_TEAM_PASSWORD (at least 10 characters; the password lives only
  * in the server settings), and optionally DEMO_TEAM_TXN for the transaction password (it defaults to the same). Safe to run again.
  * Does nothing when DEMO_TEAM_PASSWORD is empty.
  */
@@ -29,13 +28,10 @@ async function main() {
   const root = await prisma.user.findFirst({ where: { role: 'SUPER_ADMIN' }, orderBy: { createdAt: 'asc' } });
   if (!root) throw new Error('Create the admin first (seed), then the demo team.');
 
-  let sponsorId = root.id;
+  const sponsorId = root.id; // every demo member is a direct of the admin
   for (const m of TEAM) {
     const existing = await prisma.user.findUnique({ where: { email: m.email } });
-    if (existing) {
-      sponsorId = existing.id;
-      continue;
-    }
+    if (existing) continue;
     const created = await prisma.user.create({
       data: {
         name: m.name,
@@ -45,12 +41,12 @@ async function main() {
         referralCode: generateReferralCode(),
         ...generateSponsorCodes(),
         sponsorId,
-        preferredLeg: 'LEFT'
+        preferredLeg: 'RIGHT'
       }
     });
     await prisma.$transaction(
       async (tx) => {
-        await placeMember(tx, created.id, sponsorId, 'LEFT', { isVerified: true });
+        await placeMember(tx, created.id, sponsorId, 'RIGHT', { isVerified: true });
         await tx.user.update({
           where: { id: created.id },
           data: {
@@ -64,7 +60,6 @@ async function main() {
       },
       { timeout: 20_000 }
     );
-    sponsorId = created.id;
     console.log(`Demo member created: ${m.email} (${m.pkg})`);
   }
 }
