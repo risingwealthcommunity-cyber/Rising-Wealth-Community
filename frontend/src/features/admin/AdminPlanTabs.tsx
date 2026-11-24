@@ -63,7 +63,7 @@ export function RankPerksEditor() {
         <div className="row-edit" key={i}>
           <div className="row-edit-fields">
             <b>
-              Level {i + 1} <span className="muted">· {r.members} : {r.members} new members</span>
+              Level {i + 1} <span className="muted">· {r.members} : {r.members} points</span>
             </b>
             <div className="form-row">
               <label>

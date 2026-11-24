@@ -3,6 +3,8 @@ import type { Package } from '@prisma/client';
 import { prisma } from '../../config/database';
 import { AppError } from '../../shared/errors/AppError';
 import { distributePackageSale, paiseToDecimal } from '../income/income.service';
+import { awardPackagePoints } from '../income/team.growth';
+import type { Prisma } from '@prisma/client';
 import { PACKAGE_PRICE_PAISE, PACKAGE_TIER, type PaidPackage } from '../income/plan.config';
 
 /** Packages a member may be on for an upgrade to the key to still be an upgrade. */
@@ -10,6 +12,14 @@ const LOWER_THAN: Record<PaidPackage, Package[]> = { PRO: ['TRAINEE'], ELITE: ['
 
 /** Purchase columns that are safe to send around. The payment screenshot is only ever served by its own endpoint. */
 const PURCHASE_FIELDS = { id: true, userId: true, package: true, amount: true, status: true, reference: true, paidFromWallet: true, createdAt: true, confirmedAt: true, confirmedBy: true } as const;
+
+/** Puts the member on the package (it has to be higher than their current one) and gives their uplines the Team Performance and Leadership points it adds. */
+async function moveUp(tx: Prisma.TransactionClient, buyerId: string, pkg: PaidPackage): Promise<void> {
+  const before = await tx.user.findUnique({ where: { id: buyerId }, select: { package: true } });
+  const upgraded = await tx.user.updateMany({ where: { id: buyerId, package: { in: LOWER_THAN[pkg] } }, data: { package: pkg } });
+  if (!before || upgraded.count !== 1) throw new AppError('That member already has this package or higher.', 409);
+  await awardPackagePoints(tx, buyerId, before.package, pkg);
+}
 
 const TX_OPTIONS = { timeout: 60_000, maxWait: 10_000 };
 
@@ -113,8 +123,7 @@ export const packagesService = {
         await tx.activationEntry.create({ data: { userId: buyer.id, kind: 'SPEND', amount: purchase.amount.neg(), note: `Upgrade to ${pkg} approved` } });
       }
 
-      const upgraded = await tx.user.updateMany({ where: { id: buyer.id, package: { in: LOWER_THAN[pkg] } }, data: { package: pkg } });
-      if (upgraded.count !== 1) throw new AppError('That member already has this package or higher.', 409);
+      await moveUp(tx, buyer.id, pkg);
 
       await distributePackageSale(tx, {
         purchaseId,
@@ -185,8 +194,7 @@ export const packagesService = {
           confirmedBy: payer.id
         }
       });
-      const upgraded = await tx.user.updateMany({ where: { id: buyer.id, package: { in: LOWER_THAN[pkg] } }, data: { package: pkg } });
-      if (upgraded.count !== 1) throw new AppError('That member already has this package or higher.', 409);
+      await moveUp(tx, buyer.id, pkg);
       await distributePackageSale(tx, { purchaseId: purchase.id, buyerId: buyer.id, sponsorId: fresh.sponsorId, package: pkg });
       // what the popup after an activation shows: who, which package, how much, and when
       return { purchaseId: purchase.id, memberName: buyer.name, referralCode: buyer.referralCode, package: pkg, amount: price / 100, at: new Date().toISOString(), self: buyer.id === payer.id };
@@ -236,8 +244,7 @@ export const packagesService = {
           confirmedBy: adminId
         }
       });
-      const upgraded = await tx.user.updateMany({ where: { id: buyer.id, package: { in: LOWER_THAN[pkg] } }, data: { package: pkg } });
-      if (upgraded.count !== 1) throw new AppError('That member already has this package or higher.', 409);
+      await moveUp(tx, buyer.id, pkg);
       await distributePackageSale(tx, { purchaseId: purchase.id, buyerId: buyer.id, sponsorId: buyer.sponsorId, package: pkg });
       return { memberName: buyer.name, package: pkg };
     }, TX_OPTIONS);

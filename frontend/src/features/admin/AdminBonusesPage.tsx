@@ -274,7 +274,7 @@ export default function AdminBonusesPage() {
         <h2>Team Performance and Leadership levels</h2>
         <p className="muted">Add, change or remove levels. A change affects only targets completed from now on. Members who are part-way keep their progress.</p>
 
-        <h3>Team Performance (new members needed on each side)</h3>
+        <h3>Team Performance (points needed on each side: Trainee 0, PRO 0.5, ELITE 1)</h3>
         <div className="level-rows">
           {teamLevels.map((t, i) => (
             <div className="level-row" key={i}>
@@ -301,7 +301,7 @@ export default function AdminBonusesPage() {
           + Add a level
         </button>
 
-        <h3>Leadership (points needed on top of the level before)</h3>
+        <h3>Leadership (points needed on top of the level before: Trainee 0, PRO 0.5, ELITE 1)</h3>
         <div className="level-rows">
           {leadLevels.map((t, i) => {
             const total = leadLevels.slice(0, i + 1).reduce((s, x) => s + (Number(x.size) || 0), 0);

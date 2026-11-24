@@ -125,14 +125,14 @@ export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
       <div className="card" data-testid="team-card">
         <h2>Your progress</h2>
         <p className="muted">
-          New members on your LEFT and your RIGHT team (your whole downline counts). Each target needs the same number on both
-          sides, fresh members only: members used for one target are never counted again.
+          Points from your LEFT and your RIGHT team (your whole downline counts). A Trainee is 0 points, a PRO member 0.5 and an ELITE member 1 (when a member upgrades, only the difference is added). Each target needs the same points on both
+          sides, fresh points only: points used for one target are never counted again.
         </p>
 
         {cur ? (
           <>
             <h3>
-              Current target {cur.target}: {cur.members} : {cur.members} new members = {inr(cur.reward)}
+              Current target {cur.target}: {cur.members} : {cur.members} points = {inr(cur.reward)}
             </h3>
             {(['Left', 'Right'] as const).map((side) => {
               const have = side === 'Left' ? team.pendingLeft : team.pendingRight;
@@ -164,7 +164,7 @@ export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
           <thead>
             <tr>
               <th>Rank</th>
-              <th>New members</th>
+              <th>Points on each side</th>
               <th>Bonus</th>
               <th>Extra reward</th>
               <th>Status</th>
@@ -204,7 +204,7 @@ export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
       <div className="card" data-testid="leadership-card">
         <h2>Your progress</h2>
         <p className="muted">
-          You get 1 Leadership Point for every new member sponsored by one of your direct referrals. Targets are cumulative and each
+          You get Leadership Points for the packages bought by members sponsored by your direct referrals: ELITE 1 point, PRO 0.5, Trainee 0. Targets are cumulative and each
           one pays as soon as you reach it.
         </p>
         {lcur ? (
