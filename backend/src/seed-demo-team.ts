@@ -2,7 +2,7 @@
  * Four ready Trainee members, all direct members of the "Demo Member" account (DEMO_USER_EMAIL) on its RIGHT leg, so the income
  * distribution can be tested by upgrading them one by one (the sponsor and the seniors above get their share).
  *
- *   Demo Member -> Demo One, Demo Two, Demo Three, Demo Four (all Trainee, right side)
+ *   Demo Member -> trainee1..trainee4@rwcdemo.com (Demo One..Four, all Trainee, right side)
  *
  * Everyone has Rs 10,000 in the activation wallet and a transaction password. Without a Demo Member account they go under the admin.
  * Set DEMO_TEAM_PASSWORD (at least 10 characters; the password lives only in the server settings), and optionally DEMO_TEAM_TXN for the
@@ -15,10 +15,10 @@ import { generateReferralCode, generateSponsorCodes } from './features/auth/auth
 import { placeMember } from './features/auth/auth.placement';
 
 const TEAM: { email: string; name: string; pkg: Package }[] = [
-  { email: 'demo.one@rwcdemo.com', name: 'Demo One', pkg: 'TRAINEE' },
-  { email: 'demo.two@rwcdemo.com', name: 'Demo Two', pkg: 'TRAINEE' },
-  { email: 'demo.three@rwcdemo.com', name: 'Demo Three', pkg: 'TRAINEE' },
-  { email: 'demo.four@rwcdemo.com', name: 'Demo Four', pkg: 'TRAINEE' }
+  { email: 'trainee1@rwcdemo.com', name: 'Demo One', pkg: 'TRAINEE' },
+  { email: 'trainee2@rwcdemo.com', name: 'Demo Two', pkg: 'TRAINEE' },
+  { email: 'trainee3@rwcdemo.com', name: 'Demo Three', pkg: 'TRAINEE' },
+  { email: 'trainee4@rwcdemo.com', name: 'Demo Four', pkg: 'TRAINEE' }
 ];
 
 async function main() {
