@@ -1,11 +1,12 @@
 /**
- * Four ready members, all direct members of the admin (root) on the admin's RIGHT leg, so the admin can test the income distribution:
+ * Four ready Trainee members, all direct members of the "Demo Member" account (DEMO_USER_EMAIL) on its RIGHT leg, so the income
+ * distribution can be tested by upgrading them one by one (the sponsor and the seniors above get their share).
  *
- *   admin (root) -> Demo One (ELITE), Demo Two (ELITE), Demo Three (PRO), Demo Four (TRAINEE)
+ *   Demo Member -> Demo One, Demo Two, Demo Three, Demo Four (all Trainee, right side)
  *
- * Everyone has Rs 10,000 in the activation wallet and a transaction password, so they can activate each other or upgrade themselves. Set DEMO_TEAM_PASSWORD (at least 10 characters; the password lives only
- * in the server settings), and optionally DEMO_TEAM_TXN for the transaction password (it defaults to the same). Safe to run again.
- * Does nothing when DEMO_TEAM_PASSWORD is empty.
+ * Everyone has Rs 10,000 in the activation wallet and a transaction password. Without a Demo Member account they go under the admin.
+ * Set DEMO_TEAM_PASSWORD (at least 10 characters; the password lives only in the server settings), and optionally DEMO_TEAM_TXN for the
+ * transaction password (it defaults to the same). Safe to run again. Does nothing when DEMO_TEAM_PASSWORD is empty.
  */
 import bcrypt from 'bcrypt';
 import { Package } from '@prisma/client';
@@ -14,9 +15,9 @@ import { generateReferralCode, generateSponsorCodes } from './features/auth/auth
 import { placeMember } from './features/auth/auth.placement';
 
 const TEAM: { email: string; name: string; pkg: Package }[] = [
-  { email: 'demo.one@rwcdemo.com', name: 'Demo One', pkg: 'ELITE' },
-  { email: 'demo.two@rwcdemo.com', name: 'Demo Two', pkg: 'ELITE' },
-  { email: 'demo.three@rwcdemo.com', name: 'Demo Three', pkg: 'PRO' },
+  { email: 'demo.one@rwcdemo.com', name: 'Demo One', pkg: 'TRAINEE' },
+  { email: 'demo.two@rwcdemo.com', name: 'Demo Two', pkg: 'TRAINEE' },
+  { email: 'demo.three@rwcdemo.com', name: 'Demo Three', pkg: 'TRAINEE' },
   { email: 'demo.four@rwcdemo.com', name: 'Demo Four', pkg: 'TRAINEE' }
 ];
 
@@ -28,7 +29,9 @@ async function main() {
   const root = await prisma.user.findFirst({ where: { role: 'SUPER_ADMIN' }, orderBy: { createdAt: 'asc' } });
   if (!root) throw new Error('Create the admin first (seed), then the demo team.');
 
-  const sponsorId = root.id; // every demo member is a direct of the admin
+  const demoEmail = (process.env.DEMO_USER_EMAIL ?? '').trim().toLowerCase();
+  const demoMember = demoEmail ? await prisma.user.findUnique({ where: { email: demoEmail } }) : null;
+  const sponsorId = (demoMember ?? root).id; // every demo ID is a direct of the Demo Member (or of the admin when there is none)
   for (const m of TEAM) {
     const existing = await prisma.user.findUnique({ where: { email: m.email } });
     if (existing) continue;
