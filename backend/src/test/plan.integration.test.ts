@@ -1587,6 +1587,30 @@ test('LEADERSHIP BONUS (brief example): 8 points = target 1 done; 16 more points
   assert.equal(rupees(paid), 600 + 1200);
 });
 
+test('POINTS RECOUNT: old counts (Trainees counted as one) are redone from the packages members have today, once', async () => {
+  const top = await paidMember('RWCROOT', 'LEFT', 'rc_top');
+  const d = await signup(top.left, 'LEFT', 'rc_d'); // top's direct
+  const dRow = await rowOf(d.email);
+  await join(top.left, 'rc_elite'); // 1 point on the left
+  await join(top.left, 'rc_pro', 'PRO'); // 0.5
+  await join(top.right, 'rc_tr', null); // a Trainee: 0
+  await join(dRow.leftCode!, 'rc_ld', 'PRO'); // sponsored by top's direct: 0.5 leadership point
+  // the old rule had counted every member as one: put those numbers back
+  await prisma.user.update({ where: { id: top.id }, data: { teamLeftNew: 9, teamRightNew: 4, leadershipPoints: 3 } });
+  await prisma.siteSetting.deleteMany({ where: { key: 'pointsRecount' } });
+  const run = () => execSync('npx ts-node src/recount-points.ts', { cwd: path.resolve(__dirname, '..', '..'), env: process.env, stdio: 'pipe' });
+  run();
+  const row = await rowOf('rc_top@test.com');
+  // left branch: d (Trainee 0) + rc_elite 1 + rc_pro 0.5 + rc_ld 0.5 (all hang under top's left); right: the Trainee 0
+  assert.equal(row.teamRightNew, 0, 'a Trainee on the right is worth nothing');
+  assert.ok(row.teamLeftNew >= 2 && row.teamLeftNew <= 2.0 + 0.0001, `left points ${row.teamLeftNew}`);
+  assert.equal(row.leadershipPoints, 0.5, 'only the PRO sponsored by my direct counts, as half a point');
+  // it ran once: changing the numbers and starting again does not redo them
+  await prisma.user.update({ where: { id: top.id }, data: { leadershipPoints: 3 } });
+  run();
+  assert.equal((await rowOf('rc_top@test.com')).leadershipPoints, 3);
+});
+
 // ---------------------------------------------------------------- DASHBOARD, LEADERBOARD, TRAINING
 
 test('DASHBOARD: totals, charts and the income breakdown all agree with the ledger and the wallet', async () => {

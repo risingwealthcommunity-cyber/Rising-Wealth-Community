@@ -256,7 +256,6 @@ export default function ProfilePage() {
           <div className="level">
             <small>Report approval</small>
             <strong>{reports ? (reports.total > 0 ? `${Math.round((reports.approved / reports.total) * 100)}%` : '–') : '...'}</strong>
-            <em>approved ÷ total reports × 100</em>
           </div>
         </div>
       </div>
