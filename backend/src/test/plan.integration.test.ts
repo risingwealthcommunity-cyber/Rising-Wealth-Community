@@ -1597,7 +1597,7 @@ test('POINTS RECOUNT: old counts (Trainees counted as one) are redone from the p
   await join(dRow.leftCode!, 'rc_ld', 'PRO'); // sponsored by top's direct: 0.5 leadership point
   // the old rule had counted every member as one: put those numbers back
   await prisma.user.update({ where: { id: top.id }, data: { teamLeftNew: 9, teamRightNew: 4, leadershipPoints: 3 } });
-  await prisma.siteSetting.deleteMany({ where: { key: 'pointsRecount' } });
+  await prisma.siteSetting.deleteMany({ where: { key: { in: ['pointsRecount', 'pointsRecount2'] } } });
   const run = () => execSync('npx ts-node src/recount-points.ts', { cwd: path.resolve(__dirname, '..', '..'), env: process.env, stdio: 'pipe' });
   run();
   const row = await rowOf('rc_top@test.com');
