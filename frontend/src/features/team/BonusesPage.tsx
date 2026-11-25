@@ -154,9 +154,6 @@ export default function BonusesPage({ view }: { view: 'team' | 'leadership' }) {
         ) : (
           <p>All {team.targets.length} team targets are completed. Well done!</p>
         )}
-        <p className="muted">
-          Whole team so far: {team.totalLeft} left, {team.totalRight} right.
-        </p>
 
         {claimMsg && <div className="alert">{claimMsg}</div>}
         <div className="table-wrap">
