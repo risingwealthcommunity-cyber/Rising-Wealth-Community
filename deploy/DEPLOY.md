@@ -1,3 +1,31 @@
+# Hostinger VPS par deploy (KVM 1 / KVM 2, Docker template, Ubuntu 24.04)
+
+Hostinger ka **Docker** template (Ubuntu 24.04 with Docker) lo, to Docker pehle se installed hota hai. Database isi server par chalta hai
+(Neon ki zarurat nahi), aur site + API ek hi jagah se chalte hain (Caddy HTTPS khud lagata hai).
+
+1. **Server:** root password mazboot rakho (chat ya kisi ko mat bhejo). hPanel > VPS > **Firewall** me sirf 22, 80, 443 kholo.
+2. **Domain:** DNS (Cloudflare) me A record: `app` -> VPS ka IP. Cloudflare me us record ko pehle **DNS only** (grey cloud) rakho jab tak HTTPS na chal jaye.
+3. VPS terminal / SSH me:
+   ```
+   git clone https://github.com/risingwealthcommunity-cyber/Rising-Wealth-Community.git rwc && cd rwc
+   cp deploy/.env.example deploy/.env && nano deploy/.env
+   ```
+   `.env` me: `DOMAIN`, `DB_PASSWORD`, teen secrets (`openssl rand -hex 48`), `R2_*` (nayi rolled keys), mail (`EMAIL_USER`/`EMAIL_PASS` ya `BREVO_API_KEY`),
+   `ROOT_EMAIL`/`ROOT_PASSWORD`, `DEMO_*`. `ENABLE_ADMIN_2FA=true` tabhi jab mail set ho.
+4. 2 GB / 4 GB RAM par build ke liye swap (neeche wala "swap" step) pehle laga lo.
+5. `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build`
+   Start par tables, seed (admin, site, demo) aur points recount apne aap chalte hain.
+6. **Roz ka database backup** (R2 me bhi copy jaati hai):
+   `crontab -e` -> `0 3 * * * cd /root/rwc && sh deploy/backup.sh >> /var/log/rwc-backup.log 2>&1`
+   Ek baar `sh deploy/backup.sh` haath se chala ke dekh lo ki "Saved ..." aur "Copied to R2" aaya.
+7. R2 bucket CORS me `https://<domain>` daalo (video upload ke liye, PUT allow).
+8. Update: `cd rwc && git pull && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build`
+
+Frontend Cloudflare Pages par alag karna ho to: Pages me `VITE_API_URL=https://api.<domain>` daalo, root `frontend`, build `npm run build`, output `dist`
+(`public/_redirects` pehle se hai), aur backend `.env` me `FRONTEND_URL` Pages wale domain par.
+
+---
+
 # Oracle Cloud (Always Free) par deploy
 
 ## 1. Machine banao
