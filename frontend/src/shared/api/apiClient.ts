@@ -13,7 +13,24 @@ interface ApiResponse<T> {
   [key: string]: unknown;
 }
 
-const BASE = '/api';
+/**
+ * Where the API lives. Empty = the same address as the website (the backend serves both). Set VITE_API_URL (for example
+ * https://api.example.com) when the website is hosted separately, for instance on Cloudflare Pages.
+ */
+export const API_ORIGIN: string = String(import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '');
+const BASE = `${API_ORIGIN}/api`;
+
+/** Address of an API path for places that cannot use api() (a full-page redirect, a plain fetch, an image). */
+export const apiUrl = (path: string): string => `${API_ORIGIN}${path}`;
+
+/** The API hands out picture addresses like /api/site/assets/...; with a separate API address they must point at it. */
+const absolutize = <V,>(v: V): V => {
+  if (!API_ORIGIN) return v;
+  if (typeof v === 'string') return (v.startsWith('/api/') ? API_ORIGIN + v : v) as V;
+  if (Array.isArray(v)) return v.map(absolutize) as V;
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, absolutize(x)])) as V;
+  return v;
+};
 
 let refreshing: Promise<boolean> | null = null;
 
@@ -58,7 +75,7 @@ export async function api<T = unknown>(
 
   const json = (await res.json().catch(() => ({}))) as ApiResponse<T>;
   if (!res.ok) throw new ApiError(json.message ?? 'Something went wrong', res.status);
-  return json;
+  return absolutize(json);
 }
 
 /** Upload a file as the raw request body (used for admin image uploads). */
@@ -73,5 +90,5 @@ export async function apiUpload<T = unknown>(path: string, file: File, retry = t
 
   const json = (await res.json().catch(() => ({}))) as ApiResponse<T>;
   if (!res.ok) throw new ApiError(json.message ?? 'Upload failed', res.status);
-  return json;
+  return absolutize(json);
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/apiClient';
+import Lightbox from '../../features/landing/Lightbox';
 
 interface Payment {
   upiId: string;
@@ -12,6 +13,7 @@ interface Payment {
 export default function PaymentBox() {
   const [p, setP] = useState<Payment | null>(null);
   const [copied, setCopied] = useState(false);
+  const [big, setBig] = useState(false);
 
   useEffect(() => {
     api<Payment>('/site/payment').then((r) => setP(r.data ?? null)).catch(() => setP(null));
@@ -34,7 +36,12 @@ export default function PaymentBox() {
 
   return (
     <div className="pay-box">
-      {p.qrUrl && <img className="pay-qr" src={p.qrUrl} alt="Scan this QR code to pay" width={200} height={200} />}
+      {p.qrUrl && (
+        <button type="button" className="pay-qr-btn" onClick={() => setBig(true)} aria-label="Open the QR code full size" title="Tap to open full screen">
+          <img className="pay-qr" src={p.qrUrl} alt="Scan this QR code to pay" />
+          <small>Tap to open full screen</small>
+        </button>
+      )}
       <div className="pay-info">
         <strong>Scan &amp; pay</strong>
         {p.payeeName && <span>{p.payeeName}</span>}
@@ -46,6 +53,7 @@ export default function PaymentBox() {
         {p.note && <small className="muted">{p.note}</small>}
         <small className="muted">After paying, enter the transaction ID and add a screenshot of the payment.</small>
       </div>
+      {big && p.qrUrl && <Lightbox src={p.qrUrl} alt="Scan this QR code to pay" onClose={() => setBig(false)} />}
     </div>
   );
 }

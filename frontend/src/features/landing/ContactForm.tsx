@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
+import { apiUrl } from '../../shared/api/apiClient';
 
 const ENDPOINT = 'https://api.web3forms.com/submit';
 
@@ -26,7 +27,7 @@ export default function ContactForm({ accessKey, isAdmin }: { accessKey: string;
     setStatus({ kind: 'sending' });
     try {
       // our own inbox first: it is what the admin panel shows, and it works without any outside key
-      const saved = await fetch('/api/contact', {
+      const saved = await fetch(apiUrl('/api/contact'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: values.name.trim(), email: values.email.trim(), whatsapp: values.whatsapp.trim(), message: values.message.trim() })

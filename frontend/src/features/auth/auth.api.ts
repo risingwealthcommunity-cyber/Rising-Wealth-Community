@@ -1,4 +1,4 @@
-import { api } from '../../shared/api/apiClient';
+import { api, apiUrl } from '../../shared/api/apiClient';
 import type { OtpChallenge, User } from './auth.types';
 
 export interface RegisterInput {
@@ -55,5 +55,5 @@ export const googleLoginUrl = (ref?: string, leg?: string): string => {
   if (ref) q.set('ref', ref);
   if (leg) q.set('leg', leg);
   const qs = q.toString();
-  return `/api/auth/google${qs ? `?${qs}` : ''}`;
+  return apiUrl(`/api/auth/google${qs ? `?${qs}` : ''}`);
 };
