@@ -1597,7 +1597,7 @@ test('POINTS RECOUNT: old counts (Trainees counted as one) are redone from the p
   await join(dRow.leftCode!, 'rc_ld', 'PRO'); // sponsored by top's direct: 0.5 leadership point
   // the old rule had counted every member as one: put those numbers back
   await prisma.user.update({ where: { id: top.id }, data: { teamLeftNew: 9, teamRightNew: 4, leadershipPoints: 3 } });
-  await prisma.siteSetting.deleteMany({ where: { key: { in: ['pointsRecount', 'pointsRecount2'] } } });
+  await prisma.siteSetting.deleteMany({ where: { key: { in: ['pointsRecount', 'pointsRecount2', 'pointsRecount3'] } } });
   const run = () => execSync('npx ts-node src/recount-points.ts', { cwd: path.resolve(__dirname, '..', '..'), env: process.env, stdio: 'pipe' });
   run();
   const row = await rowOf('rc_top@test.com');
@@ -1787,9 +1787,19 @@ test('TREE: shows the binary tree a few levels at a time, with counts per side, 
   assert.equal(a2.more, true, 'but the member is marked as having more below');
   assert.equal(d.tree.left.more, false);
   for (const node of [d.tree, d.tree.left, a2]) {
-    assert.deepEqual(Object.keys(node).sort(), ['avatar', 'id', 'joinedAt', 'left', 'more', 'name', 'package', 'rank', 'right']);
+    assert.deepEqual(Object.keys(node).sort(), ['avatar', 'code', 'id', 'joinedAt', 'left', 'more', 'name', 'package', 'rank', 'right']);
+    assert.ok(node.code, 'every member shows their Affiliate ID');
   }
   assert.ok(!JSON.stringify(d).includes('@'), 'no email addresses');
+
+  // search: by name or Affiliate ID, only inside your own team
+  const first = await rowOf(chain[0]);
+  const byName = (await top.c.call('GET', `/api/team/search?q=${encodeURIComponent(first.name)}`)).json.data.items;
+  assert.ok(byName.some((m: any) => m.id === first.id && m.code), 'found by name');
+  const byCode = (await top.c.call('GET', `/api/team/search?q=${encodeURIComponent(first.referralCode)}`)).json.data.items;
+  assert.ok(byCode.some((m: any) => m.id === first.id), 'found by Affiliate ID');
+  assert.equal((await top.c.call('GET', '/api/team/search?q=a')).json.data.items.length, 0, 'one letter is not enough');
+  assert.equal((await top.c.call('GET', '/api/team/search?q=%25')).json.data.items.length, 0, 'a wildcard matches nothing special');
 
   // walk into a branch: re-centred on that member, counts stay yours
   const branch = await top.c.call('GET', `/api/team/tree?root=${a2.id}`);

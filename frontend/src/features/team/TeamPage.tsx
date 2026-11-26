@@ -20,6 +20,7 @@ interface TreeNode {
   avatar: string | null;
   package: string;
   rank: string;
+  code: string;
   joinedAt: string;
   more: boolean;
   left: TreeNode | null;
@@ -63,6 +64,7 @@ function Slot({ node, onOpen, top, leg }: { node: TreeNode | null; onOpen: (id: 
           {node.more && <i className="tn-more">+</i>}
         </span>
         <b>{node.name}</b>
+        <small className="tn-code">{node.code}</small>
         <small className="tn-chip">{sub(node)}</small>
       </button>
       {(hasKids || (!node.more && top)) && (
@@ -93,6 +95,22 @@ export default function TeamPage() {
   const [tree, setTree] = useState<TreeData | null>(null);
   const [treeFailed, setTreeFailed] = useState(false);
   const [q, setQ] = useState('');
+  const [find, setFind] = useState('');
+  const [found, setFound] = useState<{ id: string; name: string; code: string; package: string; leg: string }[] | null>(null);
+
+  useEffect(() => {
+    const t = find.trim();
+    if (t.length < 2) {
+      setFound(null);
+      return;
+    }
+    const h = window.setTimeout(() => {
+      api<{ items: { id: string; name: string; code: string; package: string; leg: string }[] }>(`/team/search?q=${encodeURIComponent(t)}`)
+        .then((r) => setFound(r.data?.items ?? []))
+        .catch(() => setFound([]));
+    }, 250);
+    return () => window.clearTimeout(h);
+  }, [find]);
 
   useEffect(() => {
     api<Team>('/team/summary').then((r) => setTeam(r.data ?? null)).catch(() => undefined);
@@ -160,6 +178,22 @@ export default function TeamPage() {
       <div className="card">
         <div className="team-head">
           <h2>Team tree</h2>
+          <div className="tree-find">
+            <input className="team-search" placeholder="Search name or Affiliate ID..." value={find} onChange={(e) => setFind(e.target.value)} aria-label="Search your team" />
+            {found && (
+              <ul className="tree-find-list">
+                {found.length === 0 && <li className="muted">No one in your team matches that.</li>}
+                {found.map((m) => (
+                  <li key={m.id}>
+                    <button type="button" onClick={() => { loadTree(m.id); setFind(''); setFound(null); }}>
+                      <b>{m.name}</b>
+                      <small>{m.code} · {label(m.package)} · {label(m.leg)}</small>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           {tree && !tree.isMe && (
             <button className="btn ghost" type="button" onClick={() => loadTree()}>
               Back to me

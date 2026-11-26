@@ -402,6 +402,8 @@ model Campaign {
   needsProof  Boolean  @default(true)
   /// true = a Demat account opening: approving a report runs the Demat referral plan (direct income + 5 passive levels).
   isDemat     Boolean  @default(false)
+  /// false = the 5 sponsor levels do NOT earn their 9/5/3/2/1% passive share on this campaign's reports (the member's own reward is unchanged).
+  paysPassive Boolean  @default(true)
   /// Optional label to group campaigns (for example "summer_promo_2024").
   groupName   String   @default("")
   /// STANDARD: everyone shares the same link. PERSONAL: the member's Affiliate ID is added to the link.

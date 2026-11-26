@@ -16,6 +16,7 @@ export interface Camp {
   videoUrl: string;
   needsProof: boolean;
   isDemat: boolean;
+  paysPassive: boolean;
   isActive: boolean;
   status?: 'LIVE' | 'EXPIRED';
   reportsOpen?: boolean;
@@ -32,6 +33,7 @@ const EMPTY = {
   videoUrl: '',
   needsProof: true,
   isDemat: false,
+  paysPassive: true,
   isActive: true
 };
 
@@ -55,6 +57,7 @@ const body = (f: Omit<Form, 'reward'>, reward: number) => ({
   videoUrl: fixLink(f.videoUrl),
   needsProof: f.needsProof,
   isDemat: f.isDemat,
+  paysPassive: f.paysPassive,
   isActive: f.isActive
 });
 
@@ -68,6 +71,7 @@ const formOf = (c: Camp): Form => ({
   videoUrl: c.videoUrl,
   needsProof: c.needsProof,
   isDemat: c.isDemat,
+  paysPassive: c.paysPassive ?? true,
   isActive: c.isActive
 });
 
@@ -189,6 +193,8 @@ export default function AdminCampaigns() {
             : 'Turned off: this campaign will NOT show in the Submit Reports list, members only get the link. Turn it on if you want reports and proof.'}
         </p>
         <Switch checked={form.isDemat} onChange={(v) => set('isDemat', v)} label="Demat account opening (a paid report also pays the Demat income plan: member's direct income + 5 sponsor levels)" />
+        <Switch checked={form.paysPassive} onChange={(v) => set('paysPassive', v)} label="Passive income on this campaign (5 sponsor levels: 9 / 5 / 3 / 2 / 1%)" />
+        {!form.paysPassive && <p className="muted">Turned off: the member gets the campaign income, but nothing goes to the 5 levels above them for this campaign.</p>}
 
         <div className="campaign-logo-slot">
           {editing ? (

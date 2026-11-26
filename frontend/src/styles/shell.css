@@ -799,3 +799,18 @@ label.narrow { max-width: 360px; }
 .act-body dl div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; border-radius: 12px; background: rgba(255, 255, 255, 0.75); }
 .act-body dt { color: #64748b; font-size: 0.85rem; }
 .act-body dd { margin: 0; font-weight: 700; }
+
+/* admin sidebar: number of things waiting for an admin */
+.shell-side a .shell-badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 0.7rem; font-weight: 700; line-height: 20px; text-align: center; }
+.shell.collapsed .shell-side a .shell-badge { position: absolute; top: 4px; right: 6px; margin: 0; }
+@media (max-width: 900px) { .shell.collapsed .shell-side a .shell-badge { position: static; margin-left: auto; } }
+
+/* team tree: search box and the Affiliate ID under each name */
+.tree-find { position: relative; flex: 1 1 260px; max-width: 360px; margin-left: auto; }
+.tree-find .team-search { width: 100%; }
+.tree-find-list { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; right: 0; margin: 0; padding: 6px; list-style: none; background: #fff; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16); max-height: 300px; overflow: auto; }
+.tree-find-list li { padding: 8px 10px; font-size: 0.85rem; }
+.tree-find-list button { display: grid; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; font: inherit; color: var(--text); }
+.tree-find-list button:hover { background: rgba(15, 23, 42, 0.06); }
+.tree-find-list small { color: var(--muted); }
+.tnode .tn-code { display: block; font-size: 0.66rem; letter-spacing: 0.03em; color: var(--muted); }

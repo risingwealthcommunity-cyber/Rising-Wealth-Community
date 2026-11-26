@@ -9,12 +9,14 @@ import { bonusRewards } from './features/income/income.service';
 import { PACKAGE_POINTS } from './features/income/team.growth';
 
 async function main() {
-  const marker = await prisma.siteSetting.findUnique({ where: { key: 'pointsRecount2' } });
+  const marker = await prisma.siteSetting.findUnique({ where: { key: 'pointsRecount3' } });
   if (marker) return;
 
   // The demo account only: its targets were completed with Trainees counted, so they start again (nobody real is touched).
   const demoEmail = (process.env.DEMO_USER_EMAIL ?? '').trim().toLowerCase();
   if (demoEmail) await prisma.user.updateMany({ where: { email: demoEmail }, data: { teamTargetsDone: 0 } });
+  // and the Team Performance / Leadership bonuses of that account still waiting for a Release (earned while Trainees counted)
+  if (demoEmail) await prisma.pendingBonus.deleteMany({ where: { releasedAt: null, type: { in: ['TEAM_PERFORMANCE_BONUS', 'LEADERSHIP_TARGET_BONUS'] }, user: { email: demoEmail } } });
 
   const users = await prisma.user.findMany({ select: { id: true, parentId: true, leg: true, sponsorId: true, package: true, teamTargetsDone: true } });
   const byId = new Map(users.map((u) => [u.id, u]));
@@ -55,7 +57,7 @@ async function main() {
     });
     changed += 1;
   }
-  await prisma.siteSetting.create({ data: { key: 'pointsRecount2', value: { at: new Date().toISOString(), members: changed } } });
+  await prisma.siteSetting.create({ data: { key: 'pointsRecount3', value: { at: new Date().toISOString(), members: changed } } });
   console.log(`Points recounted for ${changed} members.`);
 }
 

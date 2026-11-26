@@ -188,13 +188,15 @@ const campaignSchema = z.object({
   videoUrl: https.default(''),
   needsProof: z.boolean().default(true),
   isDemat: z.boolean().default(false),
+  paysPassive: z.boolean().default(true),
   isActive: z.boolean().default(true)
 });
 
-const adminCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; isActive: boolean; isDemat: boolean; groupName: string; linkType: string; expiredAt?: Date | null; reportsOpen?: boolean }, logo?: string) => ({
+const adminCampaign = (c: { id: string; title: string; description: string; reward: unknown; url: string; videoUrl: string; needsProof: boolean; isActive: boolean; isDemat: boolean; paysPassive: boolean; groupName: string; linkType: string; expiredAt?: Date | null; reportsOpen?: boolean }, logo?: string) => ({
   ...publicCampaign(c, logo),
   isActive: c.isActive,
-  isDemat: c.isDemat
+  isDemat: c.isDemat,
+  paysPassive: c.paysPassive
 });
 
 campaignAdminRoutes.get('/campaigns', async (_req: Request, res: Response) => {
@@ -300,7 +302,7 @@ campaignAdminRoutes.post('/reports/:id/approve', async (req: Request, res: Respo
         });
         await distributeDematReferral(tx, {
           referrerId: r.userId,
-          sponsorId: referrer.sponsorId,
+          sponsorId: r.campaign.paysPassive ? referrer.sponsorId : null,
           directPaise: Math.round(Number(r.campaign.reward) * 100),
           note: `Demat: ${r.holderName}`
         });
@@ -309,7 +311,7 @@ campaignAdminRoutes.post('/reports/:id/approve', async (req: Request, res: Respo
         const reporter = await tx.user.findUniqueOrThrow({ where: { id: r.userId }, select: { sponsorId: true } });
         await distributeDematReferral(tx, {
           referrerId: r.userId,
-          sponsorId: reporter.sponsorId,
+          sponsorId: r.campaign.paysPassive ? reporter.sponsorId : null,
           directPaise: Math.round(Number(r.campaign.reward) * 100),
           directType: 'CAMPAIGN_REWARD',
           note: `Campaign: ${r.campaign.title}`

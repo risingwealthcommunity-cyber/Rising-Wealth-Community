@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { api } from '../api/apiClient';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth';
 import { Avatar } from './Avatar';
@@ -31,6 +32,23 @@ export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [bonusOpen, setBonusOpen] = useState(pathname.startsWith('/bonuses'));
+
+  // admin sidebar: how many things wait for an admin in each section (refreshed every 10 seconds, when you come back to the tab and when the page changes)
+  const [badges, setBadges] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!isAdmin) return;
+    const load = () => api<Record<string, number>>('/admin/badges').then((r) => setBadges(r.data ?? {})).catch(() => undefined);
+    load();
+    const t = window.setInterval(load, 10_000);
+    const onShow = () => document.visibilityState === 'visible' && load();
+    document.addEventListener('visibilitychange', onShow);
+    window.addEventListener('focus', load);
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener('visibilitychange', onShow);
+      window.removeEventListener('focus', load);
+    };
+  }, [isAdmin, pathname]);
 
   useEffect(() => setMobileOpen(false), [pathname]);
   useEffect(() => {
@@ -148,6 +166,7 @@ export default function AppLayout() {
                   <NavLink key={l.to} to={l.to} end={l.end}>
                     {Icon[l.icon]}
                     <span>{l.label}</span>
+                    {(badges[l.to] ?? 0) > 0 && <b className="shell-badge" aria-label={`${badges[l.to]} waiting`}>{badges[l.to] > 99 ? '99+' : badges[l.to]}</b>}
                   </NavLink>
                 ))}
               </>

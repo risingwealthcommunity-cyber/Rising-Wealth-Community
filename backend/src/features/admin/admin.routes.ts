@@ -43,6 +43,18 @@ router.post('/purchases/:id/reject', async (req: Request, res: Response) => {
   res.json({ success: true, message: 'Purchase rejected' });
 });
 
+/** The little numbers on the admin sidebar: how many things in each section are waiting for an admin. */
+router.get('/badges', async (_req: Request, res: Response) => {
+  const [purchases, funds, withdrawals, reports, bonuses] = await Promise.all([
+    prisma.packagePurchase.count({ where: { status: 'PENDING' } }),
+    prisma.fundRequest.count({ where: { status: 'PENDING' } }),
+    prisma.withdrawalRequest.count({ where: { status: 'PENDING' } }),
+    prisma.campaignReport.count({ where: { status: 'PENDING' } }),
+    prisma.pendingBonus.count({ where: { releasedAt: null } })
+  ]);
+  res.json({ success: true, data: { '/admin/members': purchases, '/admin/withdrawals': funds + withdrawals, '/admin/reports': reports, '/admin/bonuses': bonuses } });
+});
+
 /** One screen of numbers: how many members, and how much is waiting for an admin. */
 router.get('/overview', async (_req: Request, res: Response) => {
   const dayAgo = new Date(Date.now() - 86_400_000);

@@ -167,6 +167,7 @@ interface TreeNode {
   avatar: string | null;
   package: string;
   rank: string;
+  code: string;
   joinedAt: Date;
   /** This member has people below them that are not drawn: open the branch to see them. */
   more: boolean;
@@ -212,14 +213,14 @@ router.get('/tree', requireAuth, async (req: Request, res: Response) => {
   const maxDepth = TREE_ROWS + 1;
   const [rows, sides, rootRow] = await Promise.all([
     prisma.$queryRaw<
-      { id: string; parentId: string; leg: string; depth: number; name: string; avatar: string | null; package: string; rank: string; createdAt: Date }[]
+      { id: string; parentId: string; leg: string; depth: number; name: string; avatar: string | null; package: string; rank: string; code: string; createdAt: Date }[]
     >`
       WITH RECURSIVE d AS (
         SELECT id, "parentId", leg, 1 AS depth FROM "User" WHERE "parentId" = ${rootId}
         UNION ALL
         SELECT u.id, u."parentId", u.leg, d.depth + 1 FROM "User" u JOIN d ON u."parentId" = d.id WHERE d.depth < ${maxDepth}
       )
-      SELECT d.id, d."parentId", d.leg::text AS leg, d.depth, u.name, u.avatar, u.package::text AS package, u.rank::text AS rank, u."createdAt"
+      SELECT d.id, d."parentId", d.leg::text AS leg, d.depth, u.name, u.avatar, u.package::text AS package, u.rank::text AS rank, u."referralCode" AS code, u."createdAt"
       FROM d JOIN "User" u ON u.id = d.id`,
     prisma.$queryRaw<{ side: string; c: bigint }[]>`
       WITH RECURSIVE d AS (
@@ -230,14 +231,14 @@ router.get('/tree', requireAuth, async (req: Request, res: Response) => {
       SELECT side::text AS side, COUNT(*) AS c FROM d GROUP BY side`,
     prisma.user.findUniqueOrThrow({
       where: { id: rootId },
-      select: { id: true, name: true, avatar: true, package: true, rank: true, createdAt: true }
+      select: { id: true, name: true, avatar: true, package: true, rank: true, referralCode: true, createdAt: true }
     })
   ]);
 
   const byParent = new Map<string, typeof rows>();
   for (const r of rows) byParent.set(r.parentId, [...(byParent.get(r.parentId) ?? []), r]);
 
-  const build = (id: string, info: { name: string; avatar: string | null; package: string; rank: string; createdAt: Date }, depth: number): TreeNode => {
+  const build = (id: string, info: { name: string; avatar: string | null; package: string; rank: string; code: string; createdAt: Date }, depth: number): TreeNode => {
     const kids = byParent.get(id) ?? [];
     const child = (leg: string) => {
       const k = kids.find((x) => x.leg === leg);
@@ -249,6 +250,7 @@ router.get('/tree', requireAuth, async (req: Request, res: Response) => {
       avatar: info.avatar,
       package: info.package,
       rank: info.rank,
+      code: info.code,
       joinedAt: info.createdAt,
       more: depth >= TREE_ROWS && kids.length > 0,
       left: child('LEFT'),
@@ -263,11 +265,32 @@ router.get('/tree', requireAuth, async (req: Request, res: Response) => {
   res.json({
     success: true,
     data: {
-      tree: build(rootRow.id, rootRow, 0),
+      tree: build(rootRow.id, { ...rootRow, code: rootRow.referralCode }, 0),
       isMe: rootId === me,
       counts: { left, right, total: left + right }
     }
   });
+});
+
+/** Find a member of your own team by name or Affiliate ID (to open their branch of the tree). */
+router.get('/search', requireAuth, async (req: Request, res: Response) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 60) : '';
+  if (q.length < 2) {
+    res.json({ success: true, data: { items: [] } });
+    return;
+  }
+  const like = '%' + q.replace(/[\\%_]/g, (c) => '\\' + c) + '%';
+  const rows = await prisma.$queryRaw<{ id: string; name: string; code: string; package: string; leg: string }[]>`
+    WITH RECURSIVE d AS (
+      SELECT id, leg AS side FROM "User" WHERE "parentId" = ${req.user!.id}
+      UNION ALL
+      SELECT u.id, d.side FROM "User" u JOIN d ON u."parentId" = d.id
+    )
+    SELECT u.id, u.name, u."referralCode" AS code, u.package::text AS package, d.side::text AS leg
+    FROM d JOIN "User" u ON u.id = d.id
+    WHERE u.name ILIKE ${like} OR u."referralCode" ILIKE ${like}
+    ORDER BY u.name LIMIT 10`;
+  res.json({ success: true, data: { items: rows } });
 });
 
 const RANK_KEYS = RANKS.map((r) => r.rank) as string[];
