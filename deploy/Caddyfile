@@ -10,3 +10,8 @@
 		file_server
 	}
 }
+
+# the same site under www. and app. goes to the main address
+www.{$DOMAIN}, app.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}
