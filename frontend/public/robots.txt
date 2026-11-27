@@ -1,0 +1,41 @@
+# Rising Wealth Community
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin
+Disallow: /dashboard
+Disallow: /wallet
+Disallow: /team
+Disallow: /bonuses
+Disallow: /packages
+Disallow: /profile
+Disallow: /activation
+Disallow: /campaigns
+Disallow: /reports
+Disallow: /live
+Disallow: /training
+Disallow: /leaderboard
+Disallow: /set-password
+Disallow: /verify-email
+Disallow: /reset-password
+Disallow: /reset-txn-password
+
+# AI assistants and search crawlers may read the public pages
+User-agent: GPTBot
+Allow: /
+Disallow: /api/
+Disallow: /admin
+User-agent: ClaudeBot
+Allow: /
+Disallow: /api/
+Disallow: /admin
+User-agent: PerplexityBot
+Allow: /
+Disallow: /api/
+Disallow: /admin
+User-agent: Google-Extended
+Allow: /
+Disallow: /api/
+Disallow: /admin
+
+Sitemap: https://risingwealthcommunity.in/sitemap.xml

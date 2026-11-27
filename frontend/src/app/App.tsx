@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import {
   ForgotPasswordPage,
   GuestRoute,
@@ -42,9 +43,31 @@ function AdminOnly({ children }: { children: ReactNode }) {
   return user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' ? <>{children}</> : <Navigate to="/dashboard" replace />;
 }
 
+/** Only the home page, Log in and Join are for search engines: every member and admin page asks them to skip it. */
+const PUBLIC_PAGES = new Set(['/', '/login', '/register']);
+function SearchEngineHint() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    let tag = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    if (PUBLIC_PAGES.has(pathname)) {
+      tag?.remove();
+      return;
+    }
+    if (!tag) {
+      tag = document.createElement('meta');
+      tag.name = 'robots';
+      document.head.appendChild(tag);
+    }
+    tag.content = 'noindex, nofollow';
+  }, [pathname]);
+  return null;
+}
+
 export default function App() {
   return (
-    <Routes>
+    <>
+      <SearchEngineHint />
+      <Routes>
       <Route path="/" element={<LandingPage />} />
 
       {/* Opened from an email: must work whether or not the visitor is logged in. */}
@@ -101,6 +124,7 @@ export default function App() {
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </>
   );
 }

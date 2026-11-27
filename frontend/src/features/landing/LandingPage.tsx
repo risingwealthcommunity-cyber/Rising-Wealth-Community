@@ -6,6 +6,7 @@ import { DEFAULT_CONTACT, useSiteContent } from '../site';
 import AboutSection from './AboutSection';
 import ContactSection from './ContactSection';
 import CtaBanner from './CtaBanner';
+import FaqSection from './FaqSection';
 import FeaturesSection from './FeaturesSection';
 import Hero3D from './Hero3D';
 import MilestonesSection from './MilestonesSection';
@@ -177,6 +178,7 @@ function LandingBody() {
       </section>
 
       <TeamSection team={content.team} assets={content.assets} />
+      <FaqSection />
       <ContactSection contact={contact} isAdmin={user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'} />
       <CtaBanner signedIn={Boolean(user)} />
 

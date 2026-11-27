@@ -1,0 +1,24 @@
+# Rising Wealth Community
+
+> Rising Wealth Community is a learning-and-earning community. Join free as a Trainee, learn through live trainings, earn from Demat referrals, and upgrade to PRO (₹2,499) or ELITE (₹4,999) when you are ready.
+
+Website: https://risingwealthcommunity.in/
+
+## What it is
+- A learning-and-earning community in India. Members learn through live trainings and community support.
+- Members join free as a Trainee with a sponsor link and earn from Demat referrals.
+- PRO (₹2,499) and ELITE (₹4,999) are optional paid packages.
+
+## Packages
+- Trainee: free. Demat referral income and 5 passive levels on referrals.
+- PRO: ₹2,499. 35% direct income, passive levels 1-7, weekly and performance pools.
+- ELITE: ₹4,999. 35% direct income, passive levels 1-12, leadership pool and rank rewards.
+
+## Important
+- Income depends on the member's own activity and the team's activity. No earnings are guaranteed.
+- Members see their wallet, team and every payout in their dashboard.
+
+## Pages
+- https://risingwealthcommunity.in/ : home, about, plans, how members earn, contact
+- https://risingwealthcommunity.in/register : join free
+- https://risingwealthcommunity.in/login : member login
