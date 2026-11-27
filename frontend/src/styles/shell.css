@@ -820,3 +820,7 @@ label.narrow { max-width: 360px; }
 .lp-lightbox { position: fixed; inset: 0; z-index: 50; display: flex; padding: 24px; background: rgba(8, 6, 2, 0.82); cursor: zoom-out; overflow: auto; }
 .lp-lightbox img { margin: auto; width: min(900px, 100%); height: auto; border-radius: 8px; background: #fff; cursor: default; }
 .lp-lightbox-close { position: fixed; top: 18px; right: 22px; width: 44px; height: 44px; border: 0; border-radius: 50%; background: #fff; color: #111; font-size: 1.8rem; line-height: 1; cursor: pointer; }
+
+/* the level lists (Team Performance, Leadership): after a certain height they scroll inside the card, the heading row stays on top */
+.table-wrap:has(table.ladder) { max-height: 440px; overflow-y: auto; border-radius: 12px; }
+.table-wrap:has(table.ladder) thead th { position: sticky; top: 0; z-index: 1; background: #fff; box-shadow: 0 1px 0 var(--border); }

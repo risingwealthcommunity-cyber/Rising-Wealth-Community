@@ -140,7 +140,14 @@ html.lp-no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
   .lp-sub { font-size: 1rem; max-width: 100%; }
   .lp-hint { display: none; }
   .lp-nav { padding: 16px; }
-  .lp-login { display: none; }
+  .lp-nav { gap: 8px; }
+  .lp-nav-right { gap: 4px; flex: none; }
+  .lp-login { font-size: 0.68rem; padding: 10px 6px; }
+  .lp-nav .lp-cta.small { padding: 10px 14px; font-size: 0.68rem; white-space: nowrap; }
+  .lp-logo { gap: 8px; min-width: 0; }
+  .lp-logo-img { width: 44px; height: 44px; border-radius: 12px; }
+  .lp-logo-text { font-size: 0.8rem; }
+  .lp-logo-text small { letter-spacing: 0.2em; font-size: 0.56rem; }
   .lp-3d { background: radial-gradient(500px 360px at 70% 70%, rgba(227, 170, 44, 0.22), transparent 70%); opacity: 1; }
   .lp-cta { padding: 16px 30px; }
 }
