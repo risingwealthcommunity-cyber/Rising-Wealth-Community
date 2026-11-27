@@ -17,22 +17,28 @@ export function istWeekStart(now: Date): Date {
 }
 
 /**
- * Closes the payout window when a new week has started since the last one, and only if there was something sold.
- * Safe to call as often as you like: it does nothing until a Monday (IST) has passed with new sales.
+ * Closes the payout window when a new week has started since the last one, and only if something was sold in an EARLIER week.
+ * The week that is still running (since Monday 00:00 IST) is never closed here, even on a fresh server with no period yet.
+ * Safe to call as often as you like: it does nothing until a Monday (IST) has passed with sales before it.
  */
 export async function closePayoutIfDue(now = new Date()): Promise<boolean> {
   return prisma.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PAYOUT_LOCK})`;
       const last = await tx.payoutPeriod.findFirst({ orderBy: { endsAt: 'desc' } });
-      if (last && last.endsAt >= istWeekStart(now)) return false;
+      const weekStart = istWeekStart(now);
+      if (last && last.endsAt >= weekStart) return false;
 
-      const sales = await tx.packagePurchase.count({
-        where: { status: 'CONFIRMED', confirmedAt: { gte: last?.endsAt ?? new Date(0), lt: now } }
+      // the week that is still running is never closed: only sales from an earlier week make a window due
+      const since = last?.endsAt ?? new Date(0);
+      const firstSale = await tx.packagePurchase.findFirst({
+        where: { status: 'CONFIRMED', confirmedAt: { gte: since, lt: weekStart } },
+        orderBy: { confirmedAt: 'asc' },
+        select: { id: true }
       });
-      if (sales === 0) return false;
+      if (!firstSale) return false;
 
-      await closePayoutPeriod(tx, 'system');
+      await closePayoutPeriod(tx, 'system', weekStart);
       return true;
     },
     { timeout: 120_000, maxWait: 10_000 }

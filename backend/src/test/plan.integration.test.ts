@@ -2405,6 +2405,30 @@ test('AUTO PAYOUT: the weekly window closes by itself once a new IST week has st
   assert.ok(Number(weekly[0].amount) >= 375, 'at least the plan minimum for one PRO share');
 });
 
+test('AUTO PAYOUT: a fresh server never closes the week that is still running, only an earlier week', async () => {
+  const { closePayoutIfDue, istWeekStart } = await import('../features/income/payout.scheduler');
+  await prisma.payoutPeriod.deleteMany(); // like a server that has never closed a week
+  const sales = await prisma.packagePurchase.count({ where: { status: 'CONFIRMED' } });
+  assert.ok(sales > 0, 'there are sales from this test run');
+
+  const now = new Date();
+  assert.equal(await closePayoutIfDue(now), false, 'sales of the running week are not closed on start-up');
+  assert.equal(await prisma.payoutPeriod.count(), 0);
+  assert.equal((await previewWindow()).startsAt.getTime(), 0, 'the running window still starts from the beginning, so every sale of the week counts');
+
+  // a week later the window is due, and it ends exactly where the new week began (never after it)
+  const nextWeek = new Date(now.getTime() + 8 * 86_400_000);
+  assert.equal(await closePayoutIfDue(nextWeek), true);
+  const period = await prisma.payoutPeriod.findFirstOrThrow();
+  assert.ok(period.endsAt.getTime() <= Date.now(), 'closed at the start of the new week, never in the future (here the new week lies ahead, so it is closed now)');
+  assert.ok(istWeekStart(nextWeek).getTime() > now.getTime());
+});
+
+async function previewWindow() {
+  const { previewPayoutWindow } = await import('../features/income/income.service');
+  return prisma.$transaction((tx) => previewPayoutWindow(tx));
+}
+
 test('RANK PERKS: the admin sets a perk per rank, members who reached it can claim once, an admin approves', async () => {
   const m = await signup('RWCROOT', 'LEFT', 'mny_pk_one');
   const row = await rowOf(m.email);

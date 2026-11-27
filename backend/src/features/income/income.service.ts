@@ -366,13 +366,15 @@ export async function poolBalances(tx: Tx) {
  * Closes the current payout window (every Sunday midnight, IST) and shares out the WEEKLY pool: 5% of that week's confirmed package
  * revenue. The Performance and Leadership pools are not shared out here: they keep growing with every sale and pay as targets are done.
  */
-export async function closePayoutPeriod(tx: Tx, adminId: string) {
+export async function closePayoutPeriod(tx: Tx, adminId: string, closeAt?: Date) {
   // the same lock the weekly scheduler takes: a window can only be closed once
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(7301002)`;
   const last = await tx.payoutPeriod.findFirst({ orderBy: { endsAt: 'desc' } });
   const startsAt = last?.endsAt ?? new Date(0);
   // sales take a shared lock on the same key, so none is still committing while the window closes
-  const endsAt = new Date();
+  // an admin closes it now; the scheduler closes it at the start of the new week (never later than now), so sales of the new week stay in the new week
+  const now = new Date();
+  const endsAt = closeAt && closeAt < now ? closeAt : now;
 
   if (endsAt <= startsAt) throw new AppError('Nothing to close yet', 400);
 
